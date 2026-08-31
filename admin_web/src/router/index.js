@@ -58,6 +58,11 @@ export function registerDynamicRoutes(menus) {
 
 router.beforeEach((to) => {
   const user = useUserStore()
+  // 关键修复：硬刷新后从 sessionStorage 同步 token，避免被误判为"未登录"跳 /login
+  const storedToken = sessionStorage.getItem('token')
+  if (storedToken && !user.token) {
+    user.token = storedToken
+  }
   if (to.path !== '/login' && !user.token) return '/login'
   if (to.path === '/login' && user.token) return '/'
   if (to.meta.title) document.title = `${to.meta.title} · AI 人才平台`

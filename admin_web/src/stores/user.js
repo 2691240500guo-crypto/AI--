@@ -5,6 +5,7 @@ import router from '@/router'
 
 export const useUserStore = defineStore('user', {
   state: () => ({
+    // 硬刷新后从 sessionStorage 同步恢复 token，避免守卫误判"未登录"
     token: sessionStorage.getItem('token') || '',
     user: null,
     menus: [],
@@ -30,10 +31,12 @@ export const useUserStore = defineStore('user', {
       if (!perm) return true
       return this.perms.includes(perm)
     },
-    logout() {
+    async logout() {
       this.token = ''
       this.user = null
-      sessionStorage.clear()
+      // 只清自己相关的 token，不要 clear() 全清（会清掉无关数据）
+      sessionStorage.removeItem('token')
+      sessionStorage.removeItem('refresh_token')
       router.push('/login')
     }
   }
