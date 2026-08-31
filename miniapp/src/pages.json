@@ -1,0 +1,27 @@
+{
+  "pages": [
+    { "path": "pages/index/index", "style": { "navigationBarTitleText": "首页" } },
+    { "path": "pages/message/message", "style": { "navigationBarTitleText": "消息" } },
+    { "path": "pages/mine/mine", "style": { "navigationBarTitleText": "我的" } },
+    { "path": "pages/login/login", "style": { "navigationBarTitleText": "登录" } },
+    { "path": "pages/ai/ai", "style": { "navigationBarTitleText": "AI 助手" } },
+    { "path": "pages/profile/profile", "style": { "navigationBarTitleText": "我的档案" } },
+    { "path": "pages/assessment/assessment", "style": { "navigationBarTitleText": "在线测评" } },
+    { "path": "pages/study/study", "style": { "navigationBarTitleText": "在线学习" } }
+  ],
+  "tabBar": {
+    "color": "#9ca3af",
+    "selectedColor": "#2563eb",
+    "backgroundColor": "#ffffff",
+    "list": [
+      { "pagePath": "pages/index/index", "text": "首页" },
+      { "pagePath": "pages/message/message", "text": "消息" },
+      { "pagePath": "pages/mine/mine", "text": "我的" }
+    ]
+  },
+  "globalStyle": {
+    "navigationBarTextStyle": "black",
+    "navigationBarBackgroundColor": "#ffffff",
+    "backgroundColor": "#f5f7fa"
+  }
+}

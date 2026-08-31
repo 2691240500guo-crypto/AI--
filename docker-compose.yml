@@ -1,0 +1,76 @@
+# AI 数字化人才平台 · 本地开发依赖一键编排
+# 用法：docker compose up -d
+# 说明：MySQL 为主数据（必须），Redis/Ollama/Milvus/MinIO 为 AI 基建（按需启用，
+#       不需要 AI 功能时可注释掉对应服务，后端仍可正常启动）。
+version: "3.8"
+
+services:
+  mysql:
+    image: mysql:8.0
+    container_name: adtp-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: "123456"
+      MYSQL_DATABASE: ai_talent
+      MYSQL_USER: adtp_db
+      MYSQL_PASSWORD: "12345678"
+    ports:
+      - "3306:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    command: --character-set-server=utf8mb4 --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    container_name: adtp-redis
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    volumes:
+      - redis-data:/data
+
+  ollama:
+    image: ollama/ollama:latest
+    container_name: adtp-ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    # 首次使用需拉模型：docker exec adtp-ollama ollama pull qwen2.5:7b && ollama pull nomic-embed-text
+
+  milvus:
+    image: milvusdb/milvus:v2.4.4
+    container_name: adtp-milvus
+    ports:
+      - "19530:19530"
+      - "9091:9091"
+    environment:
+      ETCD_USE_EMBED: "true"
+      ETCD_DATA_DIR: /var/lib/milvus/etcd
+      COMMON_STORAGETYPE: local
+    volumes:
+      - milvus-data:/var/lib/milvus
+
+  minio:
+    image: minio/minio:latest
+    container_name: adtp-minio
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: minioadmin
+      MINIO_ROOT_PASSWORD: minioadmin
+    command: server /data --console-address ":9001"
+    volumes:
+      - minio-data:/data
+
+volumes:
+  mysql-data:
+  redis-data:
+  ollama-data:
+  milvus-data:
+  minio-data:

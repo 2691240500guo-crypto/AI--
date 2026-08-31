@@ -1,0 +1,42 @@
+﻿# ============================================================
+# AI 数字化人才平台 · Python 依赖清单
+# 安装：pip install -r requirements.txt
+# 说明：按区块区分【必需 / 按需】，AI 引擎依赖默认不装（规避冲突，按需启用）
+# ============================================================
+
+# ---------- Web 框架 ----------
+fastapi==0.115.*          # REST API 框架
+uvicorn==0.30.*           # ASGI 服务器（uvicorn app.main:app --reload）
+python-multipart==0.0.9   # 表单/文件上传解析（FastAPI 依赖）
+
+# ---------- 数据层 ----------
+sqlalchemy==2.0.*         # ORM
+pymysql==1.1.*            # MySQL 驱动（连接串 mysql+pymysql://）
+alembic==1.13.*           # 表结构迁移（PYTHONUTF8=1 alembic upgrade head）
+
+# ---------- 数据校验与配置 ----------
+pydantic>=2.5,<3          # Schema 校验（v2）
+pydantic-settings==2.3.*  # .env 配置读取（app/core/config.py）
+
+# ---------- 认证与安全 ----------
+python-jose[cryptography]==3.3.*  # JWT 签发/校验（jose.jwt）
+passlib[bcrypt]==1.7.*    # 密码哈希
+bcrypt==4.1.*             # passlib 的 bcrypt 后端
+
+# ---------- 测试 ----------
+# pytest>=8.0              # 单元/接口测试（二期引入，暂未启用）
+
+# ============================================================
+# 以下为【按需启用】区块：不装不影响系统模块运行
+# ============================================================
+
+# ---------- 业务工具（二期接入时取消注释）----------
+# openpyxl==3.1.*          # Excel 批量导入/导出（T 人才档案 B02/B04）
+# redis==5.0.*             # 缓存/限流/会话（config 已配 REDIS_URL，尚未接入）
+
+# ---------- AI 引擎（工具层已就绪，按需启用；默认不装规避 pydantic 冲突）----------
+# ollama>=0.3.0            # 大模型推理 + Embedding（app/utils/llm.py）
+# pymilvus>=2.4.0          # 向量数据库（app/utils/vector_store.py）
+# minio>=7.2.0             # 对象存储（app/utils/object_storage.py）
+# langchain>=0.3.0         # 可选：复杂 Agent / RAG 编排
+# langgraph>=0.2.0         # 可选：多 Agent 状态机流程
