@@ -2,6 +2,7 @@
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { createUser, deleteUser, listUsers, updateUser } from '@/api/user'
+import { listRoles } from '@/api/role'
 
 const rows = ref([])
 const total = ref(0)
@@ -9,10 +10,17 @@ const loading = ref(false)
 const query = reactive({ page: 1, page_size: 10, keyword: '' })
 const dialog = reactive({ visible: false, editing: false })
 const formRef = ref()
-const form = reactive({ id: null, username: '', nickname: '', password: '', status: 1 })
+const form = reactive({ id: null, username: '', nickname: '', password: '', status: 1, role_ids: [] })
 const rules = {
   username: [{ required: true, message: '请输入账号', trigger: 'blur' }],
   password: [{ required: true, message: '请输入初始密码', trigger: 'blur' }]
+}
+
+// 角色下拉数据
+const roles = ref([])
+async function loadRoles() {
+  const res = await listRoles()
+  roles.value = res.data
 }
 
 async function load() {
@@ -25,12 +33,16 @@ async function load() {
 }
 
 function openCreate() {
-  Object.assign(form, { id: null, username: '', nickname: '', password: '', status: 1 })
+  Object.assign(form, { id: null, username: '', nickname: '', password: '', status: 1, role_ids: [] })
   dialog.editing = false
   dialog.visible = true
 }
 function openEdit(row) {
-  Object.assign(form, { id: row.id, username: row.username, nickname: row.nickname, password: '', status: row.status })
+  Object.assign(form, {
+    id: row.id, username: row.username, nickname: row.nickname,
+    password: '', status: row.status,
+    role_ids: (row.roles || []).map((r) => r.id)
+  })
   dialog.editing = true
   dialog.visible = true
 }
@@ -51,7 +63,7 @@ async function del(row) {
   load()
 }
 
-onMounted(load)
+onMounted(() => { load(); loadRoles() })
 </script>
 
 <template>
@@ -66,6 +78,14 @@ onMounted(load)
       <el-table-column prop="username" label="账号" />
       <el-table-column prop="nickname" label="姓名" />
       <el-table-column prop="dept_id" label="部门ID" width="90" />
+      <el-table-column label="角色" min-width="140">
+        <template #default="{ row }">
+          <template v-if="(row.roles || []).length">
+            <el-tag v-for="r in row.roles" :key="r.id" size="small" style="margin-right:4px">{{ r.name }}</el-tag>
+          </template>
+          <span v-else style="color:#9ca3af">—</span>
+        </template>
+      </el-table-column>
       <el-table-column prop="status" label="状态" width="80">
         <template #default="{ row }"><el-tag :type="row.status === 1 ? 'success' : 'info'">{{ row.status === 1 ? '正常' : '禁用' }}</el-tag></template>
       </el-table-column>
@@ -89,6 +109,11 @@ onMounted(load)
       </el-form-item>
       <el-form-item label="状态">
         <el-switch v-model="form.status" :active-value="1" :inactive-value="0" active-text="正常" inactive-text="禁用" />
+      </el-form-item>
+      <el-form-item label="角色">
+        <el-select v-model="form.role_ids" multiple placeholder="选择角色（可多选）" style="width:100%">
+          <el-option v-for="r in roles" :key="r.id" :label="r.name" :value="r.id" />
+        </el-select>
       </el-form-item>
     </el-form>
     <template #footer>
