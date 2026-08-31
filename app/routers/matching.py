@@ -18,7 +18,7 @@ from sqlalchemy.orm import Session
 from app.core.deps import require_permission
 from app.dao.matching import MatchPushLogDAO, MatchResultDAO, MatchRuleDAO, PosPositionDAO
 from app.db.session import get_db
-from app.models.matching import MatchResult, PosPosition
+from app.models.matching import MatchResult, PosPosition, MatchRule, MatchPushLog
 from app.schemas.matching import (
     MatchRequest,
     MatchResultOut,
