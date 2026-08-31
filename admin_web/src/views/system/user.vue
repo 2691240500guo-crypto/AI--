@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { createUser, deleteUser, listUsers, updateUser } from '@/api/user'
 import { listRoles } from '@/api/role'
@@ -15,6 +15,12 @@ const rules = {
   username: [{ required: true, message: '请输入账号', trigger: 'blur' }],
   password: [{ required: true, message: '请输入初始密码', trigger: 'blur' }]
 }
+// 编辑时密码选填（留空则不修改），仅新增时必须填
+const editRules = {
+  username: [{ required: true, message: '请输入账号', trigger: 'blur' }],
+  password: []
+}
+const activeRules = computed(() => (dialog.editing ? editRules : rules))
 
 // 角色下拉数据
 const roles = ref([])
@@ -101,7 +107,7 @@ onMounted(() => { load(); loadRoles() })
   </el-card>
 
   <el-dialog v-model="dialog.visible" :title="dialog.editing ? '编辑用户' : '新增用户'" width="460px">
-    <el-form ref="formRef" :model="form" :rules="rules" label-width="80px">
+    <el-form ref="formRef" :model="form" :rules="activeRules" label-width="80px">
       <el-form-item label="账号" prop="username"><el-input v-model="form.username" :disabled="dialog.editing" /></el-form-item>
       <el-form-item label="姓名"><el-input v-model="form.nickname" /></el-form-item>
       <el-form-item label="密码" prop="password">
