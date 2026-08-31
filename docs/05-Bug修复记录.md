@@ -1,7 +1,7 @@
 # AI 数字化人才平台 · Bug 修复记录
 
 > 版本：v1.1　日期：2026-08-31（三日冲刺 D1）
-> 记录范围：基座开发期发现并修复的全部 Bug（15 个））
+> 记录范围：基座开发期发现并修复的全部 Bug（16 个）））
 > 目的：沉淀踩坑经验，避免后人重复踩；新 Bug 按编号追加
 
 ---
@@ -193,3 +193,15 @@ b37c606 docs: 新增基座使用手册（基建+Git使用+FAQ）
 - 修复：后端 `/menus/mine` 遍历被勾菜单的**祖先链**，自动补全缺失的父级目录菜单（仅补菜单树，不赋权限码）。
 - 验证：P12 登录后菜单从 3 条变为 4 条（含补全的"系统管理"），侧边栏正常渲染"系统管理 > 用户/角色/菜单管理"折叠面板。
 - 教训：**父目录菜单是渲染骨架**，给角色授权时不仅要看叶子菜单，还必须让父目录可见；后端应在接口层兜底，不要让前端处理半棵树。
+
+### BUG-016 硬刷新页面被强制登出 【前端·状态恢复】
+
+- 级别：🔴 严重（UX 灾难：用户刷新即掉线）
+- 症状：P12 登录后按 Ctrl+Shift+R 硬刷新，右上角显示"未登录"，侧边栏空白，被踢回登录页。
+- 根因 1：硬刷新后 Pinia store 重置，`user.token = ''`（默认值），路由守卫 `if (to.path !== '/login' && !user.token) return '/login'` **立即跳 /login**，哪怕 sessionStorage 里有 token 也被无视。
+- 根因 2（隐性）：`stores/user.js` 的 `logout()` 调用 `sessionStorage.clear()`，无差别清掉所有 key——任何 401 触发 logout 都会把整个会话的缓存清光。
+- 修复（三层防御）：
+  1. `router.beforeEach` 增加 sessionStorage 同步读取 token 再判断
+  2. `App.vue onMounted` 增加 sessionStorage 同步 token，并保留 `watch` 监听 token 变化
+  3. `logout()` 改为 `removeItem` 自己的 key，不再 `clear()` 全清
+- 教训：**前端状态恢复要从持久化层（sessionStorage）双向同步**，不能只依赖内存 store；`sessionStorage.clear()` 是危险操作，应明确删除每个 key。
