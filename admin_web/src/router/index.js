@@ -56,10 +56,25 @@ export function registerDynamicRoutes(menus) {
   return folders.length > 0
 }
 
-router.beforeEach((to) => {
+// 异步守卫：刷新时动态路由尚未注册，必须先恢复菜单（注册 addRoute）再放行，
+// 否则 URL 停留在动态页面（如 /system/user）会匹配到 404 兜底路由
+router.beforeEach(async (to) => {
   const user = useUserStore()
+  // 硬刷新后从 sessionStorage 同步 token，避免被误判为"未登录"跳 /login
+  const storedToken = sessionStorage.getItem('token')
+  if (storedToken && !user.token) {
+    user.token = storedToken
+  }
   if (to.path !== '/login' && !user.token) return '/login'
   if (to.path === '/login' && user.token) return '/'
+  // 关键：token 在但 menus 为空（刷新后）→ 先恢复菜单+动态路由，避免刷新到动态页 404
+  if (user.token && user.menus.length === 0) {
+    try {
+      await user.restore()
+    } catch (e) {
+      console.warn('[router] restore failed:', e?.message)
+    }
+  }
   if (to.meta.title) document.title = `${to.meta.title} · AI 人才平台`
   return true
 })

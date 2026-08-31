@@ -9,6 +9,9 @@ export function refresh(data) {
 export function getMyMenus() {
   return http.get('/menus/mine')
 }
+export function getMe() {
+  return http.get('/auth/me')
+}
 export function logout() {
   return http.post('/auth/logout')
 }
