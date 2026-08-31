@@ -81,6 +81,8 @@ class UserService:
         for f in ("phone", "email", "dept_id", "status"):
             v = getattr(data, f)
             if v is not None:
+                if f in ("phone", "email") and isinstance(v, str) and "*" in v:
+                    continue  # 脱敏值回传（138****5678），视为未修改，防覆盖真实数据
                 fields[f] = v
         if data.password:
             fields["password"] = hash_password(data.password)
