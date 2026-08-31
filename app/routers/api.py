@@ -2,6 +2,7 @@
 from fastapi import APIRouter
 
 from app.routers import auth, user, role, menu, dept, dict_item, message, audit, matching
+from app.routers import analytics
 
 api = APIRouter()
 api.include_router(auth.router, prefix="/auth", tags=["auth"])
@@ -15,3 +16,4 @@ api.include_router(dict_item.router, prefix="/dicts", tags=["dict"])
 api.include_router(message.router, prefix="/messages", tags=["message"])
 api.include_router(audit.router, prefix="/audit", tags=["audit"])
 api.include_router(matching.router, prefix="/matching", tags=["matching"])
+api.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
