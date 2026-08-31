@@ -58,6 +58,7 @@ class MatchingService:
             from app.utils.vector_store import get_vector_store
 
             llm, vec = get_llm(), get_vector_store()
+            dim: int | None = None
             if not vec.has_collection(POSITION_VEC_COLLECTION):
                 # 用一次真实 embedding 探测维度后建集合（bge-m3=1024）
                 dim = len(llm.embed("维度探测"))
@@ -66,7 +67,8 @@ class MatchingService:
             # text 中携带岗位标识，便于检索后反查岗位
             text = f"【岗位id:{p.id}|{p.name}】{text}"
             vec.insert(POSITION_VEC_COLLECTION, [llm.embed(text)], [text])
-            dim = len(llm.embed("."))
+            if dim is None:  # 集合已存在时，用本次文本 embedding 的维度返回
+                dim = len(llm.embed(text))
         except BusinessError:
             raise
         except Exception as e:  # ollama/pymilvus 未装、Milvus 未启动、连接失败等
@@ -182,11 +184,23 @@ class MatchingService:
 
         # 5. 排序（同岗位内按分数降序）
         matched.sort(key=lambda r: (r["position_id"], -r["score"]))
-        # 6. 落库（幂等：UNIQUE(talent_id, position_id) 已存在则更新）
+        # 6. 落库（幂等：UNIQUE(talent_id, position_id) 已存在则更新，但已录用/推荐的记录不覆盖）
         saved: list[dict[str, Any]] = []
-        for rank, m in enumerate(matched, start=1):
+        # 按岗位分组，组内生成连续 rank
+        pos_rank: dict[int, int] = {}
+        for m in matched:
+            rank = pos_rank.get(m["position_id"], 0) + 1
+            pos_rank[m["position_id"]] = rank
             rec = MatchResultDAO.get_by_pair(db, m["talent_id"], m["position_id"])
             if rec:
+                if rec.status != 0:  # 已录用(2)/推荐(1) 的结论不因重跑匹配被覆盖
+                    saved.append({
+                        "match_id": rec.id, "talent_id": m["talent_id"],
+                        "position_id": m["position_id"], "position_name": m["position_name"],
+                        "score": float(rec.score), "rank": rec.rank or rank,
+                        "skipped": True,
+                    })
+                    continue
                 rec.score = m["score"]
                 rec.dimension_json = m["dimension_json"]
                 rec.rank = rank
@@ -201,7 +215,7 @@ class MatchingService:
             saved.append({
                 "match_id": rec.id, "talent_id": m["talent_id"],
                 "position_id": m["position_id"], "position_name": m["position_name"],
-                "score": float(m["score"]), "rank": rank,
+                "score": float(m["score"]), "rank": rank, "skipped": False,
             })
         db.commit()
         return saved
@@ -220,11 +234,16 @@ class MatchingService:
     # ==================== 解释生成（T-P4-02 / D04） ====================
 
     @classmethod
-    def explain(cls, db: Session, match_id: int) -> str:
-        """匹配解释依据生成：读维度得分 → Ollama 生成可读解释。"""
+    def explain(cls, db: Session, match_id: int, *, force: bool = False) -> str:
+        """匹配解释依据生成：读维度得分 → Ollama 生成可读解释。
+
+        force=True 时强制重新生成；否则已有解释直接返回（避免重复消耗 LLM）。
+        """
         rec = MatchResultDAO.get(db, match_id)
         if not rec:
             raise BusinessError(404, "匹配结果不存在")
+        if rec.explain and not force:
+            return rec.explain
         position = PosPositionDAO.get(db, rec.position_id)
         dims: dict[str, float] = {}
         if rec.dimension_json:
