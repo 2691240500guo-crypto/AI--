@@ -25,8 +25,12 @@ class VectorStore:
         from pymilvus import MilvusClient  # 惰性导入
 
         settings = get_settings()
+        host = settings.MILVUS_HOST
+        # 兼容：MILVUS_HOST 未带协议前缀时自动补 http://（pymilvus>=3 要求合法 uri）
+        if not host.startswith(("http://", "https://", "tcp://", "unix://")):
+            host = f"http://{host}"
         self._client = MilvusClient(
-            uri=f"{settings.MILVUS_HOST}:{settings.MILVUS_PORT}",
+            uri=f"{host}:{settings.MILVUS_PORT}",
             db_name=settings.MILVUS_DB_NAME,
         )
         self.prefix = settings.MILVUS_COLLECTION_PREFIX
@@ -35,10 +39,30 @@ class VectorStore:
         return f"{self.prefix}{collection}"
 
     def create_collection(self, collection: str, dim: int, *, metric: str = "IP") -> None:
-        """按集合名创建，维度取决于所选 embedding 模型。"""
-        self._client.create_collection(
-            collection_name=self._name(collection), dimension=dim, metric_type=metric,
-        )
+        """按集合名创建，维度取决于所选 embedding 模型。
+
+        兼容 pymilvus 2.x/3.x：显式定义 schema（id 自增主键 + text + vector），
+        并创建默认向量索引（3.x 下无索引无法 load/search）。
+        """
+        from pymilvus import CollectionSchema, DataType, FieldSchema
+
+        name = self._name(collection)
+        fields = [
+            FieldSchema(name="id", dtype=DataType.INT64, is_primary=True, auto_id=True),
+            FieldSchema(name="text", dtype=DataType.VARCHAR, max_length=65535),
+            FieldSchema(name="vector", dtype=DataType.FLOAT_VECTOR, dim=dim),
+        ]
+        schema = CollectionSchema(fields=fields, enable_dynamic_field=True)
+        self._client.create_collection(collection_name=name, schema=schema, metric_type=metric)
+        # 创建默认向量索引（AUTOINDEX，Milvus 自动选合适索引类型），否则无法 load/search
+        try:
+            from pymilvus.milvus_client import IndexParams
+
+            index_params = IndexParams()
+            index_params.add_index(field_name="vector", index_type="AUTOINDEX", metric_type=metric)
+            self._client.create_index(collection_name=name, index_params=index_params)
+        except Exception:
+            pass
 
     def has_collection(self, collection: str) -> bool:
         return self._client.has_collection(self._name(collection))
@@ -51,8 +75,14 @@ class VectorStore:
 
     def search(self, collection: str, query_vector: list[float], top_k: int = 5) -> list[dict]:
         """按向量相似度检索，返回含 text 与 score 的结果列表。"""
+        name = self._name(collection)
+        # pymilvus>=3：检索前需显式 load 集合（幂等，已加载则无副作用）
+        try:
+            self._client.load_collection(name)
+        except Exception:
+            pass
         res = self._client.search(
-            collection_name=self._name(collection),
+            collection_name=name,
             data=[query_vector],
             limit=top_k,
             output_fields=["text"],
