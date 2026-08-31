@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user
 from app.db.session import get_db
+from app.models.user import User
 from app.schemas.common import LoginRequest, TokenResponse
 from app.schemas.user import UserOut
 from app.services.audit import client_ip
@@ -25,6 +26,12 @@ def login(body: LoginRequest, db: Session = Depends(get_db), request: Request = 
 def refresh(body: dict, db: Session = Depends(get_db)):
     at, rt = AuthService.refresh(db, body["refresh_token"])
     return ok({"access_token": at, "refresh_token": rt})
+
+
+@router.get("/me")
+def me(user: User = Depends(get_current_user)):
+    """当前登录用户信息（前端硬刷新后恢复右上角昵称等）。"""
+    return ok(UserOut.model_validate(user))
 
 
 @router.post("/logout")
