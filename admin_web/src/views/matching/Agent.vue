@@ -315,7 +315,7 @@ function setBarOption(chart, list) {
 function setLineOption(chart, list) {
   chart.setOption({
     tooltip: { trigger: 'axis' },
-    grid: { left: 50, right: 30, top: 30, bottom: 40 },
+    grid: { left: 60, right: 60, top: 30, bottom: 50 },
     xAxis: {
       type: 'category', name: '排名',
       data: list.map((r) => r.rank),
