@@ -1,38 +1,42 @@
 <template>
   <div class="agent-page">
-    <!-- ===== 历史对话列表（activeConvId 为空时显示） ===== -->
-    <div v-if="!activeConvId" class="conv-list-page">
-      <div class="conv-list-header">
-        <h2>💬 我的对话</h2>
-        <el-button type="primary" :icon="Promotion" @click="createNewConv">+ 新对话</el-button>
+    <!-- ===== 左侧常驻对话栏（千问风格） ===== -->
+    <aside class="agent-aside">
+      <div class="brand">
+        <span class="brand-icon">🤖</span>
+        <span class="brand-name">岗位匹配Agent</span>
       </div>
 
-      <el-empty v-if="!conversations.length" description="还没有对话，开始第一次吧！" />
+      <el-button class="new-conv-btn" :icon="Promotion" @click="createNewConv">+ 新建对话</el-button>
 
-      <el-row v-else :gutter="16">
-        <el-col v-for="c in conversations" :key="c.id" :xs="24" :sm="12" :md="8" :lg="6">
-          <el-card class="conv-card" shadow="hover" @click="openConv(c.id)">
-            <div class="conv-title">{{ c.title || '（未命名对话）' }}</div>
-            <div class="conv-preview">{{ c.preview || '点击查看' }}</div>
-            <div class="conv-meta">
-              <span>💬 {{ c.messageCount }} 条消息</span>
-              <span>{{ formatTime(c.updatedAt) }}</span>
+      <div class="nav-section">
+        <div class="nav-title">对话列表</div>
+        <el-empty v-if="!conversations.length" :image-size="60" description="暂无对话" />
+        <div v-else class="conv-list">
+          <div v-for="group in groupedConvs" :key="group.label" class="conv-group">
+            <div class="group-label">{{ group.label }}</div>
+            <div
+              v-for="c in group.items"
+              :key="c.id"
+              class="conv-item"
+              :class="{ 'is-active': c.id === activeConvId }"
+              @click="openConv(c.id)"
+            >
+              <el-icon class="conv-icon"><ChatDotRound /></el-icon>
+              <span class="conv-title">{{ c.title || '新对话' }}</span>
+              <el-icon class="conv-del" @click.stop="deleteConv(c.id)"><Delete /></el-icon>
             </div>
-            <el-button class="conv-del" size="small" type="danger" plain :icon="Delete" @click.stop="deleteConv(c.id)">删除</el-button>
-          </el-card>
-        </el-col>
-      </el-row>
-    </div>
-
-    <!-- ===== 对话界面（activeConvId 有值时显示） ===== -->
-    <template v-else>
-      <!-- 顶部操作栏（返回 + 当前对话标题） -->
-      <div class="conv-topbar">
-        <el-button :icon="ArrowLeft" plain @click="backToList">← 对话列表</el-button>
-        <span class="conv-current-title">{{ currentConv?.title || '新对话' }}</span>
-        <el-button class="new-conv-btn" :icon="Promotion" plain size="small" @click="createNewConv">+ 新对话</el-button>
+          </div>
+        </div>
       </div>
 
+      <div class="aside-footer">
+        <span class="user-name">超级管理员</span>
+      </div>
+    </aside>
+
+    <!-- ===== 右侧主对话区 ===== -->
+    <main class="agent-main">
       <!-- 对话流（可滚动） -->
       <div class="chat-list" ref="chatListRef">
         <!-- 空状态 -->
@@ -174,7 +178,7 @@
         </template>
       </div>
 
-      <!-- 输入栏（固定底部） -->
+      <!-- 输入栏（main 底部固定） -->
       <div class="chat-input-bar">
         <div class="chat-input-inner">
           <div class="chat-input-card">
@@ -197,14 +201,14 @@
           </div>
         </div>
       </div>
-    </template>
+    </main>
   </div>
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ArrowLeft, Delete, Promotion } from '@element-plus/icons-vue'
+import { ChatDotRound, Delete, Promotion } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import { agentChat } from '@/api/matching'
 
@@ -232,19 +236,37 @@ const CAPABILITIES = [
 ]
 
 // ===== 对话历史（localStorage 持久化） =====
-const STORAGE_KEY = 'agent_conv_history_v1'
+const STORAGE_KEY = 'agent_conv_history_v2'
 const conversations = ref(loadConversations())
 const activeConvId = ref(null)
 const messages = ref([])
 let msgSeq = 0
 let chartInstances = new Map()
 
-const currentConv = computed(() => conversations.value.find((c) => c.id === activeConvId.value))
+// 按时间分组（今天/昨天/更早）
+const groupedConvs = computed(() => {
+  const now = Date.now()
+  const oneDay = 86400 * 1000
+  const today = [], yesterday = [], older = []
+  for (const c of conversations.value) {
+    if (now - c.updatedAt < oneDay) today.push(c)
+    else if (now - c.updatedAt < 2 * oneDay) yesterday.push(c)
+    else older.push(c)
+  }
+  const groups = []
+  if (today.length) groups.push({ label: '今天', items: today })
+  if (yesterday.length) groups.push({ label: '昨天', items: yesterday })
+  if (older.length) groups.push({ label: '更早', items: older })
+  return groups
+})
 
 function loadConversations() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY)
-    return raw ? JSON.parse(raw) : []
+    if (!raw) return []
+    const list = JSON.parse(raw)
+    // 过滤掉旧版本可能残留的 loading 字段
+    return list.map((c) => ({ ...c, messages: (c.messages || []).map((m) => ({ ...m, loading: false })) }))
   } catch {
     return []
   }
@@ -257,11 +279,9 @@ function saveConversations() {
 }
 
 function createNewConv() {
-  // 保存当前对话（如果有）
-  if (activeConvId.value) {
-    persistCurrentConv()
-    disposeCharts()
-  }
+  // 保存当前
+  if (activeConvId.value) persistCurrentConv()
+  disposeCharts()
   activeConvId.value = null
   messages.value = []
   msgSeq = 0
@@ -271,28 +291,24 @@ function persistCurrentConv() {
   if (!activeConvId.value) return
   const c = conversations.value.find((x) => x.id === activeConvId.value)
   if (!c) return
-  // 过滤掉 loading 状态的消息
-  const cleanMsgs = messages.value.filter((m) => !m.loading).map((m) => {
-    const { loading, chartType, results, reverseResults, parsed, ...rest } = m
-    return { ...rest, chartType, results: results || [], reverseResults: reverseResults || [], parsed: parsed || null }
-  })
+  const cleanMsgs = messages.value.filter((m) => !m.loading).map((m) => ({
+    id: m.id, role: m.role, text: m.text, reply: m.reply,
+    chartType: m.chartType, results: m.results || [], reverseResults: m.reverseResults || [], parsed: m.parsed || null,
+  }))
   c.messages = cleanMsgs
   c.messageCount = cleanMsgs.length
   c.preview = cleanMsgs.find((m) => m.role === 'user')?.text || c.preview || ''
   c.updatedAt = Date.now()
-  if (!c.title) c.title = (c.preview || '新对话').slice(0, 20)
+  if (!c.title && c.preview) c.title = c.preview.slice(0, 20)
 }
 
 function openConv(id) {
-  // 保存当前
   if (activeConvId.value) persistCurrentConv()
   const c = conversations.value.find((x) => x.id === id)
   if (!c) return
   activeConvId.value = id
-  // 恢复消息
   messages.value = (c.messages || []).map((m) => ({ ...m, loading: false }))
   msgSeq = messages.value.reduce((acc, m) => Math.max(acc, m.id || 0), 0)
-  // 重渲染图表
   nextTick(() => {
     setTimeout(() => {
       messages.value.forEach((m) => {
@@ -302,38 +318,21 @@ function openConv(id) {
   })
 }
 
-function backToList() {
-  persistCurrentConv()
-  saveConversations()
-  activeConvId.value = null
-  disposeCharts()
-  messages.value = []
-}
-
 async function deleteConv(id) {
   try {
     await ElMessageBox.confirm('确定删除这条对话吗？', '确认', { type: 'warning' })
   } catch { return }
-  conversations.value = conversations.value.filter((c) => c.id !== id)
-  saveConversations()
+  const idx = conversations.value.findIndex((c) => c.id === id)
+  if (idx >= 0) {
+    conversations.value.splice(idx, 1)
+    saveConversations()
+  }
   if (activeConvId.value === id) {
     activeConvId.value = null
     messages.value = []
     disposeCharts()
   }
   ElMessage.success('已删除')
-}
-
-function formatTime(t) {
-  if (!t) return ''
-  const d = new Date(t)
-  const now = new Date()
-  const diff = (now - d) / 1000
-  if (diff < 60) return '刚刚'
-  if (diff < 3600) return `${Math.floor(diff / 60)} 分钟前`
-  if (diff < 86400) return `${Math.floor(diff / 3600)} 小时前`
-  if (diff < 86400 * 7) return `${Math.floor(diff / 86400)} 天前`
-  return d.toLocaleDateString('zh-CN')
 }
 
 function fillNlp(text) { nlpInput.value = text }
@@ -343,7 +342,6 @@ async function handleChat() {
   const msg = nlpInput.value.trim()
   if (!msg) return ElMessage.warning('请输入指令')
 
-  // 首次发送：自动创建对话
   if (!activeConvId.value) {
     const id = `c_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
     const newConv = {
@@ -381,7 +379,6 @@ async function handleChat() {
     } else if (intent === 'reverse' && result) {
       agentMsg.reverseResults = result.results || []
     }
-    // 自动保存
     persistCurrentConv()
     saveConversations()
   } finally {
@@ -392,7 +389,8 @@ async function handleChat() {
 
 function scrollToBottom() {
   nextTick(() => {
-    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })
+    const el = document.querySelector('.chat-list')
+    if (el) el.scrollTop = el.scrollHeight
   })
 }
 
@@ -461,63 +459,91 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resizeAll); dispose
 </script>
 
 <style scoped>
+/* ===== 双栏布局 ===== */
 .agent-page {
-  padding: 0 0 200px;
-  min-height: 100vh;
+  display: flex;
+  height: calc(100vh - 0px);
+  min-height: 600px;
+  background: #fff;
 }
 
-/* ===== 对话列表页 ===== */
-.conv-list-page {
-  max-width: 960px;
-  margin: 0 auto;
-  padding: 24px 16px;
+/* ===== 左侧栏（千问风格） ===== */
+.agent-aside {
+  width: 260px;
+  flex-shrink: 0;
+  background: #f7f8fa;
+  border-right: 1px solid #ebeef5;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
 }
-.conv-list-header {
-  display: flex; align-items: center; justify-content: space-between;
-  margin-bottom: 20px;
+.brand {
+  display: flex; align-items: center; gap: 8px;
+  padding: 14px 16px;
+  font-weight: 700; color: #1f2328;
 }
-.conv-list-header h2 {
-  margin: 0; font-size: 22px; font-weight: 700; color: #1f2328;
+.brand-icon { font-size: 22px; }
+.brand-name { font-size: 15px; }
+.new-conv-btn {
+  margin: 0 16px 14px;
+  width: calc(100% - 32px);
+  background: #1f2328; color: #fff; border-color: #1f2328;
 }
-.conv-card {
-  cursor: pointer; transition: all 0.2s; border-radius: 10px; height: 160px;
-  position: relative;
+.new-conv-btn:hover { background: #2d3138; border-color: #2d3138; }
+
+.nav-section { flex: 1; overflow-y: auto; padding: 0 8px; }
+.nav-title {
+  font-size: 11px; color: #8b949e; font-weight: 600;
+  text-transform: uppercase; letter-spacing: 0.5px;
+  padding: 8px 12px 4px;
 }
-.conv-card:hover { transform: translateY(-2px); border-color: #409eff; box-shadow: 0 4px 12px rgba(64, 158, 255, 0.12); }
-.conv-card :deep(.el-card__body) { padding: 16px; height: 100%; display: flex; flex-direction: column; }
+.conv-list { padding: 0 4px; }
+.group-label {
+  font-size: 11px; color: #8b949e; font-weight: 600;
+  padding: 8px 8px 4px;
+}
+.conv-item {
+  display: flex; align-items: center; gap: 8px;
+  padding: 7px 10px; border-radius: 8px; cursor: pointer;
+  color: #303133; font-size: 13px;
+  transition: all 0.15s;
+}
+.conv-item:hover { background: #ebeef5; }
+.conv-item.is-active { background: #ecf5ff; color: #409eff; font-weight: 600; }
+.conv-icon { font-size: 14px; color: #8b949e; flex-shrink: 0; }
+.conv-item.is-active .conv-icon { color: #409eff; }
 .conv-title {
-  font-size: 15px; font-weight: 700; color: #1f2328;
-  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.conv-preview {
-  font-size: 12px; color: #6e7681; margin-top: 6px;
-  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
-  overflow: hidden; line-height: 1.5;
-}
-.conv-meta {
-  margin-top: auto;
-  display: flex; justify-content: space-between; align-items: center;
-  font-size: 11px; color: #8b949e;
-}
-.conv-del { position: absolute; bottom: 8px; right: 8px; opacity: 0; transition: opacity 0.2s; }
-.conv-card:hover .conv-del { opacity: 1; }
-
-/* ===== 对话顶栏 ===== */
-.conv-topbar {
-  max-width: 760px; margin: 0 auto; padding: 14px 16px 0;
-  display: flex; align-items: center; gap: 10px;
-}
-.conv-current-title {
-  font-size: 15px; font-weight: 600; color: #1f2328;
   flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
 }
-.new-conv-btn { flex-shrink: 0; }
+.conv-del {
+  opacity: 0; color: #f56c6c; transition: opacity 0.15s;
+  font-size: 14px;
+}
+.conv-item:hover .conv-del { opacity: 1; }
 
-/* ===== 对话流 ===== */
+.aside-footer {
+  padding: 12px 16px; border-top: 1px solid #ebeef5;
+  font-size: 13px; color: #6e7681;
+}
+.user-name { font-weight: 600; }
+
+/* ===== 主对话区 ===== */
+.agent-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  overflow: hidden;
+  background: #fff;
+}
 .chat-list {
-  max-width: 760px;
+  flex: 1;
+  overflow-y: auto;
+  padding: 24px 24px 0;
+  max-width: 820px;
   margin: 0 auto;
-  padding: 16px 16px 0;
+  width: 100%;
 }
 
 /* ===== 空状态 ===== */
@@ -588,10 +614,7 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resizeAll); dispose
 .tag { margin: 0 4px 4px 0; }
 
 /* ===== 候选列表 ===== */
-.cand-row {
-  display: flex; align-items: center; gap: 12px;
-  padding: 10px 4px; border-bottom: 1px solid #f0f2f5;
-}
+.cand-row { display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-bottom: 1px solid #f0f2f5; }
 .cand-row:last-child { border-bottom: none; }
 .cand-row:hover { background: #fafbfc; border-radius: 8px; }
 .cand-left { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
@@ -623,13 +646,13 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resizeAll); dispose
 .chart { width: 100%; }
 .chart-single { height: 360px; }
 
-/* ===== 输入栏 ===== */
+/* ===== 输入栏（main 底部固定） ===== */
 .chat-input-bar {
-  position: fixed; left: 220px; right: 0; bottom: 0;
+  flex-shrink: 0;
+  padding: 16px 24px 20px;
   background: linear-gradient(to top, #ffffff 70%, rgba(255,255,255,0));
-  padding: 16px 16px 20px; z-index: 5;
 }
-.chat-input-inner { max-width: 760px; margin: 0 auto; }
+.chat-input-inner { max-width: 820px; margin: 0 auto; }
 .chat-input-card {
   display: flex; align-items: flex-end; gap: 10px;
   background: #fff; border: 1px solid #e5e7eb; border-radius: 18px;
