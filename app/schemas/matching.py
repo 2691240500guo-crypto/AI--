@@ -129,3 +129,8 @@ class AgentReverseRequest(BaseModel):
 class AgentChatRequest(BaseModel):
     """自然语言操作请求。"""
     message: str = Field(..., min_length=1, max_length=500, description="自然语言指令")
+
+
+class ResultStatusRequest(BaseModel):
+    """匹配结果状态更新（0候选 1推荐 2录用）。"""
+    status: int = Field(..., ge=0, le=2, description="0候选 1推荐 2录用")

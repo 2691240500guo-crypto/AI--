@@ -68,3 +68,8 @@ export function agentReverse(data) {
 export function agentChat(data) {
   return http.post('/matching/agent/chat', data)
 }
+
+// 更新匹配结果状态（0候选 1推荐 2录用）
+export function updateResultStatus(id, status) {
+  return http.put(`/matching/result/${id}/status`, { status })
+}

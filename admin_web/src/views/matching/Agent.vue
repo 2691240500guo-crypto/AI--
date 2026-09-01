@@ -122,17 +122,67 @@
     <!-- ===== 匹配结果表 ===== -->
     <el-card v-if="results.length" shadow="never" class="section-card">
       <template #header><span>🏆 候选人才排序</span></template>
-      <el-table :data="results" stripe border v-loading="matching">
+
+      <!-- Top3 卡片化：一眼出结论 -->
+      <el-row :gutter="16" class="top3-row">
+        <el-col v-for="r in results.slice(0, 3)" :key="r.talent_id" :xs="24" :sm="8">
+          <el-card class="talent-card" :class="{ 'is-top1': r.rank === 1 }" shadow="hover">
+            <div class="tc-head">
+              <el-avatar :size="54" :src="r.avatar || ''" class="tc-avatar">{{ (r.talent_name || '人').slice(0, 1) }}</el-avatar>
+              <div class="tc-info">
+                <div class="tc-name">
+                  {{ r.talent_name || `人才${r.talent_id}` }}
+                  <el-tag v-if="r.rank === 1" type="danger" size="small" effect="dark">最适配</el-tag>
+                  <el-tag v-else-if="r.rank === 2" type="warning" size="small" effect="dark">次选</el-tag>
+                </div>
+                <div class="tc-meta">{{ r.current_title || '暂无职位' }}{{ r.current_company ? ' · ' + r.current_company : '' }}</div>
+                <div class="tc-meta">人才#{{ r.talent_id }} · {{ r.degree || '学历未知' }} · {{ r.years || 0 }}年经验</div>
+              </div>
+            </div>
+            <div class="tc-body">
+              <el-progress type="dashboard" :percentage="Number(r.score)" :color="scoreColor(r.score)" :width="104" class="tc-ring">
+                <template #default="{ percentage }">
+                  <div class="tc-ring-inner"><b>{{ percentage }}</b><span>匹配度</span></div>
+                </template>
+              </el-progress>
+              <div class="tc-dims">
+                <div v-for="(v, k) in parseDims(r.dimension_json)" :key="k" class="tc-dim">
+                  <span class="tc-dim-label">{{ DIM_LABEL[k] }}</span>
+                  <el-progress :percentage="Number(v)" :stroke-width="7" :show-text="false" :color="scoreColor(v)" class="tc-dim-bar" />
+                  <span class="tc-dim-val">{{ v }}</span>
+                </div>
+              </div>
+            </div>
+            <div class="tc-foot">
+              <el-button size="small" type="primary" plain @click="goProfile(r)">👤 查看档案</el-button>
+              <el-button size="small" :type="r.status === 1 ? 'primary' : 'default'" plain :disabled="r.status === 1 || r.status === 2" @click="setStatus(r, 1)">推荐</el-button>
+              <el-button size="small" :type="r.status === 2 ? 'success' : 'default'" plain :disabled="r.status === 2" @click="setStatus(r, 2)">录用</el-button>
+            </div>
+          </el-card>
+        </el-col>
+      </el-row>
+
+      <el-table :data="results" stripe border v-loading="matching" class="mt">
         <el-table-column label="排名" width="64" align="center">
           <template #default="{ row }">
             <el-tag :type="row.rank <= 3 ? 'danger' : 'info'" effect="dark" round>{{ row.rank }}</el-tag>
           </template>
         </el-table-column>
-        <el-table-column label="人才ID" prop="talent_id" width="80" align="center" />
-        <el-table-column label="学历" prop="degree" width="80" align="center">
+        <el-table-column label="人才" min-width="140">
+          <template #default="{ row }">
+            <div class="tal-cell">
+              <el-avatar :size="28" :src="row.avatar || ''" class="tal-avatar">{{ (row.talent_name || '人').slice(0, 1) }}</el-avatar>
+              <div>
+                <div class="tal-name">{{ row.talent_name || `人才${row.talent_id}` }}<span class="tal-id">#{{ row.talent_id }}</span></div>
+                <div class="tal-pos">{{ row.current_title || '—' }}</div>
+              </div>
+            </div>
+          </template>
+        </el-table-column>
+        <el-table-column label="学历" prop="degree" width="72" align="center">
           <template #default="{ row }">{{ row.degree || '未知' }}</template>
         </el-table-column>
-        <el-table-column label="经验" width="80" align="center">
+        <el-table-column label="经验" width="72" align="center">
           <template #default="{ row }">{{ row.years }} 年</template>
         </el-table-column>
         <el-table-column label="技能" min-width="140">
@@ -155,9 +205,16 @@
             </div>
           </template>
         </el-table-column>
-        <el-table-column label="操作" width="100" align="center">
+        <el-table-column label="状态" width="72" align="center">
+          <template #default="{ row }">
+            <el-tag :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="190" align="center">
           <template #default="{ row }">
             <el-button size="small" type="primary" link @click="showExplain(row)">匹配依据</el-button>
+            <el-button size="small" type="info" link @click="goProfile(row)">档案</el-button>
+            <el-button size="small" type="success" link :disabled="row.status === 2" @click="setStatus(row, 2)">录用</el-button>
           </template>
         </el-table-column>
       </el-table>
@@ -210,9 +267,12 @@
 
 <script setup>
 import { onBeforeUnmount, reactive, ref } from 'vue'
-import { ElMessage } from 'element-plus'
+import { useRouter } from 'vue-router'
+import { ElMessage, ElMessageBox } from 'element-plus'
 import * as echarts from 'echarts'
-import { agentChat, agentParse, agentReverse, agentRun, listPositions } from '@/api/matching'
+import { agentChat, agentParse, agentReverse, agentRun, listPositions, updateResultStatus } from '@/api/matching'
+
+const router = useRouter()
 
 const DIM_LABEL = { skill: '技能', degree: '学历', years: '经验', quality: '综合素质' }
 const DEGREE_WEIGHTS = { skill: 0.4, degree: 0.2, years: 0.2, quality: 0.2 }
@@ -364,12 +424,39 @@ function scoreColor(s) {
   if (n >= 60) return '#e6a23c'
   return '#f56c6c'
 }
+function statusLabel(s) {
+  return { 0: '候选', 1: '推荐', 2: '录用' }[s] ?? '候选'
+}
+function statusType(s) {
+  return { 0: 'info', 1: 'warning', 2: 'success' }[s] ?? 'info'
+}
 
 // ===== 解释弹窗 =====
 const explainDialog = reactive({ visible: false, data: null })
 function showExplain(row) {
   explainDialog.data = row
   explainDialog.visible = true
+}
+
+// ===== 操作闭环：查看档案 / 推荐 / 录用 =====
+function goProfile(row) {
+  router.push(`/talent/detail/${row.talent_id}`)
+}
+
+async function setStatus(row, status) {
+  const label = { 1: '推荐', 2: '录用' }[status]
+  try {
+    await ElMessageBox.confirm(`确认将 人才${row.talent_id}（${row.talent_name || ''}）标记为「${label}」？`, '操作确认', { type: 'warning' })
+  } catch {
+    return
+  }
+  try {
+    const res = await updateResultStatus(row.match_id, status)
+    row.status = res.data.status
+    ElMessage.success(`已标记为「${label}」`)
+  } catch {
+    /* 拦截器已提示 */
+  }
 }
 
 // ===== ECharts 可视化 =====
@@ -494,4 +581,32 @@ onBeforeUnmount(() => window.removeEventListener('resize', resizeCharts))
 .nlp-reply { margin-top: 10px; padding: 10px 14px; background: #f0f9eb; border: 1px solid #e1f3d8; border-radius: 6px; color: #303133; line-height: 1.6; font-size: 14px; }
 .nlp-examples { margin-top: 8px; font-size: 12px; color: #909399; display: flex; align-items: center; flex-wrap: wrap; gap: 4px; }
 .nlp-examples .tag { cursor: pointer; }
+
+/* ===== Top3 卡片 ===== */
+.top3-row { margin-bottom: 16px; }
+.talent-card { border-radius: 10px; transition: all 0.25s; }
+.talent-card.is-top1 { border: 1px solid #f56c6c; box-shadow: 0 2px 12px rgba(245, 108, 108, 0.15); }
+.talent-card.is-top1 .tc-name { color: #f56c6c; }
+.tc-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.tc-avatar { background: #409eff; color: #fff; font-weight: 600; flex-shrink: 0; }
+.tc-name { font-size: 16px; font-weight: 700; color: #303133; display: flex; align-items: center; gap: 6px; }
+.tc-meta { font-size: 12px; color: #909399; margin-top: 2px; }
+.tc-body { display: flex; align-items: center; gap: 14px; }
+.tc-ring { flex-shrink: 0; }
+.tc-ring-inner { text-align: center; }
+.tc-ring-inner b { display: block; font-size: 22px; color: #303133; line-height: 1.1; }
+.tc-ring-inner span { font-size: 11px; color: #909399; }
+.tc-dims { flex: 1; display: flex; flex-direction: column; gap: 7px; }
+.tc-dim { display: flex; align-items: center; gap: 6px; }
+.tc-dim-label { font-size: 12px; color: #606266; width: 52px; flex-shrink: 0; }
+.tc-dim-bar { flex: 1; }
+.tc-dim-val { font-size: 12px; font-weight: 600; color: #409eff; width: 30px; text-align: right; }
+.tc-foot { display: flex; justify-content: center; gap: 8px; margin-top: 14px; }
+
+/* ===== 表格人才列 ===== */
+.tal-cell { display: flex; align-items: center; gap: 8px; }
+.tal-avatar { background: #409eff; color: #fff; font-weight: 600; flex-shrink: 0; }
+.tal-name { font-weight: 600; color: #303133; }
+.tal-id { color: #c0c4cc; font-size: 12px; margin-left: 4px; }
+.tal-pos { font-size: 12px; color: #909399; }
 </style>

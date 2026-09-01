@@ -310,6 +310,26 @@ class MatchAgent:
         results.sort(key=lambda r: r["score"], reverse=True)
         results = [r for r in results if r["score"] >= min_score][:top_k]
 
+        # 批量附加人才基础信息（T 域 tal_talent 只读复用，供前端卡片/表格展示）
+        if results:
+            tids = [r["talent_id"] for r in results]
+            from sqlalchemy import text as sa_text
+
+            rows = db.execute(
+                sa_text("SELECT id,name,avatar,current_title,current_company,degree,"
+                        "years_experience,skills FROM tal_talent WHERE id IN :ids"),
+                {"ids": tuple(tids)},
+            ).mappings().all()
+            tinfo = {r["id"]: dict(r) for r in rows}
+            for m in results:
+                info = tinfo.get(m["talent_id"], {})
+                m["talent_name"] = info.get("name") or f"人才{m['talent_id']}"
+                m["avatar"] = info.get("avatar")
+                m["current_title"] = info.get("current_title")
+                m["current_company"] = info.get("current_company")
+                m["degree"] = m.get("degree") or info.get("degree") or ""
+                m["years"] = m.get("years") or (info.get("years_experience") or 0)
+
         # 6. 落库 match_result（幂等，已推荐/录用不覆盖）
         saved: list[dict[str, Any]] = []
         for rank, m in enumerate(results, start=1):
@@ -334,6 +354,14 @@ class MatchAgent:
                 "position_name": m["position_name"],
                 "score": m["score"], "dimension_json": m["dimension_json"],
                 "talent_text": m["talent_text"],
+                "talent_name": m.get("talent_name", f"人才{m['talent_id']}"),
+                "avatar": m.get("avatar"),
+                "current_title": m.get("current_title"),
+                "current_company": m.get("current_company"),
+                "degree": m.get("degree", ""),
+                "years": m.get("years", 0),
+                "skills": m.get("skills", []),
+                "status": rec.status,
             }
             # 解释生成（LLM 失败自动降级规则化）
             if gen_explain:

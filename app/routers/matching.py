@@ -32,6 +32,7 @@ from app.schemas.matching import (
     PositionCreate,
     PositionOut,
     PositionUpdate,
+    ResultStatusRequest,
     VectorOut,
 )
 from app.services.matching import MatchingService
@@ -169,6 +170,19 @@ def list_results(
 def get_explain(mid: int, db: Session = Depends(get_db)):
     explanation = MatchingService.explain(db, mid)
     return ok({"match_id": mid, "explain": explanation})
+
+
+@router.put("/result/{mid}/status")
+def update_result_status(mid: int, body: ResultStatusRequest, db: Session = Depends(get_db)):
+    """更新匹配结果状态：0候选 → 1推荐 → 2录用（操作闭环）。"""
+    rec = MatchResultDAO.get(db, mid)
+    if not rec:
+        raise HTTPException(404, "匹配结果不存在")
+    if body.status not in (0, 1, 2):
+        raise HTTPException(400, "status 仅支持 0候选/1推荐/2录用")
+    rec.status = body.status
+    db.commit()
+    return ok({"match_id": rec.id, "status": rec.status})
 
 
 # ==================== 储备/空缺预警（M-5） ====================
