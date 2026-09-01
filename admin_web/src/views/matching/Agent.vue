@@ -6,7 +6,9 @@
       <div class="chat-list" ref="chatListRef">
         <!-- 空状态 -->
         <div v-if="!messages.length" class="chat-empty">
-          <div class="hero-icon">🤖</div>
+          <div class="hero-icon">
+            <el-icon :size="56" color="#fff"><MagicStick /></el-icon>
+          </div>
           <h1 class="hero-title">岗位人才匹配Agent</h1>
           <p class="hero-subtitle">岗位需求解析 · 双向智能匹配 · 适配度打分 · 原因解释 · 可视化展示</p>
 
@@ -14,7 +16,9 @@
             <div class="hint-label">我能帮你做什么</div>
             <div class="cap-row">
               <div v-for="c in CAPABILITIES" :key="c.text" class="cap-chip">
-                <span class="cap-icon">{{ c.icon }}</span>
+                <div class="cap-icon-wrap">
+                  <el-icon :size="22" :color="c.color"><component :is="c.icon" /></el-icon>
+                </div>
                 <div>
                   <div class="cap-text">{{ c.text }}</div>
                   <div class="cap-desc">{{ c.desc }}</div>
@@ -165,7 +169,10 @@
                 size="large"
                 :loading="nlpLoading"
                 @click="handleChat"
-              >🚀 发送</el-button>
+              >
+                <el-icon style="margin-right: 6px;"><Promotion /></el-icon>
+                发送
+              </el-button>
             </div>
           </div>
         </div>
@@ -177,7 +184,9 @@
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { ChatDotRound, Delete, Promotion } from '@element-plus/icons-vue'
+import {
+  Aim, ChatLineRound, Document, MagicStick, Promotion, TrendCharts,
+} from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import { agentChat } from '@/api/matching'
 
@@ -198,10 +207,10 @@ const QUICK_QUERIES = [
 ]
 
 const CAPABILITIES = [
-  { icon: '📋', text: '岗位解析', desc: 'AI 拆解任职要求/技能/经验门槛' },
-  { icon: '🎯', text: '人才匹配', desc: '向量检索+硬过滤+软加权打分排序' },
-  { icon: '📊', text: '可视化', desc: '柱状图/折线图/饼图展示匹配维度' },
-  { icon: '💬', text: '匹配解释', desc: '说明推荐依据与维度得分' },
+  { icon: Document, color: '#409eff', text: '岗位解析', desc: 'AI 拆解任职要求/技能/经验门槛' },
+  { icon: Aim, color: '#67c23a', text: '人才匹配', desc: '向量检索+硬过滤+软加权打分排序' },
+  { icon: TrendCharts, color: '#e6a23c', text: '可视化', desc: '柱状图/折线图/饼图展示匹配维度' },
+  { icon: ChatLineRound, color: '#9c64f6', text: '匹配解释', desc: '说明推荐依据与维度得分' },
 ]
 
 // ===== 对话历史（localStorage 持久化） =====
@@ -470,18 +479,30 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resizeAll); dispose
 
 /* ===== 空状态 ===== */
 .chat-empty { text-align: center; padding: 60px 0 40px; }
-.hero-icon { font-size: 44px; line-height: 1; margin-bottom: 12px; }
+.hero-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 84px; height: 84px;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-radius: 24px;
+  box-shadow: 0 8px 24px rgba(102, 126, 234, 0.3);
+  margin-bottom: 16px;
+}
 .hero-title { font-size: 26px; font-weight: 700; color: #1f2328; margin: 0 0 6px; }
 .hero-subtitle { font-size: 13px; color: #6e7681; margin: 0 0 24px; line-height: 1.6; }
 .hint-block { margin-top: 28px; text-align: left; }
 .hint-label { font-size: 12px; font-weight: 600; color: #6e7681; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
 .cap-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 .cap-chip {
-  display: flex; align-items: flex-start; gap: 8px; padding: 12px;
+  display: flex; align-items: flex-start; gap: 10px; padding: 12px;
   background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; transition: all 0.2s;
 }
 .cap-chip:hover { border-color: #409eff; box-shadow: 0 2px 8px rgba(64, 158, 255, 0.08); }
-.cap-icon { font-size: 20px; line-height: 1; flex-shrink: 0; margin-top: 2px; }
+.cap-icon-wrap {
+  flex-shrink: 0;
+  width: 36px; height: 36px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: #f5f7fa; border-radius: 8px;
+}
 .cap-text { font-size: 13px; font-weight: 600; color: #1f2328; }
 .cap-desc { font-size: 11px; color: #8b949e; margin-top: 3px; line-height: 1.5; }
 .quick-row { display: flex; flex-wrap: wrap; gap: 8px; }
