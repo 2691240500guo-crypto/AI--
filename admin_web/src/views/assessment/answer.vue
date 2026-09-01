@@ -33,9 +33,15 @@ const remainPercent = computed(() => {
 async function load() {
   loading.value = true
   try {
-    const res = await getAnswerView(route.params.id)
+    const rid = Number(route.params.id)
+    if (!rid) {
+      ElMessage.warning('缺少测评编号，请从列表进入')
+      router.push('/assessment/result')
+      return
+    }
+    const res = await getAnswerView(rid)
     view.value = res.data
-    draftKey.value = `asm_draft_${route.params.id}`
+    draftKey.value = `asm_draft_${rid}`
     // 回填服务端已有答案 + 本地草稿（本地草稿优先）
     const serverAnswers = {}
     for (const a of res.data.previous_answers || []) {

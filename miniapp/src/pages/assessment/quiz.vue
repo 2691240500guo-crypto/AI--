@@ -39,7 +39,7 @@ onLoad(async (options) => {
 onUnload(() => clearInterval(timer.value))
 
 function startTimer() {
-  remain.value = view.value.duration_min * 60
+  remain.value = view.value.duration * 60
   timer.value = setInterval(() => {
     remain.value--
     if (remain.value <= 0) { clearInterval(timer.value); submit(true) }

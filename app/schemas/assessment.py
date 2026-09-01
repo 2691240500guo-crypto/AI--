@@ -152,14 +152,14 @@ class PaperOut(ORMModel):
     id: int
     title: str
     description: str | None
-    difficulty: int
-    total_score: int
-    duration: int
+    difficulty: int | None = 0      # 容忍云端 NULL 脏数据
+    total_score: int | None = 0
+    duration: int | None = 0
     generation_mode: str = "manual"
-    status: int
+    status: int | None = 1
     question_count: int = 0
-    created_at: datetime
-    updated_at: datetime
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
 
 
 class PaperDetailOut(PaperOut):

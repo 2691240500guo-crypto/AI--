@@ -49,7 +49,7 @@ onPullDownRefresh(async () => {
           <view class="status" :style="{ background: statusColor(t.status) }">{{ statusText(t.status) }}</view>
         </view>
         <view class="card-meta">
-          <text>题数 {{ t.question_count }} · 时限 {{ fmtMin(t.duration_min * 60) }} · 总分 {{ t.total_score }}</text>
+          <text>题数 {{ t.question_count }} · 时限 {{ fmtMin(t.duration * 60) }} · 总分 {{ t.total_score }}</text>
         </view>
         <view class="card-foot">点击进入答题 →</view>
       </view>
