@@ -9,6 +9,7 @@ from app.models.dict_item import DictType
 from app.models.menu import Menu
 from app.models.role import Role
 from app.models.user import User, UserRole
+from app.db.seed_assessment import seed_assessment
 
 
 def create_tables() -> None:
@@ -63,32 +64,69 @@ def seed(db: Session) -> None:
             db.add(item)
     db.flush()
 
-    # 智能测评管理端菜单（A 域）：测评首页、题库、题目、试卷、发起、成绩
-    assess_root = db.query(Menu).filter_by(title="智能测评").first()
-    if not assess_root:
-        assess_root = Menu(parent_id=0, title="智能测评", path="/assessment", component="Layout", perm=None, type=1, sort=4)
-        db.add(assess_root)
-        db.flush()
+    assessment_root = db.query(Menu).filter_by(title="智能测评").first()
+    if not assessment_root:
+        assessment_root = Menu(
+            parent_id=0,
+            title="智能测评",
+            icon=None,
+            path="/assessment",
+            component=None,
+            perm=None,
+            type=1,
+            sort=3,
+            status=1,
+        )
+        db.add(assessment_root)
+    else:
+        assessment_root.parent_id = 0
+        assessment_root.path = "/assessment"
+        assessment_root.component = None
+        assessment_root.perm = None
+        assessment_root.type = 1
+        assessment_root.sort = 3
+        assessment_root.status = 1
+    db.flush()
 
-    assess_menus = [
-        Menu(parent_id=assess_root.id, title="测评首页", path="/assessment/home", component="assessment/Home", perm="assessment:home", type=2, sort=0),
-        Menu(parent_id=assess_root.id, title="题库管理", path="/assessment/bank", component="assessment/Bank", perm="assessment:bank", type=2, sort=1),
-        Menu(parent_id=assess_root.id, title="题目管理", path="/assessment/question", component="assessment/Question", perm="assessment:question", type=2, sort=2),
-        Menu(parent_id=assess_root.id, title="试卷管理", path="/assessment/paper", component="assessment/Paper", perm="assessment:paper", type=2, sort=3),
-        Menu(parent_id=assess_root.id, title="发起测评", path="/assessment/launch", component="assessment/Launch", perm="assessment:launch", type=2, sort=4),
-        Menu(parent_id=assess_root.id, title="成绩查询", path="/assessment/result", component="assessment/Result", perm="assessment:result", type=2, sort=5),
+    assessment_children = [
+        ("测评首页", "/assessment/overview", "assessment/overview", "assessment:list", 1),
+        ("题库与题目", "/assessment/question-bank", "assessment/questionBank", "assessment:manage", 2),
+        ("组卷管理", "/assessment/paper", "assessment/paper", "assessment:paper", 3),
+        ("发起测评", "/assessment/launch", "assessment/launch", "assessment:launch", 4),
+        ("成绩统计", "/assessment/results", "assessment/results", "assessment:stat", 5),
     ]
-    for item in assess_menus:
-        existing = db.query(Menu).filter_by(title=item.title).first()
-        if existing:
-            existing.parent_id = assess_root.id
-            existing.path = item.path
-            existing.component = item.component
-            existing.perm = item.perm
-            existing.type = item.type
-            existing.sort = item.sort
-        else:
-            db.add(item)
+    for title, path, component, perm, sort in assessment_children:
+        child = db.query(Menu).filter_by(title=title).first()
+        if not child:
+            child = Menu(parent_id=assessment_root.id, title=title)
+            db.add(child)
+        child.parent_id = assessment_root.id
+        child.path = path
+        child.component = component
+        child.perm = perm
+        child.type = 2
+        child.sort = sort
+        child.status = 1
+    db.flush()
+
+    legacy_assessment_paths = {
+        "/assessment/home",
+        "/assessment/bank",
+        "/assessment/question",
+        "/assessment/result",
+    }
+    legacy_assessment_titles = {"题库管理", "题目管理", "试卷管理", "成绩查询"}
+    for item in db.query(Menu).filter(Menu.path.in_(legacy_assessment_paths)).all():
+        item.status = 0
+    for item in db.query(Menu).filter(Menu.title.in_(legacy_assessment_titles)).all():
+        if item.parent_id == assessment_root.id:
+            item.status = 0
+
+    answer_menu = db.query(Menu).filter_by(path="/assessment/answer").first()
+    if not answer_menu:
+        answer_menu = db.query(Menu).filter_by(parent_id=assessment_root.id, title="答题台").first()
+    if answer_menu:
+        answer_menu.status = 0
     db.flush()
 
     # 数据字典类型
@@ -125,6 +163,7 @@ def init_db() -> None:
     db = SessionLocal()
     try:
         seed(db)
+        seed_assessment(db)
     finally:
         db.close()
 

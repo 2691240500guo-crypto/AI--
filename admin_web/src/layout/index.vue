@@ -8,9 +8,10 @@ const router = useRouter()
 const user = useUserStore()
 
 // 一级菜单 = parent_id==0；二级挂在 children
-const menus = computed(() => user.menus.filter(m => m.type !== 3))
-const roots = computed(() => menus.value.filter(m => m.parent_id === 0))
-const childrenOf = (pid) => menus.value.filter(m => m.parent_id === pid)
+const menus = computed(() => user.menus.filter(m => m.type !== 3 && m.status !== 0))
+const bySort = (a, b) => (a.sort - b.sort) || (a.id - b.id)
+const roots = computed(() => menus.value.filter(m => m.parent_id === 0).sort(bySort))
+const childrenOf = (pid) => menus.value.filter(m => m.parent_id === pid).sort(bySort)
 
 async function onLogout() {
   await ElMessageBox.confirm('确定退出登录？', '提示', { type: 'warning' })

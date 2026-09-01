@@ -1,280 +1,407 @@
-"""智能测评域 Pydantic 出入参。
-
-question.options 在数据库存为 JSON 字符串，schema 用 list[dict] 对外暴露。
-question.answer / result_detail.user_answer 用统一格式：
-  - 单选：选项 key，如 "A"
-  - 多选：逗号分隔，按 key 字典序排序，如 "A,B"
-  - 判断：字符串 "true" / "false"
-"""
-import json
 from datetime import datetime
-from typing import Literal
+from decimal import Decimal
+from typing import Any, Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field
 
 from app.schemas.common import ORMModel
 
+QuestionType = Literal["single", "multi", "judge"]
 
-# ---------- 题库 ----------
 
 class QuestionBankCreate(BaseModel):
     name: str = Field(min_length=1, max_length=128)
-    description: str | None = None
-    status: int = Field(default=1, ge=0, le=1)
+    description: str = Field(default="", max_length=1000)
 
 
 class QuestionBankUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=128)
-    description: str | None = None
+    description: str | None = Field(default=None, max_length=1000)
     status: int | None = Field(default=None, ge=0, le=1)
 
 
 class QuestionBankOut(ORMModel):
     id: int
     name: str
-    description: str | None
+    description: str
     status: int
-    question_count: int = 0
     created_at: datetime
     updated_at: datetime
 
 
-# ---------- 题目 ----------
-
-class QuestionOption(BaseModel):
-    key: str = Field(min_length=1, max_length=8)
-    text: str = Field(min_length=1)
-
-
 class QuestionCreate(BaseModel):
-    bank_id: int
-    type: Literal["single", "multi", "judge"] = "single"
+    bank_id: int = Field(gt=0)
+    type: QuestionType
     content: str = Field(min_length=1)
-    options: list[QuestionOption] | None = None  # judge 题可不传
-    answer: str = Field(min_length=1, max_length=64)
-    dimension: str | None = Field(default=None, max_length=32)
+    options: list[Any] | None = None
+    answer: list[Any] | str | None = None
+    dimension: str = Field(min_length=1, max_length=64)
     difficulty: int = Field(default=1, ge=1, le=5)
-    score: int = Field(default=10, ge=0)
-    status: int = Field(default=1, ge=0, le=1)
-
-    @field_validator("answer")
-    @classmethod
-    def _normalize_answer(cls, v: str, info) -> str:
-        v = v.strip()
-        if info.data.get("type") == "multi":
-            parts = sorted({p.strip().upper() for p in v.split(",") if p.strip()})
-            if not parts:
-                raise ValueError("多选题答案不能为空")
-            return ",".join(parts)
-        if info.data.get("type") == "judge":
-            if v.lower() not in {"true", "false"}:
-                raise ValueError("判断题答案只能是 true/false")
-            return v.lower()
-        return v.upper()
+    score: Decimal = Field(default=Decimal("1.00"), gt=0, max_digits=10, decimal_places=2)
 
 
 class QuestionUpdate(BaseModel):
-    type: Literal["single", "multi", "judge"] | None = None
-    content: str | None = None
-    options: list[QuestionOption] | None = None
-    answer: str | None = None
-    dimension: str | None = None
+    bank_id: int | None = Field(default=None, gt=0)
+    type: QuestionType | None = None
+    content: str | None = Field(default=None, min_length=1)
+    options: list[Any] | None = None
+    answer: list[Any] | str | None = None
+    dimension: str | None = Field(default=None, min_length=1, max_length=64)
     difficulty: int | None = Field(default=None, ge=1, le=5)
-    score: int | None = Field(default=None, ge=0)
+    score: Decimal | None = Field(default=None, gt=0, max_digits=10, decimal_places=2)
     status: int | None = Field(default=None, ge=0, le=1)
 
 
 class QuestionOut(ORMModel):
     id: int
     bank_id: int
-    type: str
+    type: QuestionType
     content: str
-    options: list[dict] | None = None
-    answer: str
-    dimension: str | None
+    options: list[Any] | None
+    answer: list[Any] | str | None
+    dimension: str
     difficulty: int
-    score: int
+    score: Decimal
     status: int
     created_at: datetime
     updated_at: datetime
 
-    @classmethod
-    def from_model(cls, obj, *, with_answer: bool = True):
-        opts = None
-        if obj.options:
-            try:
-                opts = json.loads(obj.options)
-            except Exception:
-                opts = None
-        return cls.model_validate({
-            "id": obj.id, "bank_id": obj.bank_id, "type": obj.type, "content": obj.content,
-            "options": opts, "answer": obj.answer if with_answer else "",
-            "dimension": obj.dimension, "difficulty": obj.difficulty, "score": obj.score,
-            "status": obj.status, "created_at": obj.created_at, "updated_at": obj.updated_at,
-        })
+
+class PositionOptionOut(ORMModel):
+    id: int
+    dept_id: int | None
+    name: str
+    level: int
 
 
-# ---------- 试卷 ----------
+class CapabilityRule(BaseModel):
+    dimension: str = Field(min_length=1, max_length=64)
+    count: int = Field(gt=0, le=500)
+    bank_ids: list[int] = Field(default_factory=list)
+    types: list[QuestionType] = Field(default_factory=list)
+    difficulties: list[int] = Field(default_factory=list)
+
+
+class CapabilityModelCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=128)
+    description: str = Field(default="", max_length=1000)
+    position_id: int | None = Field(default=None, gt=0)
+    position_level: int | None = Field(default=None, ge=1, le=20)
+    rules: list[CapabilityRule] = Field(min_length=1, max_length=50)
+
+
+class CapabilityModelUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=128)
+    description: str | None = Field(default=None, max_length=1000)
+    position_id: int | None = Field(default=None, gt=0)
+    position_level: int | None = Field(default=None, ge=1, le=20)
+    rules: list[CapabilityRule] | None = Field(default=None, min_length=1, max_length=50)
+    status: int | None = Field(default=None, ge=0, le=1)
+
+
+class CapabilityModelOut(ORMModel):
+    id: int
+    name: str
+    description: str
+    position_id: int | None
+    position_level: int | None
+    rules: list[dict] | None
+    status: int
+    created_at: datetime
+    updated_at: datetime
+
+
+class QuestionImportError(BaseModel):
+    row: int
+    content: str | None = None
+    message: str
+
+
+class QuestionImportOut(BaseModel):
+    total_count: int
+    imported_count: int
+    failed_count: int
+    errors: list[QuestionImportError] = Field(default_factory=list)
+
+
+class PaperQuestionCreate(BaseModel):
+    question_id: int = Field(gt=0)
+    sort: int = Field(default=1, ge=1)
+    score: Decimal | None = Field(default=None, gt=0, max_digits=10, decimal_places=2)
+
 
 class PaperCreate(BaseModel):
-    """手动组卷：传 question_ids 自动算 total_score / duration 可后续改。"""
-    title: str = Field(min_length=1, max_length=255)
-    description: str | None = None
-    question_ids: list[int] = Field(default_factory=list, max_length=200)
-    difficulty: int = Field(default=1, ge=1, le=5)
-    duration: int = Field(default=60, ge=1, le=600)
-    generation_mode: str = Field(default="manual", pattern="^(manual|auto)$")
-    status: int = Field(default=1, ge=0, le=1)
-
-
-class PaperAutoCreate(BaseModel):
-    """智能抽题组卷：按维度/难度/题数条件自动选题。"""
-    title: str = Field(min_length=1, max_length=255)
-    description: str | None = None
-    dimension: str | None = Field(default=None, max_length=32)   # 能力维度，空=不限
-    difficulty: int | None = Field(default=None, ge=1, le=5)      # 难度，空=不限
-    question_count: int = Field(default=10, ge=1, le=100)         # 题数
-    duration: int = Field(default=60, ge=1, le=600)
-    status: int = Field(default=1, ge=0, le=1)
+    title: str = Field(min_length=1, max_length=128)
+    description: str = Field(default="", max_length=1000)
+    bank_ids: list[int] = Field(default_factory=list)
+    difficulty: int | None = Field(default=None, ge=1, le=5)
+    duration: int = Field(default=60, ge=1, le=1440)
+    question_ids: list[int] = Field(default_factory=list)
+    random_rule: dict[str, Any] | None = None
+    capability_model_id: int | None = Field(default=None, gt=0)
 
 
 class PaperUpdate(BaseModel):
-    title: str | None = Field(default=None, min_length=1, max_length=255)
-    description: str | None = None
-    question_ids: list[int] | None = None
-    difficulty: int | None = Field(default=None, ge=1, le=5)
-    duration: int | None = Field(default=None, ge=1, le=600)
-    generation_mode: str | None = Field(default=None, pattern="^(manual|auto)$")
+    title: str | None = Field(default=None, min_length=1, max_length=128)
+    description: str | None = Field(default=None, max_length=1000)
+    duration: int | None = Field(default=None, ge=1, le=1440)
     status: int | None = Field(default=None, ge=0, le=1)
+
+
+class LaunchRequest(BaseModel):
+    paper_id: int = Field(gt=0)
+    talent_ids: list[int] = Field(min_length=1)
+    batch_name: str | None = Field(default=None, min_length=1, max_length=128)
+    started_at: datetime | None = None
+    deadline_at: datetime | None = None
+
+
+class LaunchResultOut(BaseModel):
+    result_id: int
+    talent_id: int
+    paper_id: int
+    batch_id: int
+    batch_no: str
+    status: int
+    started_at: datetime
+    deadline_at: datetime
+
+
+class RandomPaperRule(BaseModel):
+    count: int = Field(gt=0, le=500)
+    bank_ids: list[int] = Field(default_factory=list)
+    types: list[QuestionType] = Field(default_factory=list)
+    dimensions: list[str] = Field(default_factory=list)
+    difficulties: list[int] = Field(default_factory=list)
 
 
 class PaperOut(ORMModel):
     id: int
     title: str
-    description: str | None
-    difficulty: int | None = 0      # 容忍云端 NULL 脏数据
-    total_score: int | None = 0
-    duration: int | None = 0
-    generation_mode: str = "manual"
-    status: int | None = 1
-    question_count: int = 0
-    created_at: datetime | None = None
-    updated_at: datetime | None = None
+    description: str
+    bank_ids: list[int] | None
+    difficulty: int | None
+    total_score: Decimal
+    duration: int
+    status: int
+    generation_mode: str
+    capability_model_id: int | None
+    generation_rule: dict[str, Any] | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class PaperQuestionOut(ORMModel):
+    paper_id: int
+    question_id: int
+    sort: int
+    type_snapshot: QuestionType
+    content_snapshot: str
+    options_snapshot: list[Any] | None
+    dimension_snapshot: str
+    score_snapshot: Decimal
 
 
 class PaperDetailOut(PaperOut):
-    questions: list[QuestionOut] = Field(default_factory=list)
+    questions: list[PaperQuestionOut] = Field(default_factory=list)
 
 
-# ---------- 发起测评 ----------
-
-class LaunchRequest(BaseModel):
-    paper_id: int
-    talent_ids: list[int] = Field(min_length=1, max_length=500)
-
-
-class LaunchResultItem(BaseModel):
-    result_id: int
+class AssessmentResultOut(ORMModel):
+    id: int
     talent_id: int
-    talent_name: str | None = None
     paper_id: int
+    batch_id: int | None
     status: int
-
-
-class LaunchResponse(BaseModel):
-    paper_id: int
-    launched_count: int
-    items: list[LaunchResultItem]
-
-
-# ---------- 作答 / 判分 ----------
-
-class AnswerItem(BaseModel):
-    question_id: int
-    user_answer: str = Field(min_length=1, max_length=64)
-
-
-class SubmitRequest(BaseModel):
-    answers: list[AnswerItem] = Field(min_length=1)
+    score: Decimal
+    correct_count: int
+    started_at: datetime | None
+    deadline_at: datetime | None
+    end_at: datetime | None
+    report_source: str | None
+    created_at: datetime
+    updated_at: datetime
 
 
 class ResultDetailOut(ORMModel):
     id: int
+    result_id: int
     question_id: int
-    user_answer: str | None
+    user_answer: list[Any] | str | None
     is_correct: int
-    score: int
-    question: QuestionOut | None = None
-
-    @classmethod
-    def from_model(cls, obj, *, with_answer: bool = False):
-        return cls(
-            id=obj.id, question_id=obj.question_id, user_answer=obj.user_answer,
-            is_correct=obj.is_correct, score=obj.score,
-            question=QuestionOut.from_model(obj.question, with_answer=with_answer)
-            if obj.question else None,
-        )
+    score: Decimal
 
 
-class ResultOut(ORMModel):
+class AnswerEventOut(ORMModel):
     id: int
-    talent_id: int
-    paper_id: int
-    status: int
-    score: int
-    correct_count: int
-    total_count: int
-    started_at: datetime | None
-    end_at: datetime | None
+    result_id: int
+    event_type: str
+    detail: str
+    source: str
     created_at: datetime
 
 
-class ResultDetailResultOut(ResultOut):
+class TrainingOutboxOut(ORMModel):
+    id: int
+    result_id: int
+    agent_task_id: int | None
+    weak_dimensions: list[Any] | None
+    training_plan_json: dict[str, Any] | None
+    status: str
+    retry_count: int
+    error_message: str | None
+    processed_at: datetime | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class AnswerSaveRequest(BaseModel):
+    answers: dict[str, Any] = Field(default_factory=dict)
+
+
+class AnswerEventCreate(BaseModel):
+    event_type: Literal["blur", "focus", "timeout", "leave", "resume", "other"]
+    detail: str = Field(default="", max_length=1000)
+    source: str = Field(default="admin_h5", max_length=32)
+
+
+class AnswerQuestionOut(BaseModel):
+    question_id: int
+    sort: int
+    type: QuestionType
+    content: str
+    options: list[Any] | None
+    dimension: str
+    score: Decimal
+    user_answer: Any = None
+
+
+class AnswerSnapshotOut(BaseModel):
+    result_id: int
+    paper_id: int
+    talent_id: int
+    status: int
+    started_at: datetime | None
+    deadline_at: datetime | None
+    server_time: datetime
+    remaining_seconds: int
+    answers: dict[str, Any] = Field(default_factory=dict)
+    questions: list[AnswerQuestionOut] = Field(default_factory=list)
+
+
+class SubmitOut(BaseModel):
+    result: AssessmentResultOut
     details: list[ResultDetailOut] = Field(default_factory=list)
 
 
-class ReportStubOut(BaseModel):
-    """Agent② 报告 stub：MVP 不接 LangGraph，返回结构化占位。"""
-    result_id: int
-    level: str  # S/A/B/C
-    radar: dict  # {维度: 0-100}
-    strengths: list[str]
-    weaknesses: list[str]
-    suggestions: list[str]
-    summary: str
+class AssessmentResultListOut(AssessmentResultOut):
+    talent_name: str | None = None
+    paper_title: str | None = None
+    paper_total_score: Decimal | None = None
+    question_count: int = 0
+    batch_no: str | None = None
+    batch_name: str | None = None
 
 
-# ---------- 待测列表 / 答题视图 ----------
-
-class TodoItemOut(BaseModel):
-    """某人才待测 / 答题中 / 待阅的批次。"""
-    result_id: int
-    paper_id: int
-    paper_title: str
-    duration: int
-    total_score: int
-    status: int
-    question_count: int
-    created_at: datetime
+class DimensionStatistic(BaseModel):
+    dimension: str
+    score: Decimal
+    total_score: Decimal
+    accuracy: Decimal
+    result_count: int = 0
+    question_count: int = 0
 
 
-class AnswerViewQuestion(BaseModel):
+class AssessmentStatisticsOut(BaseModel):
+    total_results: int
+    completed_results: int
+    average_score: Decimal
+    average_rate: Decimal
+    pass_count: int
+    pass_rate: Decimal
+    dimensions: list[DimensionStatistic] = Field(default_factory=list)
+
+
+class AssessmentBatchOut(ORMModel):
     id: int
-    type: str
-    content: str
-    options: list[dict] | None = None
-    score: int
-    dimension: str | None = None
-    sort: int
-
-
-class AnswerViewOut(BaseModel):
-    """答题视图：不返回正确答案。"""
-    result_id: int
+    batch_no: str
+    name: str
     paper_id: int
-    paper_title: str
-    duration: int
-    total_score: int
     status: int
-    questions: list[AnswerViewQuestion]
-    previous_answers: list[AnswerItem] = Field(default_factory=list)
+    started_at: datetime
+    deadline_at: datetime
+    created_by: int | None
+    created_at: datetime
+    updated_at: datetime
+
+
+class AssessmentBatchStatistic(BaseModel):
+    batch_id: int
+    batch_no: str
+    batch_name: str
+    paper_id: int
+    total_results: int
+    completed_results: int
+    completion_rate: Decimal
+    pass_count: int
+    pass_rate: Decimal
+    average_score: Decimal
+
+
+class AssessmentBatchStatisticsOut(BaseModel):
+    items: list[AssessmentBatchStatistic] = Field(default_factory=list)
+
+
+class QuestionStatistic(BaseModel):
+    question_id: int
+    content: str
+    dimension: str
+    attempt_count: int
+    answered_count: int
+    correct_count: int
+    accuracy: Decimal
+    average_score: Decimal
+    total_score: Decimal
+
+
+class QuestionStatisticsOut(BaseModel):
+    items: list[QuestionStatistic] = Field(default_factory=list)
+
+
+class AssessmentDimensionReport(BaseModel):
+    dimension: str
+    score: float
+    total_score: float
+    rate: float
+    level: str
+
+
+class AssessmentReportOut(BaseModel):
+    version: str
+    result_id: int
+    source: Literal["local", "siliconflow"]
+    generated_at: datetime
+    overall_score: float
+    overall_rate: float
+    rating: str
+    radar: list[AssessmentDimensionReport] = Field(default_factory=list)
+    strengths: list[str] = Field(default_factory=list)
+    weaknesses: list[str] = Field(default_factory=list)
+    recommendations: list[str] = Field(default_factory=list)
+    fallback_reason: str | None = None
+    agent_task_id: int | None = None
+    level_sync_status: str | None = None
+    level_sync_reason: str | None = None
+
+
+class TrainingLinkOut(ORMModel):
+    id: int
+    result_id: int
+    agent_task_id: int | None
+    weak_dimensions: list[Any] | None
+    training_plan_json: dict[str, Any] | None
+    status: str
+    retry_count: int
+    error_message: str | None
+    processed_at: datetime | None
+    created_at: datetime
+    updated_at: datetime

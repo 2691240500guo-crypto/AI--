@@ -1,389 +1,615 @@
-"""智能测评域路由：题库 / 题目 / 试卷 / 发起 / 作答 / 判分 / 报告。
-对齐 01-需求分析 4.3 接口。
-"""
-from datetime import datetime
+"""C 智能测评 C01-C05 路由。"""
 
-from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi import APIRouter, Body, Depends, File, Form, HTTPException, Query, UploadFile
+from fastapi.responses import Response
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_user, require_permission
-from app.dao.assessment import (
-    PaperDAO, QuestionBankDAO, QuestionDAO, ResultDAO,
-)
+from app.core.deps import require_permission
 from app.db.session import get_db
-from app.models.assessment import (
-    Paper, Question, QuestionBank, Result, ResultDetail,
-)
-from app.models.talent import Talent
+from app.models.assessment import AssessmentPaper, AssessmentQuestion, PaperQuestion, QuestionBank
+from app.models.user import User
 from app.schemas.assessment import (
-    AnswerItem, AnswerViewOut, AnswerViewQuestion, LaunchRequest, LaunchResponse,
-    LaunchResultItem, PaperAutoCreate, PaperCreate, PaperDetailOut, PaperOut, PaperUpdate,
-    QuestionBankCreate, QuestionBankOut, QuestionBankUpdate, QuestionCreate,
-    QuestionOut, QuestionUpdate, ReportStubOut, ResultDetailOut,
-    ResultDetailResultOut, ResultOut, SubmitRequest, TodoItemOut,
+    AnswerEventCreate,
+    AnswerEventOut,
+    AnswerSaveRequest,
+    AnswerSnapshotOut,
+    AssessmentBatchOut,
+    AssessmentBatchStatistic,
+    AssessmentBatchStatisticsOut,
+    CapabilityModelCreate,
+    CapabilityModelOut,
+    CapabilityModelUpdate,
+    AssessmentReportOut,
+    AssessmentResultOut,
+    AssessmentResultListOut,
+    AssessmentStatisticsOut,
+    QuestionStatistic,
+    QuestionStatisticsOut,
+    LaunchRequest,
+    LaunchResultOut,
+    PaperCreate,
+    PaperDetailOut,
+    PaperOut,
+    PaperQuestionOut,
+    PaperUpdate,
+    PositionOptionOut,
+    QuestionBankCreate,
+    QuestionBankOut,
+    QuestionBankUpdate,
+    QuestionCreate,
+    QuestionImportOut,
+    QuestionOut,
+    QuestionUpdate,
+    ResultDetailOut,
+    SubmitOut,
+    TrainingLinkOut,
 )
-from app.services.assessment_service import (
-    STATUS_PENDING, AssessmentService,
-)
+from app.schemas.agent import AgentTaskOut
+from app.core.deps import get_current_user
+from app.services.assessment_import_service import AssessmentImportService
+from app.services.assessment_service import AssessmentService
 from app.utils.pagination import paged_result
 from app.utils.response import ok
 
-router = APIRouter(dependencies=[Depends(require_permission("assessment:list"))])
+router = APIRouter()
 
 
-# ============== 题库（A-1） ==============
-
-@router.get("/banks", response_model=None)
-def list_banks(keyword: str | None = None, status: int | None = Query(None, ge=0, le=1),
-               page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=200),
-               db: Session = Depends(get_db)):
-    total = QuestionBankDAO.count(db, keyword, status)
-    rows = QuestionBankDAO.paged(db, keyword, status, page, page_size)
-    items = []
-    for b in rows:
-        out = QuestionBankOut.model_validate(b)
-        out.question_count = QuestionBankDAO.with_question_count(db, b)
-        items.append(out)
-    return ok(paged_result(items, page, page_size, total))
+def _raise_business_error(exc: Exception) -> None:
+    if isinstance(exc, LookupError):
+        raise HTTPException(404, str(exc))
+    if isinstance(exc, ValueError):
+        raise HTTPException(400, str(exc))
+    if isinstance(exc, PermissionError):
+        raise HTTPException(403, str(exc))
+    raise exc
 
 
-@router.get("/banks/{bank_id}", response_model=None)
-def get_bank(bank_id: int, db: Session = Depends(get_db)):
-    b = QuestionBankDAO.get(db, bank_id)
-    if not b:
-        raise HTTPException(404, "题库不存在")
-    out = QuestionBankOut.model_validate(b)
-    out.question_count = QuestionBankDAO.with_question_count(db, b)
-    return ok(out)
+@router.get("/banks", dependencies=[Depends(require_permission("assessment:list"))])
+def list_banks(
+    keyword: str | None = None,
+    status: int | None = Query(default=None, ge=0, le=1),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    rows, total = AssessmentService.list_banks(
+        db, keyword=keyword, status=status, page=page, page_size=page_size
+    )
+    return ok(paged_result([QuestionBankOut.model_validate(row) for row in rows], page, page_size, total))
 
 
-@router.post("/banks", response_model=None,
-             dependencies=[Depends(require_permission("assessment:bank"))])
+@router.post("/banks", dependencies=[Depends(require_permission("assessment:manage"))])
 def create_bank(body: QuestionBankCreate, db: Session = Depends(get_db)):
-    b = AssessmentService.create_bank(db, body)
-    db.commit()
-    out = QuestionBankOut.model_validate(b)
-    out.question_count = 0
-    return ok(out)
+    try:
+        bank = AssessmentService.create_bank(db, body.name, body.description)
+        db.commit()
+        return ok(QuestionBankOut.model_validate(bank))
+    except Exception as exc:
+        db.rollback()
+        _raise_business_error(exc)
 
 
-@router.put("/banks/{bank_id}", response_model=None,
-            dependencies=[Depends(require_permission("assessment:bank"))])
+@router.put("/banks/{bank_id}", dependencies=[Depends(require_permission("assessment:manage"))])
 def update_bank(bank_id: int, body: QuestionBankUpdate, db: Session = Depends(get_db)):
-    b = QuestionBankDAO.get(db, bank_id)
-    if not b:
-        raise HTTPException(404, "题库不存在")
-    b = AssessmentService.update_bank(db, b, body)
-    db.commit()
-    out = QuestionBankOut.model_validate(b)
-    out.question_count = QuestionBankDAO.with_question_count(db, b)
-    return ok(out)
+    try:
+        bank = AssessmentService.update_bank(db, bank_id, body.model_dump(exclude_unset=True))
+        db.commit()
+        return ok(QuestionBankOut.model_validate(bank))
+    except Exception as exc:
+        db.rollback()
+        _raise_business_error(exc)
 
 
-@router.delete("/banks/{bank_id}", response_model=None,
-               dependencies=[Depends(require_permission("assessment:bank"))])
+@router.delete("/banks/{bank_id}", dependencies=[Depends(require_permission("assessment:manage"))])
 def delete_bank(bank_id: int, db: Session = Depends(get_db)):
-    b = QuestionBankDAO.get(db, bank_id)
-    if not b:
-        raise HTTPException(404, "题库不存在")
-    AssessmentService.delete_bank(db, b)
-    db.commit()
-    return ok()
+    try:
+        AssessmentService.delete_bank(db, bank_id)
+        db.commit()
+        return ok()
+    except Exception as exc:
+        db.rollback()
+        _raise_business_error(exc)
 
 
-# ============== 题目（A-1） ==============
-
-@router.get("/banks/{bank_id}/questions", response_model=None)
-def list_questions(bank_id: int, type: str | None = None, dimension: str | None = None,
-                   difficulty: int | None = Query(None, ge=1, le=5),
-                   keyword: str | None = None,
-                   page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=200),
-                   db: Session = Depends(get_db)):
-    # bank_id=0 表示查全部题库（供题目管理页跨题库浏览）
-    real_bank_id = None if bank_id == 0 else bank_id
-    total = QuestionDAO.count(db, bank_id=real_bank_id, type_=type, dimension=dimension,
-                              difficulty=difficulty, keyword=keyword)
-    rows = QuestionDAO.paged(db, bank_id=real_bank_id, type_=type, dimension=dimension,
-                             difficulty=difficulty, keyword=keyword, page=page, page_size=page_size)
-    return ok(paged_result([QuestionOut.from_model(q) for q in rows], page, page_size, total))
+@router.get("/positions", dependencies=[Depends(require_permission("assessment:paper"))])
+def list_assessment_positions(db: Session = Depends(get_db)):
+    return ok([PositionOptionOut.model_validate(item) for item in AssessmentService.list_positions(db)])
 
 
-@router.post("/questions", response_model=None,
-             dependencies=[Depends(require_permission("assessment:question"))])
+@router.get("/capability-models", dependencies=[Depends(require_permission("assessment:paper"))])
+def list_capability_models(
+    keyword: str | None = None,
+    status: int | None = Query(default=None, ge=0, le=1),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(100, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    rows, total = AssessmentService.list_capability_models(
+        db, keyword=keyword, status=status, page=page, page_size=page_size
+    )
+    return ok(paged_result([CapabilityModelOut.model_validate(row) for row in rows], page, page_size, total))
+
+
+@router.post("/capability-models", dependencies=[Depends(require_permission("assessment:paper"))])
+def create_capability_model(body: CapabilityModelCreate, db: Session = Depends(get_db)):
+    try:
+        model = AssessmentService.create_capability_model(db, body)
+        db.commit()
+        return ok(CapabilityModelOut.model_validate(model))
+    except Exception as exc:
+        db.rollback()
+        _raise_business_error(exc)
+
+
+@router.put("/capability-models/{model_id}", dependencies=[Depends(require_permission("assessment:paper"))])
+def update_capability_model(model_id: int, body: CapabilityModelUpdate, db: Session = Depends(get_db)):
+    try:
+        model = AssessmentService.update_capability_model(db, model_id, body)
+        db.commit()
+        return ok(CapabilityModelOut.model_validate(model))
+    except Exception as exc:
+        db.rollback()
+        _raise_business_error(exc)
+
+
+@router.delete("/capability-models/{model_id}", dependencies=[Depends(require_permission("assessment:paper"))])
+def delete_capability_model(model_id: int, db: Session = Depends(get_db)):
+    try:
+        AssessmentService.delete_capability_model(db, model_id)
+        db.commit()
+        return ok()
+    except Exception as exc:
+        db.rollback()
+        _raise_business_error(exc)
+
+
+@router.get("/banks/{bank_id}/questions", dependencies=[Depends(require_permission("assessment:list"))])
+def list_bank_questions(bank_id: int, db: Session = Depends(get_db)):
+    try:
+        rows = AssessmentService.list_bank_questions(db, bank_id)
+        return ok([QuestionOut.model_validate(row) for row in rows])
+    except Exception as exc:
+        _raise_business_error(exc)
+
+
+@router.get("/questions", dependencies=[Depends(require_permission("assessment:list"))])
+def list_questions(
+    bank_id: int | None = Query(default=None, gt=0),
+    question_type: str | None = Query(default=None, alias="type"),
+    dimension: str | None = None,
+    difficulty: int | None = Query(default=None, ge=1, le=5),
+    status: int | None = Query(default=None, ge=0, le=1),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    rows, total = AssessmentService.list_questions(
+        db,
+        bank_id=bank_id,
+        question_type=question_type,
+        dimension=dimension,
+        difficulty=difficulty,
+        status=status,
+        page=page,
+        page_size=page_size,
+    )
+    return ok(paged_result([QuestionOut.model_validate(row) for row in rows], page, page_size, total))
+
+
+@router.post("/questions", dependencies=[Depends(require_permission("assessment:manage"))])
 def create_question(body: QuestionCreate, db: Session = Depends(get_db)):
-    q = AssessmentService.create_question(db, body)
-    db.commit()
-    return ok(QuestionOut.from_model(q))
+    try:
+        question = AssessmentService.create_question(db, body)
+        db.commit()
+        return ok(QuestionOut.model_validate(question))
+    except Exception as exc:
+        db.rollback()
+        _raise_business_error(exc)
 
 
-@router.put("/questions/{question_id}", response_model=None,
-            dependencies=[Depends(require_permission("assessment:question"))])
+@router.get(
+    "/questions/import-template",
+    dependencies=[Depends(require_permission("assessment:manage"))],
+)
+def download_question_import_template():
+    try:
+        content = AssessmentImportService.build_template()
+        return Response(
+            content=content,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={
+                "Content-Disposition": "attachment; filename=assessment-question-import-template.xlsx"
+            },
+        )
+    except Exception as exc:
+        _raise_business_error(exc)
+
+
+@router.post(
+    "/questions/import",
+    dependencies=[Depends(require_permission("assessment:manage"))],
+)
+async def import_questions(
+    bank_id: int = Form(..., gt=0),
+    file: UploadFile = File(...),
+    db: Session = Depends(get_db),
+):
+    try:
+        content = await file.read()
+        if not content:
+            raise ValueError("导入文件不能为空")
+        if len(content) > 5 * 1024 * 1024:
+            raise ValueError("导入文件不能超过 5 MB")
+        result = AssessmentImportService.import_questions(
+            db,
+            bank_id=bank_id,
+            filename=file.filename or "",
+            content=content,
+        )
+        if result["failed_count"]:
+            db.rollback()
+        else:
+            db.commit()
+        return ok(QuestionImportOut.model_validate(result))
+    except Exception as exc:
+        db.rollback()
+        _raise_business_error(exc)
+
+
+@router.put("/questions/{question_id}", dependencies=[Depends(require_permission("assessment:manage"))])
 def update_question(question_id: int, body: QuestionUpdate, db: Session = Depends(get_db)):
-    q = QuestionDAO.get(db, question_id)
-    if not q:
-        raise HTTPException(404, "题目不存在")
-    q = AssessmentService.update_question(db, q, body)
-    db.commit()
-    return ok(QuestionOut.from_model(q))
+    try:
+        question = AssessmentService.update_question(db, question_id, body)
+        db.commit()
+        return ok(QuestionOut.model_validate(question))
+    except Exception as exc:
+        db.rollback()
+        _raise_business_error(exc)
 
 
-@router.delete("/questions/{question_id}", response_model=None,
-               dependencies=[Depends(require_permission("assessment:question"))])
+@router.delete("/questions/{question_id}", dependencies=[Depends(require_permission("assessment:manage"))])
 def delete_question(question_id: int, db: Session = Depends(get_db)):
-    q = QuestionDAO.get(db, question_id)
-    if not q:
-        raise HTTPException(404, "题目不存在")
-    # 已被试卷引用不允许删
-    from app.models.assessment import PaperQuestion
-    used = db.scalar(select(PaperQuestion).where(
-        PaperQuestion.question_id == question_id).limit(1))
-    if used:
-        raise HTTPException(400, "该题目已被试卷引用，不能删除")
-    QuestionDAO.delete(db, q)
-    db.commit()
-    return ok()
+    try:
+        AssessmentService.delete_question(db, question_id)
+        db.commit()
+        return ok()
+    except Exception as exc:
+        db.rollback()
+        _raise_business_error(exc)
 
 
-# ============== 试卷（A-2） ==============
+@router.get("/papers", dependencies=[Depends(require_permission("assessment:list"))])
+def list_papers(
+    keyword: str | None = None,
+    status: int | None = Query(default=None, ge=0, le=1),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    rows, total = AssessmentService.list_papers(
+        db, keyword=keyword, status=status, page=page, page_size=page_size
+    )
+    return ok(paged_result([PaperOut.model_validate(row) for row in rows], page, page_size, total))
 
-@router.get("/papers", response_model=None)
-def list_papers(keyword: str | None = None, status: int | None = Query(None, ge=0, le=1),
-                page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=200),
+
+@router.post("/papers", dependencies=[Depends(require_permission("assessment:paper"))])
+def create_paper(body: PaperCreate, db: Session = Depends(get_db)):
+    try:
+        paper = AssessmentService.create_paper(db, body)
+        db.commit()
+        return ok(PaperOut.model_validate(paper))
+    except Exception as exc:
+        db.rollback()
+        _raise_business_error(exc)
+
+
+@router.get("/papers/{paper_id}", dependencies=[Depends(require_permission("assessment:list"))])
+def get_paper(paper_id: int, db: Session = Depends(get_db)):
+    try:
+        paper = AssessmentService.get_paper(db, paper_id)
+        return ok(PaperDetailOut(
+            **PaperOut.model_validate(paper).model_dump(),
+            questions=[PaperQuestionOut.model_validate(link) for link in paper.question_links],
+        ))
+    except Exception as exc:
+        _raise_business_error(exc)
+
+
+@router.put("/papers/{paper_id}", dependencies=[Depends(require_permission("assessment:paper"))])
+def update_paper(paper_id: int, body: PaperUpdate, db: Session = Depends(get_db)):
+    try:
+        paper = AssessmentService.update_paper(db, paper_id, body)
+        db.commit()
+        return ok(PaperOut.model_validate(paper))
+    except Exception as exc:
+        db.rollback()
+        _raise_business_error(exc)
+
+
+@router.delete("/papers/{paper_id}", dependencies=[Depends(require_permission("assessment:paper"))])
+def delete_paper(paper_id: int, db: Session = Depends(get_db)):
+    try:
+        AssessmentService.delete_paper(db, paper_id)
+        db.commit()
+        return ok()
+    except Exception as exc:
+        db.rollback()
+        _raise_business_error(exc)
+
+
+@router.post("/launch", dependencies=[Depends(require_permission("assessment:launch"))])
+def launch_assessment(body: LaunchRequest, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    try:
+        batch, results = AssessmentService.launch(db, body, user)
+        db.commit()
+        return ok([
+            LaunchResultOut(
+                result_id=result.id,
+                talent_id=result.talent_id,
+                paper_id=result.paper_id,
+                batch_id=batch.id,
+                batch_no=batch.batch_no,
+                status=result.status,
+                started_at=result.started_at,
+                deadline_at=result.deadline_at,
+            ) for result in results
+        ])
+    except Exception as exc:
+        db.rollback()
+        _raise_business_error(exc)
+
+
+@router.get("/todo", dependencies=[Depends(get_current_user)])
+def list_todo(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    rows = AssessmentService.list_todo(db, user)
+    return ok([AssessmentResultListOut(
+        **AssessmentResultOut.model_validate(result).model_dump(),
+        talent_name=user.nickname,
+        paper_title=result.paper.title,
+    ) for result in rows])
+
+
+@router.get("/papers/{paper_id}/answer", dependencies=[Depends(get_current_user)])
+def answer_by_paper(paper_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    try:
+        return ok(AnswerSnapshotOut.model_validate(AssessmentService.get_answer_by_paper(db, paper_id, user)))
+    except Exception as exc:
+        _raise_business_error(exc)
+
+
+@router.get("/result/{result_id}/answer", dependencies=[Depends(get_current_user)])
+def get_answer(result_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    try:
+        return ok(AnswerSnapshotOut.model_validate(AssessmentService.get_answer_snapshot(db, result_id, user)))
+    except Exception as exc:
+        _raise_business_error(exc)
+
+
+@router.post("/result/{result_id}/answer", dependencies=[Depends(get_current_user)])
+def save_answer(result_id: int, body: AnswerSaveRequest, user: User = Depends(get_current_user),
                 db: Session = Depends(get_db)):
-    total = PaperDAO.count(db, keyword, status)
-    rows = PaperDAO.paged(db, keyword, status, page, page_size)
-    items = []
-    for p in rows:
-        out = PaperOut.model_validate(p)
-        out.question_count = len(p.items)
-        items.append(out)
+    try:
+        snapshot = AssessmentService.save_answers(db, result_id, body.answers, user)
+        db.commit()
+        return ok(AnswerSnapshotOut.model_validate(snapshot))
+    except Exception as exc:
+        db.rollback()
+        _raise_business_error(exc)
+
+
+@router.post("/result/{result_id}/events", dependencies=[Depends(get_current_user)])
+def record_event(result_id: int, body: AnswerEventCreate, user: User = Depends(get_current_user),
+                 db: Session = Depends(get_db)):
+    try:
+        event = AssessmentService.record_answer_event(
+            db, result_id, body.event_type, body.detail, body.source, user
+        )
+        db.commit()
+        return ok(AnswerEventOut.model_validate(event))
+    except Exception as exc:
+        db.rollback()
+        _raise_business_error(exc)
+
+
+@router.post("/result/{result_id}/submit", dependencies=[Depends(get_current_user)])
+def submit_result(result_id: int, body: AnswerSaveRequest | None = Body(default=None),
+                  user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    try:
+        result, details = AssessmentService.submit(
+            db, result_id, body.answers if body else None, user
+        )
+        db.commit()
+        return ok(SubmitOut(
+            result=AssessmentResultOut.model_validate(result),
+            details=[ResultDetailOut.model_validate(detail) for detail in details],
+        ))
+    except Exception as exc:
+        db.rollback()
+        _raise_business_error(exc)
+
+
+@router.get("/results", dependencies=[Depends(require_permission("assessment:stat"))])
+def list_results(
+    talent_id: int | None = Query(default=None, gt=0),
+    paper_id: int | None = Query(default=None, gt=0),
+    batch_id: int | None = Query(default=None, gt=0),
+    status: int | None = Query(default=None, ge=0, le=3),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    rows, total = AssessmentService.list_results(
+        db, talent_id=talent_id, paper_id=paper_id, batch_id=batch_id, status=status,
+        page=page, page_size=page_size,
+    )
+    items = [AssessmentResultListOut(
+        **AssessmentResultOut.model_validate(result).model_dump(),
+        talent_name=talent_name,
+        paper_title=paper_title,
+        paper_total_score=result.paper.total_score,
+        question_count=len(result.paper.question_links),
+        batch_no=batch_no,
+        batch_name=batch_name,
+    ) for result, talent_name, paper_title, batch_no, batch_name in rows]
     return ok(paged_result(items, page, page_size, total))
 
 
-@router.get("/papers/{paper_id}", response_model=None)
-def get_paper(paper_id: int, db: Session = Depends(get_db)):
-    p = PaperDAO.get(db, paper_id)
-    if not p:
-        raise HTTPException(404, "试卷不存在")
-    out = PaperDetailOut.model_validate(p)
-    out.question_count = len(p.items)
-    out.questions = [QuestionOut.from_model(pq.question) for pq in p.items]
-    return ok(out)
-
-
-@router.post("/papers", response_model=None,
-             dependencies=[Depends(require_permission("assessment:paper"))])
-def create_paper(body: PaperCreate, user=Depends(get_current_user), db: Session = Depends(get_db)):
-    p = AssessmentService.create_paper(db, body, user.id)
-    db.commit()
-    out = PaperDetailOut.model_validate(p)
-    out.question_count = len(p.items)
-    out.questions = [QuestionOut.from_model(pq.question) for pq in p.items]
-    return ok(out)
-
-
-@router.post("/papers/auto", response_model=None,
-             dependencies=[Depends(require_permission("assessment:paper"))])
-def create_paper_auto(body: PaperAutoCreate, user=Depends(get_current_user),
-                      db: Session = Depends(get_db)):
-    """智能抽题组卷：AI 按条件从题库自动选题。"""
-    p = AssessmentService.create_paper_auto(db, body, user.id)
-    db.commit()
-    out = PaperDetailOut.model_validate(p)
-    out.question_count = len(p.items)
-    out.questions = [QuestionOut.from_model(pq.question) for pq in p.items]
-    return ok(out)
-
-
-@router.put("/papers/{paper_id}", response_model=None,
-            dependencies=[Depends(require_permission("assessment:paper"))])
-def update_paper(paper_id: int, body: PaperUpdate, db: Session = Depends(get_db)):
-    p = PaperDAO.get(db, paper_id)
-    if not p:
-        raise HTTPException(404, "试卷不存在")
-    p = AssessmentService.update_paper(db, p, body)
-    db.commit()
-    out = PaperDetailOut.model_validate(p)
-    out.question_count = len(p.items)
-    out.questions = [QuestionOut.from_model(pq.question) for pq in p.items]
-    return ok(out)
-
-
-@router.delete("/papers/{paper_id}", response_model=None,
-               dependencies=[Depends(require_permission("assessment:paper"))])
-def delete_paper(paper_id: int, db: Session = Depends(get_db)):
-    p = PaperDAO.get(db, paper_id)
-    if not p:
-        raise HTTPException(404, "试卷不存在")
-    AssessmentService.delete_paper(db, p)
-    db.commit()
-    return ok()
-
-
-# ============== 发起（A-3） ==============
-
-@router.post("/launch", response_model=None,
-             dependencies=[Depends(require_permission("assessment:launch"))])
-def launch(body: LaunchRequest, db: Session = Depends(get_db)):
-    items = AssessmentService.launch(db, body.paper_id, body.talent_ids)
-    # 关联人才姓名（用于返回）
-    talents = {t.id: t.name for t in db.query(Talent).filter(
-        Talent.id.in_([i.talent_id for i in items])).all()}
-    out_items = [LaunchResultItem(
-        result_id=i.id, talent_id=i.talent_id, talent_name=talents.get(i.talent_id),
-        paper_id=i.paper_id, status=i.status,
-    ) for i in items]
-    db.commit()
-    return ok(LaunchResponse(
-        paper_id=body.paper_id,
-        launched_count=len(items),
-        items=out_items,
+@router.get("/results/statistics", dependencies=[Depends(require_permission("assessment:stat"))])
+def result_statistics(
+    talent_id: int | None = Query(default=None, gt=0),
+    paper_id: int | None = Query(default=None, gt=0),
+    batch_id: int | None = Query(default=None, gt=0),
+    db: Session = Depends(get_db),
+):
+    return ok(AssessmentStatisticsOut.model_validate(
+        AssessmentService.statistics(db, talent_id=talent_id, paper_id=paper_id, batch_id=batch_id)
     ))
 
 
-# ============== 待测 / 答题视图 / 提交（A-4） ==============
-
-@router.get("/todo", response_model=None)
-def todo(talent_id: int = Query(..., description="人才 ID"),
-         db: Session = Depends(get_db)):
-    rows = ResultDAO.todo_by_talent(db, talent_id)
-    items = []
-    for r in rows:
-        items.append(TodoItemOut(
-            result_id=r.id, paper_id=r.paper_id, paper_title=r.paper.title,
-            duration=r.paper.duration, total_score=r.paper.total_score,
-            status=r.status, question_count=len(r.paper.items), created_at=r.created_at,
-        ))
-    return ok(items)
-
-
-@router.get("/results/{result_id}/answer", response_model=None)
-def get_answer_view(result_id: int, db: Session = Depends(get_db)):
-    r = ResultDAO.get(db, result_id)
-    if not r:
-        raise HTTPException(404, "测评批次不存在")
-    if r.status in (2, 3):
-        raise HTTPException(400, "该批次已结束")
-    # 进入答题状态
-    AssessmentService.start(db, r)
-    db.commit()
-    items = []
-    for pq in r.paper.items:
-        q = pq.question
-        opts = None
-        if q.options:
-            try:
-                import json
-                opts = json.loads(q.options)
-            except Exception:
-                opts = None
-        items.append(AnswerViewQuestion(
-            id=q.id, type=q.type, content=q.content, options=opts,
-            score=q.score, dimension=q.dimension, sort=pq.sort,
-        ))
-    previous = []
-    if r.answer_json:
-        try:
-            import json
-            arr = json.loads(r.answer_json)
-            previous = [AnswerItem(question_id=a["question_id"], user_answer=a["user_answer"])
-                        for a in arr]
-        except Exception:
-            pass
-    return ok(AnswerViewOut(
-        result_id=r.id, paper_id=r.paper_id, paper_title=r.paper.title,
-        duration=r.paper.duration, total_score=r.paper.total_score,
-        status=r.status, questions=items, previous_answers=previous,
+@router.get("/batches", dependencies=[Depends(require_permission("assessment:stat"))])
+def list_assessment_batches(
+    paper_id: int | None = Query(default=None, gt=0),
+    status: int | None = Query(default=None, ge=1, le=2),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    db: Session = Depends(get_db),
+):
+    rows, total = AssessmentService.list_batches(
+        db, paper_id=paper_id, status=status, page=page, page_size=page_size
+    )
+    return ok(paged_result(
+        [AssessmentBatchOut.model_validate(row) for row in rows], page, page_size, total
     ))
 
 
-@router.post("/results/{result_id}/submit", response_model=None)
-def submit(result_id: int, body: SubmitRequest, db: Session = Depends(get_db)):
-    r = ResultDAO.get(db, result_id)
-    if not r:
-        raise HTTPException(404, "测评批次不存在")
-    r = AssessmentService.submit(db, r, body.answers)
-    db.commit()
-    return ok(ResultDetailResultOut.model_validate({
-        **ResultOut.model_validate(r).model_dump(),
-        "details": [ResultDetailOut.from_model(d) for d in r.details],
-    }))
+@router.get("/batches/{batch_id}", dependencies=[Depends(require_permission("assessment:stat"))])
+def get_assessment_batch(batch_id: int, db: Session = Depends(get_db)):
+    try:
+        batch = AssessmentService.get_batch(db, batch_id)
+        statistics = AssessmentService.batch_statistics(db, batch_id=batch_id)[0]
+        return ok({
+            "batch": AssessmentBatchOut.model_validate(batch),
+            "statistics": AssessmentBatchStatistic.model_validate(statistics),
+        })
+    except Exception as exc:
+        _raise_business_error(exc)
 
 
-# ============== 成绩（A-5） ==============
-
-@router.get("/stats", response_model=None)
-def assessment_stats(db: Session = Depends(get_db)):
-    """测评域统计（供测评首页看板）：总数/已完成/平均分/合格率/状态分布。"""
-    rows = db.query(Result).all()
-    total = len(rows)
-    submitted = sum(1 for r in rows if r.status >= 2)
-    reported = sum(1 for r in rows if r.status == 3)
-    # 平均分（按已交卷的）
-    scored = [r.score for r in rows if r.status >= 2 and r.total_count]
-    avg_score = round(sum(scored) / len(scored), 1) if scored else 0
-    # 合格率：得分 / 卷面实际总分 >= 60% 视为合格
-    passed = 0
-    graded = 0
-    for r in rows:
-        if r.status >= 2:
-            paper_total = sum((d.question.score for d in r.details), 0) or 1
-            graded += 1
-            if r.score / paper_total >= 0.6:
-                passed += 1
-    pass_rate = round(passed / graded * 100, 1) if graded else 0
-    # 状态分布
-    status_map = {0: "未作答", 1: "答题中", 2: "已交卷", 3: "已出报告"}
-    by_status = {v: 0 for v in status_map.values()}
-    for r in rows:
-        by_status[status_map.get(r.status, "未知")] += 1
-    return ok({
-        "total": total,
-        "submitted": submitted,
-        "reported": reported,
-        "avg_score": avg_score,
-        "pass_rate": pass_rate,
-        "by_status": by_status,
-        "recent": [ResultOut.model_validate(r) for r in sorted(rows, key=lambda x: x.id, reverse=True)[:8]],
-    })
+@router.get("/results/statistics/questions", dependencies=[Depends(require_permission("assessment:stat"))])
+def question_statistics(
+    paper_id: int | None = Query(default=None, gt=0),
+    batch_id: int | None = Query(default=None, gt=0),
+    db: Session = Depends(get_db),
+):
+    return ok(QuestionStatisticsOut(items=[
+        QuestionStatistic.model_validate(item)
+        for item in AssessmentService.question_statistics(db, paper_id=paper_id, batch_id=batch_id)
+    ]))
 
 
-@router.get("/results", response_model=None)
-def list_results(paper_id: int | None = None, status: int | None = Query(None, ge=0, le=3),
-                 talent_id: int | None = None,
-                 page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=200),
-                 db: Session = Depends(get_db)):
-    total = ResultDAO.count(db, paper_id, status, talent_id)
-    rows = ResultDAO.paged(db, paper_id, status, talent_id, page, page_size)
-    return ok(paged_result([ResultOut.model_validate(r) for r in rows], page, page_size, total))
+@router.get("/results/statistics/batches", dependencies=[Depends(require_permission("assessment:stat"))])
+def batch_statistics(
+    paper_id: int | None = Query(default=None, gt=0),
+    batch_id: int | None = Query(default=None, gt=0),
+    db: Session = Depends(get_db),
+):
+    return ok(AssessmentBatchStatisticsOut(items=[
+        AssessmentBatchStatistic.model_validate(item)
+        for item in AssessmentService.batch_statistics(db, batch_id=batch_id, paper_id=paper_id)
+    ]))
 
 
-@router.get("/results/{result_id}", response_model=None)
+@router.get("/result/{result_id}", dependencies=[Depends(require_permission("assessment:stat"))])
 def get_result(result_id: int, db: Session = Depends(get_db)):
-    r = ResultDAO.get(db, result_id)
-    if not r:
-        raise HTTPException(404, "测评批次不存在")
-    return ok(ResultDetailResultOut.model_validate({
-        **ResultOut.model_validate(r).model_dump(),
-        "details": [ResultDetailOut.from_model(d) for d in r.details],
-    }))
+    try:
+        detail = AssessmentService.get_result_detail(db, result_id)
+        result = AssessmentResultListOut(
+            **AssessmentResultOut.model_validate(detail["result"]).model_dump(),
+            talent_name=detail["talent_name"],
+            paper_title=detail["paper_title"],
+            paper_total_score=detail["result"].paper.total_score,
+            question_count=len(detail["result"].paper.question_links),
+        )
+        return ok({
+            "result": result,
+            "details": [ResultDetailOut.model_validate(item) for item in detail["details"]],
+            "events": [AnswerEventOut.model_validate(item) for item in detail["events"]],
+        })
+    except Exception as exc:
+        _raise_business_error(exc)
 
 
-# ============== Agent② 报告（A-6） ==============
+@router.get("/agent-tasks", dependencies=[Depends(get_current_user)])
+def list_agent_tasks(
+    result_id: int | None = Query(default=None, gt=0),
+    user: User = Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
+    try:
+        return ok([
+            AgentTaskOut.model_validate(item)
+            for item in AssessmentService.list_agent_tasks(db, result_id, user)
+        ])
+    except Exception as exc:
+        _raise_business_error(exc)
 
-@router.get("/results/{result_id}/report", response_model=None)
-def get_report(result_id: int, db: Session = Depends(get_db)):
-    r = ResultDAO.get(db, result_id)
-    if not r:
-        raise HTTPException(404, "测评批次不存在")
-    if r.status in (STATUS_PENDING,) or r.report_json is None:
-        report = AssessmentService.generate_report(db, r)
-    else:
-        import json
-        report = json.loads(r.report_json)
-    db.commit()
-    return ok(ReportStubOut(result_id=r.id, **report))
+
+@router.get("/agent-tasks/{task_id}", dependencies=[Depends(get_current_user)])
+def get_agent_task(task_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    try:
+        return ok(AgentTaskOut.model_validate(AssessmentService.get_agent_task(db, task_id, user)))
+    except Exception as exc:
+        _raise_business_error(exc)
 
 
-# 内部引用，避免 linter 报 unused
-_ = (ResultDetail, datetime)
+@router.get("/result/{result_id}/report", dependencies=[Depends(get_current_user)])
+def get_report(result_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    try:
+        report = AssessmentService.get_report(db, result_id, user)
+        db.commit()
+        return ok(AssessmentReportOut.model_validate(report))
+    except Exception as exc:
+        db.rollback()
+        _raise_business_error(exc)
+
+
+@router.post("/result/{result_id}/report", dependencies=[Depends(get_current_user)])
+def generate_report(result_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    try:
+        report = AssessmentService.get_report(db, result_id, user)
+        db.commit()
+        return ok(AssessmentReportOut.model_validate(report))
+    except Exception as exc:
+        db.rollback()
+        _raise_business_error(exc)
+
+
+@router.post("/result/{result_id}/link-training", dependencies=[Depends(get_current_user)])
+def link_training(result_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    try:
+        link = AssessmentService.link_training(db, result_id, user)
+        db.commit()
+        return ok(TrainingLinkOut.model_validate(link))
+    except Exception as exc:
+        db.rollback()
+        _raise_business_error(exc)
+
+
+@router.get("/result/{result_id}/training-link", dependencies=[Depends(get_current_user)])
+def get_training_link(result_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    try:
+        link = AssessmentService.get_training_link(db, result_id, user)
+        return ok(TrainingLinkOut.model_validate(link))
+    except Exception as exc:
+        _raise_business_error(exc)
+
+
+@router.post("/result/{result_id}/training-link/retry", dependencies=[Depends(get_current_user)])
+def retry_training_link(result_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    try:
+        link = AssessmentService.retry_training_link(db, result_id, user)
+        db.commit()
+        return ok(TrainingLinkOut.model_validate(link))
+    except Exception as exc:
+        db.rollback()
+        _raise_business_error(exc)
