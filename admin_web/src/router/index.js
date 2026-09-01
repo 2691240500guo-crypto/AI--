@@ -16,6 +16,17 @@ const routes = [
       { path: 'matching/position', name: 'matching-position', component: () => import('@/views/matching/Position.vue'), meta: { title: '岗位管理', static: true } },
       { path: 'matching/result', name: 'matching-result', component: () => import('@/views/matching/Result.vue'), meta: { title: '匹配结果', static: true } },
       { path: 'matching/agent', name: 'matching-agent', component: () => import('@/views/matching/Agent.vue'), meta: { title: '岗位人才匹配Agent', static: true } },
+      // 人才档案域（T 域，hy 分支合并）：详情/新增/编辑/简历解析/治理/RAG 静态路由
+      { path: 'talent/detail/:id', name: 'talent-detail', component: () => import('@/views/talent/detail.vue'), meta: { title: '人才档案详情', static: true } },
+      { path: 'talent/new', name: 'talent-new', component: () => import('@/views/talent/edit.vue'), meta: { title: '新增人才档案', static: true } },
+      { path: 'talent/edit/:id', name: 'talent-edit', component: () => import('@/views/talent/edit.vue'), meta: { title: '编辑人才档案', static: true } },
+      { path: 'talent/upload', name: 'talent-upload', component: () => import('@/views/talent/ResumeImport.vue'), meta: { title: '简历智能解析', static: true } },
+      { path: 'talent/governance', name: 'talent-governance', component: () => import('@/views/talent/Governance.vue'), meta: { title: '数据治理', static: true } },
+      { path: 'talent/rag', name: 'talent-rag', component: () => import('@/views/talent/RagQA.vue'), meta: { title: 'RAG 研判', static: true } },
+      // 在线学习（hy 分支合并）：视频/课程/进度
+      { path: 'course/videos', name: 'course-videos', component: () => import('@/views/course/VideoManage.vue'), meta: { title: '视频管理', static: true } },
+      { path: 'course/list', name: 'course-list', component: () => import('@/views/course/CourseList.vue'), meta: { title: '课程列表', static: true } },
+      { path: 'course/progress', name: 'course-progress', component: () => import('@/views/course/CourseProgress.vue'), meta: { title: '学习进度', static: true } },
       // 智能测评-在线答题（A 域独立答题页，不在菜单里，静态注册保证可直接访问）
       { path: 'assessment/answer/:id', name: 'assessment-answer', component: () => import('@/views/assessment/answer.vue'), meta: { title: '在线答题', static: true } }
     ]
@@ -28,13 +39,22 @@ const router = createRouter({ history: createWebHistory(), routes })
 
 // ===== 动态路由：按 /menus/mine 下发的菜单注册 =====
 // 菜单表 component 字段约定：相对 src/views 的路径，如 system/User -> views/system/User.vue
-const viewModules = import.meta.glob('@/views/**/*.vue')
+// 使用 src 绝对路径可确保 Vite 在开发和生产构建中生成同一份模块索引。
+const viewModules = import.meta.glob('/src/views/**/*.vue')
 
 function resolveComponent(component) {
   if (!component) return null
-  // 菜单 component 可能是 system/User，而文件是 system/user.vue —— 统一小写后匹配
-  const norm = component.replace(/\.vue$/, '').toLowerCase()
-  const hit = Object.keys(viewModules).find((k) => k.toLowerCase().endsWith(`/${norm}.vue`))
+  // 菜单 component 可能带 views/、src/ 或 .vue 后缀，统一后再匹配文件索引。
+  const norm = component
+    .replace(/^@?\/?src\/views\//i, '')
+    .replace(/^views\//i, '')
+    .replace(/^\/+/, '')
+    .replace(/\.vue$/, '')
+    .toLowerCase()
+  const hit = Object.keys(viewModules).find((key) => {
+    const normalizedKey = key.replace(/\\/g, '/').toLowerCase()
+    return normalizedKey.endsWith(`/views/${norm}.vue`)
+  })
   // 命中返回懒加载组件；未命中返回 null（页面缺失时渲染空，避免构建期动态 import 报错）
   return hit ? viewModules[hit] : null
 }
@@ -47,7 +67,7 @@ export function registerDynamicRoutes(menus) {
   for (const c of children) {
     if (router.hasRoute(c.name)) router.removeRoute(c.name)
   }
-  const leaf = menus.filter((m) => m.type === 2 && m.path)   // 菜单页
+  const leaf = menus.filter((m) => m.type === 2 && m.path && m.status !== 0).sort((a, b) => (a.sort - b.sort) || (a.id - b.id))
   const folders = menus.filter((m) => m.type === 1)           // 目录
   for (const m of leaf) {
     const fullPath = m.path.startsWith('/') ? m.path : `/${m.path}`
@@ -81,6 +101,7 @@ router.beforeEach(async (to) => {
       await user.restore()
     } catch (e) {
       console.warn('[router] restore failed:', e?.message)
+      if (to.name === 'not-found') return to.fullPath
     }
   }
   if (to.meta.title) document.title = `${to.meta.title} · AI 人才平台`

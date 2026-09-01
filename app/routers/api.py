@@ -3,6 +3,7 @@ from fastapi import APIRouter
 
 from app.routers import auth, user, role, menu, dept, dict_item, message, audit, matching
 from app.routers import analytics, training, assessment
+from app.routers import talent, talent_dict, resume, course  # hy 分支合并：人才档案/标签/简历/在线学习
 
 api = APIRouter()
 api.include_router(auth.router, prefix="/auth", tags=["auth"])
@@ -19,3 +20,8 @@ api.include_router(matching.router, prefix="/matching", tags=["matching"])
 api.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
 api.include_router(training.router, prefix="/training", tags=["training"])
 api.include_router(assessment.router, prefix="/assessment", tags=["assessment"])
+# ---- hy 分支合并 ----
+api.include_router(talent.router, prefix="/talent", tags=["talent"])
+api.include_router(talent_dict.router, prefix="/talent-dicts", tags=["talent-dict"])
+api.include_router(resume.router, prefix="/resume", tags=["resume"])
+api.include_router(course.router, prefix="/course", tags=["course"])

@@ -31,12 +31,13 @@ bcrypt==4.1.*             # passlib 的 bcrypt 后端
 # ============================================================
 
 # ---------- 业务工具（二期接入时取消注释）----------
-# openpyxl==3.1.*          # Excel 批量导入/导出（T 人才档案 B02/B04）
+openpyxl==3.1.*            # Excel 批量导入/导出（C 智能测评 A-1）
 # redis==5.0.*             # 缓存/限流/会话（config 已配 REDIS_URL，尚未接入）
 
-# ---------- AI 引擎（工具层已就绪，按需启用；默认不装规避 pydantic 冲突）----------
-# ollama>=0.3.0            # 大模型推理 + Embedding（app/utils/llm.py）
+# ---------- AI 引擎 ----------
+# ollama>=0.3.0            # 其他模块可选，本 C Agent 不使用
 # pymilvus>=2.4.0          # 向量数据库（app/utils/vector_store.py）
 # minio>=7.2.0             # 对象存储（app/utils/object_storage.py）
-langgraph==0.2.67          # 多 Agent 状态机编排（app/ai/graph.py，P1 协同图）
-# langchain>=0.3.0         # 可选：复杂 Agent / RAG 编排（Agent 直接用工具层，暂不需要）
+# langchain>=0.3.0         # 可选：复杂 Agent / RAG 编排
+langgraph>=0.2.0,<1.0     # C 测评 Agent 状态图
+httpx>=0.27,<1.0          # 硅基流动 OpenAI 兼容接口
