@@ -19,7 +19,7 @@ miniapp/dist/
 Thumbs.db
 
 # ---- 构建验证产物 / vite 临时文件 ----
-admin_web/dist-verify/
+admin_web/dist-verify*/
 *.timestamp-*.mjs
 
 # ---- 工作区数据（本地记忆，不共享）----
