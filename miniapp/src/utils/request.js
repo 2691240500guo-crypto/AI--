@@ -1,6 +1,13 @@
-// 请求封装：带 token、统一响应、401 续期（H5 版）
-// 后端路由前缀为 /api/v1（见 app/core/config.py），通过 vite 代理 /api → 127.0.0.1:8000
-const BASE_URL = '/api/v1'
+// 请求封装：带 token、统一响应、401 续期（多端版）
+// 后端路由前缀为 /api/v1（见 app/core/config.py）
+// - H5 dev：通过 vite.config.js 代理 /api → 127.0.0.1:8000（BASE_URL 用相对路径）
+// - 微信小程序：
+//     * 微信开发者工具模拟器：与 IDE 同命名空间，直接访问 127.0.0.1:8000 可通
+//     * 真机预览：需要后端公网可达（部署到云服务器 / 内网穿透 / 固定公网 IP）
+//     * 上线时改为 HTTPS 备案域名，并在微信公众平台配置 request 合法域名
+//     * 工具需勾选「不校验合法域名」（开发期）
+const API_HOST_MP = 'http://127.0.0.1:8000'
+const BASE_URL = process.env.UNI_PLATFORM === 'mp-weixin' ? `${API_HOST_MP}/api/v1` : '/api/v1'
 
 export function request(options) {
   return new Promise((resolve, reject) => {

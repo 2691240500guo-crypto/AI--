@@ -7,22 +7,24 @@
     { "path": "pages/ai/ai", "style": { "navigationBarTitleText": "AI 助手" } },
     { "path": "pages/profile/profile", "style": { "navigationBarTitleText": "我的档案" } },
     { "path": "pages/assessment/assessment", "style": { "navigationBarTitleText": "在线测评" } },
-    { "path": "pages/assessment/quiz", "style": { "navigationBarTitleText": "答题中" } },
-    { "path": "pages/study/study", "style": { "navigationBarTitleText": "在线学习" } }
+    { "path": "pages/study/study", "style": { "navigationBarTitleText": "在线学习" } },
+    { "path": "pages/matching/agent", "style": { "navigationBarTitleText": "Agent 智能匹配" } }
   ],
   "tabBar": {
     "color": "#9ca3af",
     "selectedColor": "#2563eb",
     "backgroundColor": "#ffffff",
     "list": [
-      { "pagePath": "pages/index/index", "text": "首页" },
-      { "pagePath": "pages/message/message", "text": "消息" },
-      { "pagePath": "pages/mine/mine", "text": "我的" }
+      { "pagePath": "pages/index/index", "text": "首页", "iconPath": "static/tabbar/home.png", "selectedIconPath": "static/tabbar/home_active.png" },
+      { "pagePath": "pages/assessment/assessment", "text": "测评", "iconPath": "static/tabbar/assessment.png", "selectedIconPath": "static/tabbar/assessment_active.png" },
+      { "pagePath": "pages/study/study", "text": "学习", "iconPath": "static/tabbar/study.png", "selectedIconPath": "static/tabbar/study_active.png" },
+      { "pagePath": "pages/message/message", "text": "消息", "iconPath": "static/tabbar/message.png", "selectedIconPath": "static/tabbar/message_active.png" },
+      { "pagePath": "pages/mine/mine", "text": "我的", "iconPath": "static/tabbar/mine.png", "selectedIconPath": "static/tabbar/mine_active.png" }
     ]
   },
   "globalStyle": {
-    "navigationBarTextStyle": "black",
-    "navigationBarBackgroundColor": "#ffffff",
-    "backgroundColor": "#f5f7fa"
+    "navigationBarTextStyle": "white",
+    "navigationBarBackgroundColor": "#2563eb",
+    "backgroundColor": "#f6f7f9"
   }
 }
