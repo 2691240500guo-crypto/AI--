@@ -43,6 +43,17 @@ class Settings(BaseSettings):
     OLLAMA_EMBED_MODEL: str = "nomic-embed-text"
     OLLAMA_TIMEOUT: int = 120
 
+    # ---- 硅基流动（SiliconFlow，OpenAI 兼容 API，按需启用）----
+    # LLM_STRATEGY: "ollama" | "silicon_flow"，控制 chat/embed 走哪个后端
+    LLM_STRATEGY: str = "ollama"
+    SILICON_FLOW_API_KEY: str = ""
+    SILICON_FLOW_BASE_URL: str = "https://api.siliconflow.cn/v1"
+    SILICON_FLOW_LLM_MODEL: str = "Qwen/Qwen3-30B-A3B-Instruct-2507"
+    SILICON_FLOW_EMBED_MODEL: str = "BAAI/bge-m3"
+    SILICON_FLOW_ASR_MODEL: str = "Qwen/Qwen3-Omni-30B-A3B-Instruct"
+    SILICON_FLOW_TTS_MODEL: str = "FunAudioLLM/CosyVoice2-0.5B"
+    SILICON_FLOW_TTS_VOICE: str = "FunAudioLLM/CosyVoice2-0.5B:claire"
+
     MILVUS_HOST: str = "localhost"
     MILVUS_PORT: int = 19530
     MILVUS_DB_NAME: str = "default"

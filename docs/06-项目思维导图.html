@@ -1,0 +1,184 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI数字化人才平台 · 全景思维导图</title>
+<style>
+  html, body { margin: 0; padding: 0; height: 100%; overflow: hidden; font-family: "Microsoft YaHei", "PingFang SC", sans-serif; }
+  #mindmap { width: 100vw; height: 100vh; display: block; }
+  .tip { position: fixed; left: 12px; bottom: 10px; font-size: 12px; color: #888; background: rgba(255,255,255,.85); padding: 4px 10px; border-radius: 6px; z-index: 9; pointer-events: none; }
+</style>
+</head>
+<body>
+<svg id="mindmap"></svg>
+<div class="tip">滚轮缩放 · 拖拽平移 · 点击节点展开/收起</div>
+<script src="https://cdn.jsdelivr.net/npm/d3@7"></script>
+<script src="https://cdn.jsdelivr.net/npm/markmap-view@0.15"></script>
+<script src="https://cdn.jsdelivr.net/npm/markmap-lib@0.15"></script>
+<script>
+const markdown = `
+# AI数字化人才平台 · 项目全景思维导图
+
+## 项目概况
+- 定位：AI 人才管理全流程平台（MVP 三日冲刺，08-31 ~ 09-02 演示版）
+- 技术栈：FastAPI + Vue3/Element Plus + uni-app + Ollama + Milvus + MinIO + LangChain/LangGraph
+- 验收主线：登录 → 档案入库 → 测评出报告 → 岗位匹配 → 培训推送 → NL2SQL 问数
+- 硬性要求：多 Agent 协同至少一条闭环可演示
+- 团队：13 人（P1~P13），全栈模块独立开发，公共代码归 P1
+
+## A 系统权限域（基座 · 已完成）
+- A01-A03 认证登录 / JWT / 微信登录
+  - 依赖：无（底座）；微信登录仅留桩待接
+- A04 用户管理
+  - 依赖：A01 认证；手机号/邮箱已按角色脱敏返回（I03）
+- A05 角色管理（RBAC）
+  - 依赖：A04 用户
+- A06 菜单 / 权限码
+  - 依赖：A05 角色；/menus/mine 动态下发
+- A07 部门 / 岗位
+- A08 操作日志
+- A09 登录日志
+  - 依赖：A01 登录链路
+- A10 验证码
+  - 依赖：Redis（未接入 · 缺口）
+- A11 数据字典
+- 横切基建：统一响应 / 异常 / 日志 / 审计中间件 / Alembic / 云端 MySQL
+
+## B 人才档案域（二期 · P2/P3）
+- B01-B03 档案 CRUD / 查重合并
+  - 依赖：A 域鉴权、A11 字典
+- B04 Excel 导入导出
+- B05 标签体系
+  - 自动标签来自 Agent①
+- B06 多维查询 / 导出
+  - 手机号/身份证脱敏输出（I03 工具）
+- B07 向量画像
+  - 依赖：AI 工具层（Milvus Embedding）
+  - 产物人才向量 → 供 Agent③ 匹配
+
+## C 智能测评域（二期 · P4/P5）
+- C01-C02 题库 CRUD
+  - 依赖：A11 字典（题型/难度）
+- C03 组卷（随机/手动）
+- C04 发起测评
+  - 依赖：B 域档案（被测评人）
+- C05 在线作答 / 自动判分
+- C06 成绩统计
+- C07 测评 → 培训联动
+  - 触发 Agent④ 生成培训计划（A-7）
+
+## D 岗位匹配域（二期 · P6/P7）
+- D01-D02 岗位 CRUD / 岗位画像化
+  - 岗位向量 → 供 Agent③
+- D03 双向匹配算法
+  - 依赖：B07 人才向量 + D02 岗位向量 + Agent③
+- D04 匹配解释推荐
+  - 依赖：Agent③（Ollama 解释依据）
+- D05 储备 / 空缺预警
+  - 结果推送 MSG 消息
+
+## E 智能培训域（二期 · P8/P9）
+- E01-E02 课程库 / 学习计划
+  - 依赖：D02 岗位能力要求（选课依据）
+- E03 在线考核
+- E04 考核成绩
+- E05 效果分析
+  - 依赖：C 域测评成绩对比
+
+## F 数据决策域（二期 · P10/P11）
+- F01 可视化看板
+  - 依赖：B/C/D/E 全业务表聚合
+- F02 多维筛选
+- F03 NL2SQL 问数
+  - 依赖：Agent⑤ + 只读数据库连接
+- F04 报表导出
+
+## G 知识库域（二期 · P2）
+- G01-G03 知识库 CRUD / 文档上传 / 解析
+- G04 RAG 检索问答
+  - 依赖：AI 工具层（RAG = LLM + Milvus）
+- G05 Prompt 管理
+- 用途：Agent②④ 生成报告/计划的参考知识源
+
+## H 消息与通知域（基座 · 已完成）
+- H01 消息收发中心
+  - 依赖：A 域用户
+- H02 已读 / 未读
+- H03 业务触发推送
+  - 各业务域调用 notify() 一行推送；Agent④ 计划经此推送
+- H04 小程序推送
+  - 未实现（缺口）
+
+## I 审计与安全域（基座 · 大部分完成）
+- I01 全操作留痕
+  - 审计中间件自动落库（已完成）
+- I02 日志检索 / 导出
+  - CSV 导出已完成
+- I03 加密脱敏
+  - 脱敏工具 masking.py 已完成
+  - 登录限流 / Redis 未实现（缺口）
+
+## J 移动端（部分完成）
+- J01 登录（已完成）
+- J02 首页概览
+- J03 我的档案
+  - 依赖：B 域接口
+- J04 在线测评
+  - 依赖：C 域接口
+- J05 在线学习
+  - 依赖：E 域接口
+- J06 消息中心（已完成）
+- J07 AI 助手
+  - 依赖：F03 NL2SQL + G04 RAG
+- J08 个人中心
+
+## 五大 Agent 协同（二期 · 各域负责）
+- Agent① 简历解析（P2/P3）
+  - 输入：简历文件（PDF/Word/图片）
+  - 输出：结构化档案 + 自动标签 + 人才向量
+  - 依赖：AI 工具层（LLM + Milvus）、B 域落库
+  - 被依赖：Agent③（人才向量）、B07 向量画像
+- Agent② 测评分析（P4/P5）
+  - 输入：成绩 + 履历
+  - 输出：雷达图 / 短板清单 / 评级（回写 tal_talent.level）
+  - 依赖：C 域成绩、B 域履历
+  - 被依赖：Agent④（短板清单）
+- Agent③ 岗位匹配（P6/P7）
+  - 输入：人才向量 + 岗位向量
+  - 输出：匹配度 0-100 + 解释推荐
+  - 依赖：Agent① 的人才向量、D02 岗位向量
+- Agent④ 培训推送（P8/P9）
+  - 输入：短板清单 + 岗位能力要求
+  - 输出：学习计划 + MSG 推送
+  - 依赖：Agent② 短板、D02 岗位能力
+- Agent⑤ NL2SQL（P10/P11）
+  - 输入：自然语言问题
+  - 输出：SQL + 结果集 + 图表配置
+  - 依赖：B/C/D/E 各表（只读）、MySQL
+- LangGraph 协同图（P1 · 明日核心）
+  - 状态定义：talent_id / report / plan / retest_count
+  - 闭环 A 成长：Agent① → 测评 → Agent② 报告 → Agent④ 计划 → 复测循环
+  - 闭环 B 人岗：Agent① 向量 → Agent③ 匹配 → 预警 → 推送
+  - 闭环 C 问数：Agent⑤ 直查 → 出图 → 报表导出
+  - 任务落库：ai_agent_task（pending/running/done/failed）
+
+## 依赖关系速查（核心）
+- Agent③ ← 依赖 Agent① 的人才向量（Milvus）
+- Agent④ ← 依赖 Agent② 的短板清单（测评报告）
+- Agent④ ← 依赖 D02 岗位能力要求
+- Agent③ ← 依赖 D02 岗位向量
+- B07 向量画像 ← 依赖 Agent① 解析结果
+- C07 培训联动 → 触发 Agent④
+- Agent⑤ → 只读消费 B/C/D/E 全部数据
+- 全部 Agent → 依赖 AI 工具层四件套（llm/vector/rag/storage）
+- 全部业务域 → 依赖 A 域鉴权（JWT + RBAC）
+- 全部推送 → 依赖 H03 消息服务
+- 全部脱敏字段 → 依赖 I03 masking 工具
+`;
+const { Transformer, Markmap } = window.markmap;
+const { root } = new Transformer().transform(markdown);
+Markmap.create('#mindmap', { autoFit: true, colorFreezeLevel: 2, spacingVertical: 6, spacingHorizontal: 80 }, root);
+</script>
+</body>
+</html>

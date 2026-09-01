@@ -38,5 +38,5 @@ bcrypt==4.1.*             # passlib 的 bcrypt 后端
 # ollama>=0.3.0            # 大模型推理 + Embedding（app/utils/llm.py）
 # pymilvus>=2.4.0          # 向量数据库（app/utils/vector_store.py）
 # minio>=7.2.0             # 对象存储（app/utils/object_storage.py）
-# langchain>=0.3.0         # 可选：复杂 Agent / RAG 编排
-# langgraph>=0.2.0         # 可选：多 Agent 状态机流程
+langgraph>=0.2.0          # 多 Agent 状态机编排（app/ai/graph.py，P1 协同图）
+# langchain>=0.3.0         # 可选：复杂 Agent / RAG 编排（Agent 直接用工具层，暂不需要）
