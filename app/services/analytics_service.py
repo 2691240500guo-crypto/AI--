@@ -14,7 +14,7 @@ def overview(db: Session) -> dict:
     return {
         "talent_total": analytics_dao.talent_total(db),
         "talent_by_degree": analytics_dao.talent_by_degree(db),
-        "talent_by_level": {},          # TODO: 等级结构，待 P2 字段确认
+        "talent_by_level": analytics_dao.talent_by_level(db),
         "assess_pass_rate": analytics_dao.assess_pass_rate(db),
         "training_completion_rate": analytics_dao.training_completion_rate(db),
         "match_avg_score": analytics_dao.match_avg_score(db),
@@ -22,15 +22,28 @@ def overview(db: Session) -> dict:
 
 
 def trend(db: Session, metric: str, days: int = 30) -> list[dict]:
-    """趋势序列（D-1 折线图）。metric: talent_new / assess_done / training_done。"""
-    # TODO: 按 metric 分发到 dao 对应函数，按日聚合
-    return []
+    """趋势序列（D-1 折线图）。metric: talent_new / training_new / match_new / assess_done。"""
+    _METRIC_MAP = {
+        "talent_new": "talent",
+        "assess_done": "asm_result",
+        "training_new": "training_plan",
+        "match_new": "match_result",
+    }
+    key = _METRIC_MAP.get(metric)
+    if not key:
+        logger.warning("trend 未知 metric=%s，返回空", metric)
+        return []
+    return analytics_dao.daily_new_counts(db, key, days)
 
 
 def distribution(db: Session, dimension: str) -> list[dict]:
-    """分布数据（D-1 饼图）。dimension: degree / level / skill / dept。"""
-    # TODO: dimension 白名单校验后分发
-    return []
+    """分布数据（D-1 饼图）。dimension: degree / level / skill / position / dept。"""
+    _ALLOWED = {"degree", "level", "skill", "position", "dept"}
+    if dimension not in _ALLOWED:
+        logger.warning("distribution 未知维度 %s，返回空", dimension)
+        return []
+    return analytics_dao.distribution_items(db, dimension)
+
 
 def _shift_period(start: date, end: date, compare: str) -> tuple[date, date]:
     """把时间窗口整体前移一个对比周期。
@@ -151,10 +164,14 @@ def build_excel(headers: list[str], rows: list[list], sheet_title: str = "报表
     return buf.getvalue()
 
 def _fetch_rows(db: Session, report_type: str, filters: dict) -> list[list]:
-    """取数：filters 原样透传给 DAO 白名单，保证导出与看板筛选口径一致。"""
+    """按报表类型取数（导出用）。filters 透传 DAO 白名单，与看板口径一致。"""
     logger.info("导出取数 report_type=%s filters=%s", report_type, filters)
-    # TODO(P10, D2): 换真实 ORM 取行（复用 dao 白名单，count 改 select 列即可）
-    return [[1, "示例数据", "本科", "A", 3]] if report_type == "talent" else []
+    if report_type == "talent":
+        return analytics_dao.talent_rows(db, filters)
+    # TODO(P10): assess / match / training 报表取数（等对应模型字段确认后补）
+    logger.warning("报表类型 %s 取数未实现，导出空表", report_type)
+    return []
+
 
 
 def export_report(db: Session, params: dict) -> dict:
@@ -169,7 +186,7 @@ def export_report(db: Session, params: dict) -> dict:
     rows = _fetch_rows(db, report_type, filters)
 
     # 数据量兜底：单表导出上限 5 万行，防止一次导出拖垮数据库
-    if len(rows) > MAX_EXPORT_ROWS:
+    if len(rows) > MAX_EXPORT_ROWS:          #单表导出上限 5 万行,对应dao层def talent_rows(...limit: int = 50_000)
         raise BusinessError(400, f"导出数据量过大（{len(rows)} 行），请缩小筛选范围")
 
     data = build_excel(headers, rows, title)
