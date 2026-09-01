@@ -14,6 +14,11 @@ const detail = reactive({ visible: false, row: null, loading: false })
 const form = reactive({ type_code: 'system', title: '', content: '', receiver_ids: [], push_miniapp: 0 })
 const typeMap = { system: '系统', assess: '测评', train: '培训', approve: '审批', recommend: '推荐' }
 
+function formatTime(value) {
+  if (!value) return '—'
+  return value.replace('T', ' ').slice(0, 19)
+}
+
 async function load() {
   loading.value = true
   try {
@@ -49,13 +54,20 @@ async function openDetail(row) {
 }
 
 async function doPush(row) {
-  await pushMessageReminder(row.id)
-  ElMessage.success('已触发补推')
+  if (row.push_miniapp === 1) {
+    try {
+      await ElMessageBox.confirm('该消息已推送过，是否再次提醒？', '再次补推', { type: 'warning' })
+    } catch {
+      return
+    }
+  }
+  const res = await pushMessageReminder(row.id)
+  ElMessage.success(res.data.pushed ? '已触发补推' : '已推送过，未重复处理')
   load()
 }
 
 function openSend() {
-  Object.assign(form, { type_code: 'system', title: '', content: '', receiver_ids: [], push_miniapp: 0 })
+  Object.assign(form, { type_code: 'system', title: '', content: '', receiver_ids: '', push_miniapp: 0 })
   dialog.visible = true
 }
 
@@ -64,7 +76,10 @@ async function send() {
     ElMessage.warning('请填写标题')
     return
   }
-  await sendMessage(form)
+  const receiverIds = typeof form.receiver_ids === 'string' && form.receiver_ids.trim()
+    ? form.receiver_ids.split(',').map(s => Number(s.trim())).filter(n => Number.isInteger(n))
+    : []
+  await sendMessage({ ...form, receiver_ids: receiverIds })
   ElMessage.success('已发送')
   dialog.visible = false
   load(); loadUnread()
@@ -101,12 +116,14 @@ onMounted(() => { load(); loadUnread() })
           <el-tag :type="row.push_miniapp === 1 ? 'success' : 'info'" size="small">{{ row.push_miniapp === 1 ? '已推' : '未推' }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="created_at" label="时间" width="180" />
+      <el-table-column label="时间" width="180">
+        <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
+      </el-table-column>
       <el-table-column label="操作" width="210">
         <template #default="{ row }">
           <el-button link type="primary" @click="read(row)">{{ row.is_read ? '已读' : '标记已读' }}</el-button>
           <el-button link type="primary" @click="openDetail(row)">详情</el-button>
-          <el-button link type="warning" :disabled="row.push_miniapp === 1" @click="doPush(row)">补推</el-button>
+          <el-button link type="warning" @click="doPush(row)">补推</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -146,7 +163,7 @@ onMounted(() => { load(); loadUnread() })
       <el-descriptions-item label="发送人ID">{{ detail.row.sender_id ?? '—' }}</el-descriptions-item>
       <el-descriptions-item label="推送状态">{{ detail.row.push_miniapp === 1 ? '已推' : '未推' }}</el-descriptions-item>
       <el-descriptions-item label="已读状态">{{ detail.row.is_read ? '已读' : '未读' }}</el-descriptions-item>
-      <el-descriptions-item label="时间">{{ detail.row.created_at }}</el-descriptions-item>
+      <el-descriptions-item label="时间">{{ formatTime(detail.row.created_at) }}</el-descriptions-item>
     </el-descriptions>
   </el-dialog>
 </template>

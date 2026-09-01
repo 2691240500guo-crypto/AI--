@@ -9,6 +9,11 @@ const loading = ref(false)
 const query = reactive({ page: 1, page_size: 20, username: '' })
 const timeRange = ref([])
 
+function formatTime(value) {
+  if (!value) return '—'
+  return value.replace('T', ' ').slice(0, 19)
+}
+
 async function load() {
   loading.value = true
   try {
@@ -66,7 +71,9 @@ onMounted(load)
       </el-table-column>
       <el-table-column prop="message" label="说明" min-width="160" show-overflow-tooltip />
       <el-table-column prop="ip" label="IP" width="140" />
-      <el-table-column prop="created_at" label="时间" width="180" />
+      <el-table-column label="时间" width="180">
+        <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
+      </el-table-column>
     </el-table>
 
     <el-pagination style="margin-top:14px;justify-content:flex-end" layout="total, prev, pager, next" :total="total"

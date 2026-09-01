@@ -13,6 +13,11 @@ const methodTag = {
   GET: 'info', POST: 'success', PUT: 'warning', DELETE: 'danger', PATCH: 'primary'
 }
 
+function formatTime(value) {
+  if (!value) return '—'
+  return value.replace('T', ' ').slice(0, 19)
+}
+
 async function load() {
   loading.value = true
   try {
@@ -81,7 +86,9 @@ onMounted(load)
       <el-table-column prop="request_body" label="请求内容" min-width="200" show-overflow-tooltip>
         <template #default="{ row }">{{ row.request_body || '—' }}</template>
       </el-table-column>
-      <el-table-column prop="created_at" label="时间" width="170" />
+      <el-table-column label="时间" width="170">
+        <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
+      </el-table-column>
     </el-table>
 
     <el-pagination style="margin-top:14px;justify-content:flex-end" layout="total, prev, pager, next" :total="total"
