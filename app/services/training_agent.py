@@ -53,7 +53,7 @@ class TrainingAgentService:
             db, talent_id=talent_id, shortage_tags=shortage_tags, allow_courses=courses)
         plan = PlanService.create(
             db, talent_id=talent_id, title=title, course_ids=rec["course_ids"],
-            deadline=deadline, generated_by="agent",
+            deadline=deadline, generated_by="agent", weakness_tags=shortage_tags,
         )
         # 推送消息（调用消息域 MessageService，不修改其代码）
         MessageService.send(

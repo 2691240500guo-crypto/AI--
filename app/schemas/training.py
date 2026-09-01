@@ -64,6 +64,10 @@ class PlanCreate(BaseModel):
     course_ids: list[int] = []
     deadline: datetime | None = None
     weakness_tags: list[str] = []
+    # 管理端补充（可选）
+    status: int | None = None              # 0未开始 1进行中 2已完成 3已逾期
+    generated_by: str | None = None
+    improvement: int | None = None
 
 
 class PlanOut(ORMModel):
@@ -82,9 +86,30 @@ class PlanOut(ORMModel):
 
 class ProgressUpdate(BaseModel):
     course_id: int
-    lesson_id: int
+    lesson_id: int = 0            # 0=未知课节，后端自动取该课程第一节兜底
     progress: int = Field(ge=0, le=100)
     learned_minutes: int = 0
+
+
+class PlanUpdate(BaseModel):
+    """计划基本信息更新（管理端编辑）。"""
+    title: str | None = None
+    course_ids: list[int] | None = None
+    weakness_tags: list[str] | None = None
+    status: int | None = None          # 0未开始 1进行中 2已完成
+    deadline: datetime | None = None
+    generated_by: str | None = None
+    improvement: int | None = None
+
+
+class LessonSyncItem(LessonCreate):
+    """课节同步条目：带 id 表示更新已有课节，无 id 表示新增。"""
+    id: int | None = None
+
+
+class LessonSyncIn(BaseModel):
+    """课节全量同步：带 id 的更新、无 id 的新增、缺席的删除。"""
+    lessons: list[LessonSyncItem] = []
 
 
 # ---------- 考核 ----------

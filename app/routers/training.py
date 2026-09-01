@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, require_permission
 from app.db.session import get_db
-from app.dao.training import CourseDAO, LessonDAO, PlanDAO, ExamDAO, ExamResultDAO
+from app.dao.training import CourseDAO, LessonDAO, PlanDAO, ExamDAO, ExamResultDAO, RecordDAO
 from app.models.talent import Talent
 from app.models.training import Course, Lesson, ExamResult, LearningRecord, TrainingPlan
 from app.schemas.training import (AgentRecommend, CourseCreate, CourseOut,
@@ -36,7 +36,7 @@ def list_courses(keyword: str | None = None, category: str | None = None,
     lesson_map: dict[int, list] = {}
     if cids:
         for l in db.scalars(select(Lesson).where(Lesson.course_id.in_(cids))
-                                    .order_by(Lesson.sort)).all():
+                             .order_by(Lesson.sort)).all():
             lesson_map.setdefault(l.course_id, []).append(l)
     items = []
     for c in rows:
@@ -47,7 +47,7 @@ def list_courses(keyword: str | None = None, category: str | None = None,
         out["lessons"] = [{"id": l.id, "title": l.title, "duration": l.duration,
                            "file_url": l.file_url} for l in lessons]
         items.append(out)
-    return ok(paged_result([CourseOut.model_validate(c) for c in rows], page, page_size, total))
+    return ok(paged_result(items, page, page_size, total))
 
 
 @router.post("/courses")
@@ -72,7 +72,7 @@ def delete_course(cid: int, db: Session = Depends(get_db)):
     c = CourseDAO.get(db, cid)
     if not c:
         raise BusinessError(404, "课程不存在")
-        # 级联清理：学习记录（course/lesson 双外键）→ 课节 → 计划中的课程引用 → 课程
+    # 级联清理：学习记录（course/lesson 双外键）→ 课节 → 计划中的课程引用 → 课程
     for r in db.scalars(select(LearningRecord).where(LearningRecord.course_id == cid)).all():
         db.delete(r)
     for l in db.scalars(select(Lesson).where(Lesson.course_id == cid)).all():
@@ -130,7 +130,7 @@ def list_plans(talent_id: int | None = None, db: Session = Depends(get_db)):
     rows = PlanDAO.list(db, *conds, limit=500, order_by=PlanDAO.__model__.id.desc())
     if not rows:
         return ok([])
-        # 人才姓名映射
+    # 人才姓名映射
     tids = {p.talent_id for p in rows}
     talents = {t.id: t.name for t in db.scalars(
         select(Talent).where(Talent.id.in_(tids))).all()}
@@ -172,7 +172,7 @@ def list_plans(talent_id: int | None = None, db: Session = Depends(get_db)):
 @router.put("/plan/{pid}/progress")
 def update_progress(pid: int, body: ProgressUpdate, db: Session = Depends(get_db)):
     plan = PlanDAO.get(db, pid)
-    if not PlanDAO.get(db, pid):
+    if not plan:
         raise BusinessError(404, "计划不存在")
     # lesson_id 为 0 时自动取该课程第一节课兜底（lesson_id 有外键约束，不能存 0）
     lesson_id = body.lesson_id
@@ -182,10 +182,10 @@ def update_progress(pid: int, body: ProgressUpdate, db: Session = Depends(get_db
         if not first:
             raise BusinessError(400, "该课程暂无课节，请先在课程库中添加课件")
         lesson_id = first.id
-    rec = PlanService.update_progress(db, plan_id=pid, talent_id=body.talent_id if hasattr(body, "talent_id") else 0,
-                                      course_id=body.course_id, lesson_id=body.lesson_id,
+    rec = PlanService.update_progress(db, plan_id=pid, talent_id=plan.talent_id,
+                                      course_id=body.course_id, lesson_id=lesson_id,
                                       progress=body.progress,
-                                      learned_minutes = body.learned_minutes)
+                                      learned_minutes=body.learned_minutes)
     db.commit()
     return ok({"progress": rec.progress, "learned_minutes": rec.learned_minutes})
 

@@ -7,6 +7,7 @@ import {
   getTrainingDictionaries,
   listCourseOptions,
   listPlans,
+  listTalentOptions,
   updatePlan,
   updatePlanRecords
 } from '@/api/training'
@@ -15,6 +16,7 @@ const rows = ref([])
 const total = ref(0)
 const loading = ref(false)
 const courses = ref([])
+const talents = ref([])
 const dictionaries = getTrainingDictionaries()
 const formRef = ref()
 
@@ -33,7 +35,7 @@ const progressForm = reactive({ id: null, title: '', status: 'in_progress', reco
 
 const rules = {
   title: [{ required: true, message: '请输入计划名称', trigger: 'blur' }],
-  talent_name: [{ required: true, message: '请输入学习人员', trigger: 'blur' }],
+  talent_id: [{ required: true, message: '请选择学习人员', trigger: 'change' }],
   course_ids: [{ required: true, message: '请选择课程', trigger: 'change' }]
 }
 
@@ -47,9 +49,7 @@ function blankPlan() {
   return {
     id: null,
     title: '',
-    talent_name: '',
-    dept: '',
-    target_role: '',
+    talent_id: null,
     weakness_tags: '',
     course_ids: [],
     source: 'manual',
@@ -88,6 +88,11 @@ async function loadCourses() {
   courses.value = res.data
 }
 
+async function loadTalents() {
+  const res = await listTalentOptions()
+  talents.value = res.data
+}
+
 function resetQuery() {
   Object.assign(query, { page: 1, keyword: '', status: '', source: '' })
   load()
@@ -103,9 +108,7 @@ function openEdit(row) {
   Object.assign(form, {
     id: row.id,
     title: row.title,
-    talent_name: row.talent_name,
-    dept: row.dept,
-    target_role: row.target_role,
+    talent_id: row.talent_id,
     weakness_tags: (row.weakness_tags || []).join('，'),
     course_ids: [...row.course_ids],
     source: row.source,
@@ -157,7 +160,7 @@ async function del(row) {
 }
 
 onMounted(async () => {
-  await loadCourses()
+  await Promise.all([loadCourses(), loadTalents()])
   load()
 })
 </script>
@@ -167,7 +170,7 @@ onMounted(async () => {
     <div class="toolbar">
       <el-input
         v-model="query.keyword"
-        placeholder="按人员/部门/计划/课程搜索"
+        placeholder="按人员/计划/课程搜索"
         style="width:270px"
         clearable
         @keyup.enter="query.page=1;load()"
@@ -190,10 +193,8 @@ onMounted(async () => {
       <el-table-column label="学习人员" width="150">
         <template #default="{ row }">
           <div class="person">{{ row.talent_name }}</div>
-          <div class="muted">{{ row.dept || '-' }}</div>
         </template>
       </el-table-column>
-      <el-table-column prop="target_role" label="目标岗位" width="130" show-overflow-tooltip />
       <el-table-column label="短板标签" min-width="160">
         <template #default="{ row }">
           <el-tag v-for="tag in row.weakness_tags" :key="tag" size="small" class="tag" type="info">{{ tag }}</el-tag>
@@ -268,19 +269,21 @@ onMounted(async () => {
       </el-row>
 
       <el-row :gutter="14">
-        <el-col :span="8">
-          <el-form-item label="学习人员" prop="talent_name">
-            <el-input v-model="form.talent_name" />
+        <el-col :span="12">
+          <el-form-item label="学习人员" prop="talent_id">
+            <el-select v-model="form.talent_id" filterable style="width:100%" placeholder="从人才库选择">
+              <el-option
+                v-for="talent in talents"
+                :key="talent.id"
+                :label="talent.current_title ? `${talent.name}（${talent.current_title}）` : talent.name"
+                :value="talent.id"
+              />
+            </el-select>
           </el-form-item>
         </el-col>
-        <el-col :span="8">
-          <el-form-item label="部门">
-            <el-input v-model="form.dept" />
-          </el-form-item>
-        </el-col>
-        <el-col :span="8">
-          <el-form-item label="目标岗位">
-            <el-input v-model="form.target_role" />
+        <el-col :span="12">
+          <el-form-item label="截止日期">
+            <el-date-picker v-model="form.deadline" value-format="YYYY-MM-DD" type="date" style="width:100%" />
           </el-form-item>
         </el-col>
       </el-row>
@@ -299,17 +302,12 @@ onMounted(async () => {
         </el-select>
       </el-form-item>
       <el-row :gutter="14">
-        <el-col :span="8">
+        <el-col :span="12">
           <el-form-item label="总学时">
             <el-input :model-value="`${selectedHours} 学时`" disabled />
           </el-form-item>
         </el-col>
-        <el-col :span="8">
-          <el-form-item label="截止日期">
-            <el-date-picker v-model="form.deadline" value-format="YYYY-MM-DD" type="date" style="width:100%" />
-          </el-form-item>
-        </el-col>
-        <el-col :span="8">
+        <el-col :span="12">
           <el-form-item label="生成人">
             <el-input v-model="form.generated_by" />
           </el-form-item>
