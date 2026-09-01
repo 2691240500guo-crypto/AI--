@@ -34,3 +34,4 @@ _alembic_baseline.db
 
 # 小程序构建产物：只保留固定路径 dist-mp/，忽略日期版本
 miniapp/dist-mp-*/
+miniapp/dist-verify-*/
