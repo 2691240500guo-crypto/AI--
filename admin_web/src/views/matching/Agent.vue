@@ -618,11 +618,11 @@ onBeforeUnmount(() => {
 .chart { height: 260px; width: 100%; }
 .chart-title { font-size: 13px; color: #6e7681; margin-bottom: 8px; font-weight: 500; }
 
-/* ===== 输入栏（固定底部） ===== */
+/* ===== 输入栏（固定底部，避开侧边栏 220px） ===== */
 .chat-input-bar {
-  position: fixed; left: 0; right: 0; bottom: 0;
+  position: fixed; left: 220px; right: 0; bottom: 0;
   background: linear-gradient(to top, #ffffff 70%, rgba(255,255,255,0));
-  padding: 16px 16px 20px; z-index: 10;
+  padding: 16px 16px 20px; z-index: 5;
 }
 .chat-input-inner { max-width: 760px; margin: 0 auto; }
 .chat-input-card {
