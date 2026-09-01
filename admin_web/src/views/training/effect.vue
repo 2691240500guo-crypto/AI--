@@ -1,8 +1,11 @@
 <script setup>
 import { computed, onMounted, ref } from 'vue'
+import { Histogram, PieChart, Tickets, TrendCharts, User } from '@element-plus/icons-vue'
 import { getTrainingEffects } from '@/api/training'
 
 const loading = ref(false)
+const activeChart = ref('category')
+const activeTable = ref('ranking')
 const summary = ref({
   course_count: 0,
   plan_count: 0,
@@ -18,10 +21,35 @@ const trends = ref([])
 const ranking = ref([])
 const talentEffects = ref([])
 
+const chartTabs = [
+  { key: 'category', label: '分类学时分布', icon: Histogram },
+  { key: 'trend', label: '培训趋势', icon: TrendCharts },
+  { key: 'status', label: '计划状态分布', icon: PieChart }
+]
+const tableTabs = [
+  { key: 'ranking', label: '课程效果排行', icon: Tickets },
+  { key: 'talent', label: '人员培训明细', icon: User }
+]
+
 const maxCategoryHours = computed(() => Math.max(...categoryHours.value.map((item) => item.hours), 1))
 const maxStatusCount = computed(() => Math.max(...statusData.value.map((item) => item.count), 1))
 const maxTrendHours = computed(() => Math.max(...trends.value.map((item) => item.hours), 1))
 const maxTrendImprovement = computed(() => Math.max(...trends.value.map((item) => item.improvement), 20))
+const activeChartMeta = computed(() => {
+  const metaMap = {
+    category: { count: `分类 ${categoryHours.value.length} 项`, focus: '当前查看：分类学时分布' },
+    trend: { count: `趋势 ${trends.value.length} 个月`, focus: '当前查看：培训趋势' },
+    status: { count: `状态 ${statusData.value.length} 类`, focus: '当前查看：计划状态分布' }
+  }
+  return metaMap[activeChart.value] || metaMap.category
+})
+const activeTableMeta = computed(() => {
+  const metaMap = {
+    ranking: { count: `课程 ${ranking.value.length} 条`, focus: '当前查看：课程效果排行' },
+    talent: { count: `人员 ${talentEffects.value.length} 条`, focus: '当前查看：人员培训明细' }
+  }
+  return metaMap[activeTable.value] || metaMap.ranking
+})
 
 async function load() {
   loading.value = true
@@ -56,6 +84,10 @@ function trendPoints(field, max) {
   return trends.value.map((item, index) => `${trendX(index)},${trendY(item[field], max)}`).join(' ')
 }
 
+function statusType(label) {
+  return { 已完成: 'success', 进行中: 'primary', 未开始: 'info', 已逾期: 'danger' }[label] || 'info'
+}
+
 onMounted(load)
 </script>
 
@@ -82,79 +114,131 @@ onMounted(load)
       </el-card>
     </div>
 
-    <div class="chart-grid">
-      <el-card class="panel">
-        <template #header>分类学时分布</template>
-        <div class="bar-chart">
-          <div v-for="item in categoryHours" :key="item.name" class="bar-row">
-            <span class="bar-name">{{ item.name }}</span>
-            <div class="bar-track">
-              <div class="bar-fill teal" :style="{ width: `${percent(item.hours, maxCategoryHours)}%` }" />
-            </div>
-            <span class="bar-value">{{ item.hours }}h</span>
+    <el-card class="switch-card chart-card">
+      <template #header>
+        <div class="switch-header">
+          <div class="switch-actions" role="group" aria-label="切换图表">
+            <el-button
+              v-for="item in chartTabs"
+              :key="item.key"
+              :type="activeChart === item.key ? 'primary' : 'default'"
+              :plain="activeChart !== item.key"
+              @click="activeChart = item.key"
+            >
+              <el-icon><component :is="item.icon" /></el-icon>
+              <span>{{ item.label }}</span>
+            </el-button>
+          </div>
+          <div class="switch-meta">
+            <span>{{ activeChartMeta.count }}</span>
+            <span>{{ activeChartMeta.focus }}</span>
           </div>
         </div>
-      </el-card>
+      </template>
 
-      <el-card class="panel">
-        <template #header>计划状态分布</template>
-        <div class="bar-chart">
-          <div v-for="item in statusData" :key="item.status" class="bar-row">
-            <span class="bar-name">{{ item.name }}</span>
-            <div class="bar-track">
-              <div class="bar-fill amber" :style="{ width: `${percent(item.count, maxStatusCount)}%` }" />
+      <div class="chart-panel">
+        <div v-if="activeChart === 'category'" class="chart-view">
+          <div class="panel-title">
+            <span>分类学时分布</span>
+            <span class="panel-note">按已学学时</span>
+          </div>
+          <div v-if="categoryHours.length" class="bar-chart">
+            <div v-for="item in categoryHours" :key="item.name" class="bar-row">
+              <span class="bar-name">{{ item.name }}</span>
+              <div class="bar-track">
+                <div class="bar-fill teal" :style="{ width: `${percent(item.hours, maxCategoryHours)}%` }" />
+              </div>
+              <span class="bar-value">{{ item.hours }}h</span>
             </div>
-            <span class="bar-value">{{ item.count }}个</span>
+          </div>
+          <el-empty v-else description="暂无分类学时数据" />
+        </div>
+
+        <div v-else-if="activeChart === 'trend'" class="chart-view trend-panel">
+          <div class="panel-title">
+            <span>培训趋势</span>
+            <span class="panel-note">学时 / 通过率 / 提升分</span>
+          </div>
+          <template v-if="trends.length">
+            <svg class="trend-svg" viewBox="0 0 540 190" role="img" aria-label="培训趋势图">
+              <line x1="36" y1="154" x2="508" y2="154" class="axis" />
+              <line x1="36" y1="46" x2="36" y2="154" class="axis" />
+              <polyline :points="trendPoints('hours', maxTrendHours)" class="trend-line hours" />
+              <polyline :points="trendPoints('pass_rate', 100)" class="trend-line pass" />
+              <polyline :points="trendPoints('improvement', maxTrendImprovement)" class="trend-line improve" />
+              <g v-for="(item, index) in trends" :key="item.month">
+                <circle :cx="trendX(index)" :cy="trendY(item.hours, maxTrendHours)" r="3.5" class="dot hours-dot" />
+                <circle :cx="trendX(index)" :cy="trendY(item.pass_rate, 100)" r="3.5" class="dot pass-dot" />
+                <circle :cx="trendX(index)" :cy="trendY(item.improvement, maxTrendImprovement)" r="3.5" class="dot improve-dot" />
+                <text :x="trendX(index)" y="178" text-anchor="middle" class="axis-label">{{ item.month }}</text>
+              </g>
+            </svg>
+            <div class="legend">
+              <span><i class="legend-dot hours-bg" />学时</span>
+              <span><i class="legend-dot pass-bg" />通过率</span>
+              <span><i class="legend-dot improve-bg" />提升分</span>
+            </div>
+          </template>
+          <el-empty v-else description="暂无培训趋势数据" />
+        </div>
+
+        <div v-else class="chart-view">
+          <div class="panel-title">
+            <span>计划状态分布</span>
+            <span class="panel-note">共 {{ summary.plan_count }} 个</span>
+          </div>
+          <div v-if="statusData.length" class="bar-chart">
+            <div v-for="item in statusData" :key="item.status" class="bar-row">
+              <span class="bar-name">{{ item.name }}</span>
+              <div class="bar-track">
+                <div class="bar-fill amber" :style="{ width: `${percent(item.count, maxStatusCount)}%` }" />
+              </div>
+              <span class="bar-value">{{ item.count }}个</span>
+            </div>
+          </div>
+          <el-empty v-else description="暂无计划状态数据" />
+        </div>
+      </div>
+    </el-card>
+
+    <el-card class="switch-card table-card">
+      <template #header>
+        <div class="switch-header">
+          <div class="switch-actions" role="group" aria-label="切换表格">
+            <el-button
+              v-for="item in tableTabs"
+              :key="item.key"
+              :type="activeTable === item.key ? 'primary' : 'default'"
+              :plain="activeTable !== item.key"
+              @click="activeTable = item.key"
+            >
+              <el-icon><component :is="item.icon" /></el-icon>
+              <span>{{ item.label }}</span>
+            </el-button>
+          </div>
+          <div class="switch-meta">
+            <span>{{ activeTableMeta.count }}</span>
+            <span>{{ activeTableMeta.focus }}</span>
           </div>
         </div>
-      </el-card>
+      </template>
 
-      <el-card class="panel trend-panel">
-        <template #header>培训趋势</template>
-        <svg class="trend-svg" viewBox="0 0 540 190" role="img" aria-label="培训趋势图">
-          <line x1="36" y1="154" x2="508" y2="154" class="axis" />
-          <line x1="36" y1="46" x2="36" y2="154" class="axis" />
-          <polyline :points="trendPoints('hours', maxTrendHours)" class="trend-line hours" />
-          <polyline :points="trendPoints('pass_rate', 100)" class="trend-line pass" />
-          <polyline :points="trendPoints('improvement', maxTrendImprovement)" class="trend-line improve" />
-          <g v-for="(item, index) in trends" :key="item.month">
-            <circle :cx="trendX(index)" :cy="trendY(item.hours, maxTrendHours)" r="3.5" class="dot hours-dot" />
-            <circle :cx="trendX(index)" :cy="trendY(item.pass_rate, 100)" r="3.5" class="dot pass-dot" />
-            <circle :cx="trendX(index)" :cy="trendY(item.improvement, maxTrendImprovement)" r="3.5" class="dot improve-dot" />
-            <text :x="trendX(index)" y="178" text-anchor="middle" class="axis-label">{{ item.month }}</text>
-          </g>
-        </svg>
-        <div class="legend">
-          <span><i class="legend-dot hours-bg" />学时</span>
-          <span><i class="legend-dot pass-bg" />通过率</span>
-          <span><i class="legend-dot improve-bg" />提升分</span>
-        </div>
-      </el-card>
-    </div>
-
-    <el-card class="table-card">
-      <template #header>课程效果排行</template>
-      <el-table :data="ranking" stripe>
-        <el-table-column prop="title" label="课程名称" min-width="200" show-overflow-tooltip />
+      <el-table v-if="activeTable === 'ranking'" :data="ranking" stripe>
+        <el-table-column prop="title" label="课程名称" min-width="220" show-overflow-tooltip />
         <el-table-column prop="category" label="分类" width="90" />
         <el-table-column prop="learner_count" label="学习人数" width="100" />
         <el-table-column prop="learned_hours" label="已学学时" width="100" />
-        <el-table-column label="通过率" width="140">
+        <el-table-column label="通过率" width="160">
           <template #default="{ row }">
             <el-progress :percentage="row.pass_rate" :stroke-width="8" />
           </template>
         </el-table-column>
-        <el-table-column prop="rating" label="课程评分" width="100" />
       </el-table>
-    </el-card>
 
-    <el-card class="table-card">
-      <template #header>人员培训效果明细</template>
-      <el-table :data="talentEffects" stripe>
+      <el-table v-else :data="talentEffects" stripe>
         <el-table-column prop="talent_name" label="人员" width="100" />
-        <el-table-column prop="dept" label="部门" width="130" show-overflow-tooltip />
-        <el-table-column prop="title" label="学习计划" min-width="220" show-overflow-tooltip />
-        <el-table-column label="学习进度" width="150">
+        <el-table-column prop="title" label="学习计划" min-width="240" show-overflow-tooltip />
+        <el-table-column label="学习进度" width="160">
           <template #default="{ row }">
             <el-progress :percentage="row.progress" :stroke-width="8" />
           </template>
@@ -164,7 +248,11 @@ onMounted(load)
           <template #default="{ row }">{{ row.exam_avg === null ? '-' : row.exam_avg }}</template>
         </el-table-column>
         <el-table-column prop="improvement" label="提升分" width="90" />
-        <el-table-column prop="status_label" label="状态" width="90" />
+        <el-table-column label="状态" width="90">
+          <template #default="{ row }">
+            <el-tag :type="statusType(row.status_label)" size="small">{{ row.status_label }}</el-tag>
+          </template>
+        </el-table-column>
       </el-table>
     </el-card>
   </div>
@@ -184,23 +272,67 @@ onMounted(load)
 .kpi {
   min-height: 94px;
 }
-.chart-grid {
-  display: grid;
-  grid-template-columns: minmax(260px, 1fr) minmax(260px, 1fr) minmax(420px, 1.4fr);
-  gap: 16px;
+.switch-card {
+  width: 100%;
 }
-.panel {
-  min-height: 276px;
+.switch-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+.switch-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.switch-actions :deep(.el-button) {
+  margin-left: 0;
+}
+.switch-actions :deep(.el-button > span) {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.switch-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  color: #909399;
+  font-size: 13px;
+}
+.chart-panel {
+  min-height: 258px;
+}
+.chart-view {
+  min-height: 258px;
+}
+.panel-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 14px;
+  color: #303133;
+  font-size: 14px;
+  font-weight: 600;
+}
+.panel-note {
+  color: #909399;
+  font-size: 13px;
+  font-weight: 400;
+  white-space: nowrap;
 }
 .bar-chart {
   display: flex;
   flex-direction: column;
   gap: 18px;
   padding-top: 8px;
+  max-width: 760px;
 }
 .bar-row {
   display: grid;
-  grid-template-columns: 72px minmax(120px, 1fr) 58px;
+  grid-template-columns: 96px minmax(160px, 1fr) 72px;
   gap: 10px;
   align-items: center;
 }
@@ -234,7 +366,7 @@ onMounted(load)
 .trend-svg {
   display: block;
   width: 100%;
-  height: 210px;
+  height: 220px;
 }
 .axis {
   stroke: #dcdfe6;
@@ -296,20 +428,32 @@ onMounted(load)
   height: 9px;
   border-radius: 50%;
 }
-.table-card {
-  width: 100%;
-}
 @media (max-width: 1280px) {
   .kpi-grid {
     grid-template-columns: repeat(3, minmax(150px, 1fr));
-  }
-  .chart-grid {
-    grid-template-columns: 1fr;
   }
 }
 @media (max-width: 760px) {
   .kpi-grid {
     grid-template-columns: 1fr;
+  }
+  .switch-header {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .switch-actions,
+  .switch-actions :deep(.el-button) {
+    width: 100%;
+  }
+  .switch-actions :deep(.el-button) {
+    justify-content: center;
+  }
+  .switch-meta {
+    gap: 6px;
+    flex-direction: column;
+  }
+  .bar-row {
+    grid-template-columns: 70px minmax(110px, 1fr) 58px;
   }
 }
 </style>

@@ -3,7 +3,9 @@ import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 import router from '@/router'
 
-const http = axios.create({ baseURL: import.meta.env.VITE_API_BASE || '/api', timeout: 15000 })
+const apiBase = import.meta.env.VITE_API_BASE || '/api/v1'
+
+const http = axios.create({ baseURL: apiBase, timeout: 15000 })
 
 http.interceptors.request.use((config) => {
   const token = sessionStorage.getItem('token')
@@ -45,7 +47,7 @@ async function tryRefresh() {
   if (!rt) return false
   try {
     const res = await axios.post(
-      `${import.meta.env.VITE_API_BASE || '/api'}/auth/refresh`,
+      `${apiBase}/auth/refresh`,
       { refresh_token: rt }
     )
     sessionStorage.setItem('token', res.data.data.access_token)

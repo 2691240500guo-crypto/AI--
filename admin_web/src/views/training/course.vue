@@ -37,10 +37,7 @@ function blankCourse() {
     id: null,
     title: '',
     category: '技术',
-    level: '入门',
     score: 1,
-    lecturer: '',
-    rating: 4.5,
     status: 'draft',
     allow_tags: '',
     intro: '',
@@ -124,7 +121,7 @@ onMounted(load)
     <div class="toolbar">
       <el-input
         v-model="query.keyword"
-        placeholder="按课程/讲师/短板标签搜索"
+        placeholder="按课程/短板标签搜索"
         style="width:260px"
         clearable
         @keyup.enter="query.page=1;load()"
@@ -148,18 +145,11 @@ onMounted(load)
           <el-tag size="small" effect="plain">{{ row.category }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column prop="level" label="难度" width="80" />
       <el-table-column prop="score" label="学时" width="80" />
       <el-table-column prop="lesson_count" label="课件" width="80" />
-      <el-table-column prop="lecturer" label="讲师/来源" width="130" show-overflow-tooltip />
       <el-table-column label="适用短板" min-width="210">
         <template #default="{ row }">
           <el-tag v-for="tag in row.allow_tags" :key="tag" size="small" class="tag" type="info">{{ tag }}</el-tag>
-        </template>
-      </el-table-column>
-      <el-table-column label="评分" width="132">
-        <template #default="{ row }">
-          <el-rate :model-value="row.rating" disabled allow-half size="small" />
         </template>
       </el-table-column>
       <el-table-column label="状态" width="90">
@@ -201,24 +191,12 @@ onMounted(load)
             </el-select>
           </el-form-item>
         </el-col>
-        <el-col :span="6">
-          <el-form-item label="难度">
-            <el-select v-model="form.level" style="width:100%">
-              <el-option v-for="item in dictionaries.levels" :key="item" :label="item" :value="item" />
-            </el-select>
-          </el-form-item>
-        </el-col>
       </el-row>
 
       <el-row :gutter="14">
         <el-col :span="8">
           <el-form-item label="学时" prop="score">
             <el-input-number v-model="form.score" :min="0.5" :step="0.5" style="width:100%" />
-          </el-form-item>
-        </el-col>
-        <el-col :span="8">
-          <el-form-item label="评分">
-            <el-input-number v-model="form.rating" :min="0" :max="5" :step="0.1" style="width:100%" />
           </el-form-item>
         </el-col>
         <el-col :span="8">
@@ -230,9 +208,6 @@ onMounted(load)
         </el-col>
       </el-row>
 
-      <el-form-item label="讲师/来源">
-        <el-input v-model="form.lecturer" placeholder="内部讲师、部门或外部平台" />
-      </el-form-item>
       <el-form-item label="适用短板">
         <el-input v-model="form.allow_tags" placeholder="多个标签用逗号分隔，如 AI工具，数据分析" />
       </el-form-item>
