@@ -138,9 +138,9 @@
                 <span>📊 {{ CHART_LABEL[m.chartType] || '' }} · {{ m.chartTitle || '候选人匹配度' }}</span>
               </template>
               <div class="single-chart-wrap">
-                <div :ref="(el) => bindChartEl(m.id, 'bar', el)" v-show="m.chartType === 'bar'" class="chart chart-single" />
-                <div :ref="(el) => bindChartEl(m.id, 'line', el)" v-show="m.chartType === 'line'" class="chart chart-single" />
-                <div :ref="(el) => bindChartEl(m.id, 'pie', el)" v-show="m.chartType === 'pie'" class="chart chart-single" />
+                <div :data-chart-id="m.id" :data-chart-type="'bar'" v-show="m.chartType === 'bar'" class="chart chart-single" />
+                <div :data-chart-id="m.id" :data-chart-type="'line'" v-show="m.chartType === 'line'" class="chart chart-single" />
+                <div :data-chart-id="m.id" :data-chart-type="'pie'" v-show="m.chartType === 'pie'" class="chart chart-single" />
               </div>
             </el-card>
           </div>
@@ -239,9 +239,9 @@ async function handleChat() {
       agentMsg.chartType = data.chart_type || 'bar'
       agentMsg.results = result.results || []
       agentMsg.chartTitle = CHART_TITLE[agentMsg.chartType] || '候选人匹配度'
+      // 等 v-if el-card 挂载完成 + setTimeout 兜底（避开 el-card 内部模板异步 patch 时序坑）
       await nextTick()
-      await nextTick()
-      renderChart(agentMsg)
+      setTimeout(() => renderChart(agentMsg), 50)
     } else if (intent === 'reverse' && result) {
       agentMsg.reverseResults = result.results || []
     }
@@ -270,16 +270,18 @@ function scoreColor(s) {
   return '#f56c6c'
 }
 
-// ===== 图表渲染（按消息隔离） =====
-function bindChartEl(msgId, type, el) {
-  if (el && el.tagName) chartEls.set(`${msgId}:${type}`, el)
-}
-
+// ===== 图表渲染（用 querySelector + data- 属性找容器，避开 Vue ref 时序坑） =====
 function renderChart(m) {
   const type = m.chartType
-  const el = chartEls.get(`${m.id}:${type}`)
-  if (!el) return
   const key = `${m.id}:${type}`
+  const el = document.querySelector(
+    `[data-chart-id="${m.id}"][data-chart-type="${type}"]`
+  )
+  if (!el) {
+    console.warn('[chart] 容器未找到', m.id, type, 'available containers:',
+      document.querySelectorAll('[data-chart-id]').length)
+    return
+  }
   let chart = chartInstances.get(key)
   if (!chart) {
     chart = echarts.init(el)
