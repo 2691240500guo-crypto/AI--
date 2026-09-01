@@ -7,8 +7,6 @@
         <span class="brand-name">岗位匹配Agent</span>
       </div>
 
-      <el-button class="new-conv-btn" :icon="Promotion" @click="createNewConv">+ 新建对话</el-button>
-
       <div class="nav-section">
         <div class="nav-title">对话列表</div>
         <el-empty v-if="!conversations.length" :image-size="60" description="暂无对话" />
@@ -335,7 +333,16 @@ async function deleteConv(id) {
   ElMessage.success('已删除')
 }
 
-function fillNlp(text) { nlpInput.value = text }
+function fillNlp(text) {
+  nlpInput.value = text
+  // 自动滚动到输入栏并聚焦（快问点完没反应是因为输入栏被滚动到页面下方，看不到）
+  nextTick(() => {
+    const inputCard = document.querySelector('.chat-input-card')
+    if (inputCard) inputCard.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const textarea = document.querySelector('.chat-input-card textarea')
+    if (textarea) textarea.focus()
+  })
+}
 
 // ===== 自然语言聊天 =====
 async function handleChat() {
