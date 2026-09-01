@@ -6,7 +6,7 @@ import { exportLoginLogs, listLoginLogs } from '@/api/audit'
 const rows = ref([])
 const total = ref(0)
 const loading = ref(false)
-const query = reactive({ page: 1, page_size: 10, username: '' })
+const query = reactive({ page: 1, page_size: 20, username: '' })
 
 async function load() {
   loading.value = true

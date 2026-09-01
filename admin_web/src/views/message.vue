@@ -1,15 +1,16 @@
 <script setup>
 import { onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { getUnreadCount, listMyMessages, markMessageRead, sendMessage } from '@/api/message'
+import { getMessageDetail, getUnreadCount, listMyMessages, markMessageRead, pushMessageReminder, sendMessage } from '@/api/message'
 
 const rows = ref([])
 const total = ref(0)
 const unread = ref(0)
 const loading = ref(false)
-const query = reactive({ page: 1, page_size: 10, unread_only: false })
+const query = reactive({ page: 1, page_size: 20, unread_only: false })
 
 const dialog = reactive({ visible: false })
+const detail = reactive({ visible: false, row: null, loading: false })
 const form = reactive({ type_code: 'system', title: '', content: '', receiver_ids: [], push_miniapp: 0 })
 const typeMap = { system: '系统', assess: '测评', train: '培训', approve: '审批', recommend: '推荐' }
 
@@ -35,6 +36,22 @@ async function read(row) {
     row.is_read = true
     loadUnread()
   }
+}
+
+async function openDetail(row) {
+  detail.loading = true
+  try {
+    detail.row = (await getMessageDetail(row.id)).data
+    detail.visible = true
+  } finally {
+    detail.loading = false
+  }
+}
+
+async function doPush(row) {
+  await pushMessageReminder(row.id)
+  ElMessage.success('已触发补推')
+  load()
 }
 
 function openSend() {
@@ -79,10 +96,17 @@ onMounted(() => { load(); loadUnread() })
       </el-table-column>
       <el-table-column prop="content" label="内容" min-width="240" show-overflow-tooltip />
       <el-table-column prop="sender_id" label="发送人ID" width="100" />
+      <el-table-column label="推送" width="90">
+        <template #default="{ row }">
+          <el-tag :type="row.push_miniapp === 1 ? 'success' : 'info'" size="small">{{ row.push_miniapp === 1 ? '已推' : '未推' }}</el-tag>
+        </template>
+      </el-table-column>
       <el-table-column prop="created_at" label="时间" width="180" />
-      <el-table-column label="操作" width="90">
+      <el-table-column label="操作" width="210">
         <template #default="{ row }">
           <el-button link type="primary" @click="read(row)">{{ row.is_read ? '已读' : '标记已读' }}</el-button>
+          <el-button link type="primary" @click="openDetail(row)">详情</el-button>
+          <el-button link type="warning" :disabled="row.push_miniapp === 1" @click="doPush(row)">补推</el-button>
         </template>
       </el-table-column>
     </el-table>
@@ -112,6 +136,18 @@ onMounted(() => { load(); loadUnread() })
       <el-button @click="dialog.visible=false">取消</el-button>
       <el-button type="primary" @click="send">发送</el-button>
     </template>
+  </el-dialog>
+
+  <el-dialog v-model="detail.visible" title="消息详情" width="560px">
+    <el-descriptions v-if="detail.row" :column="1" border>
+      <el-descriptions-item label="标题">{{ detail.row.title }}</el-descriptions-item>
+      <el-descriptions-item label="类型">{{ typeMap[detail.row.type_code] || detail.row.type_code }}</el-descriptions-item>
+      <el-descriptions-item label="内容">{{ detail.row.content }}</el-descriptions-item>
+      <el-descriptions-item label="发送人ID">{{ detail.row.sender_id ?? '—' }}</el-descriptions-item>
+      <el-descriptions-item label="推送状态">{{ detail.row.push_miniapp === 1 ? '已推' : '未推' }}</el-descriptions-item>
+      <el-descriptions-item label="已读状态">{{ detail.row.is_read ? '已读' : '未读' }}</el-descriptions-item>
+      <el-descriptions-item label="时间">{{ detail.row.created_at }}</el-descriptions-item>
+    </el-descriptions>
   </el-dialog>
 </template>
 

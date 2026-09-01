@@ -7,7 +7,7 @@ import { listRoles } from '@/api/role'
 const rows = ref([])
 const total = ref(0)
 const loading = ref(false)
-const query = reactive({ page: 1, page_size: 10, keyword: '' })
+const query = reactive({ page: 1, page_size: 20, keyword: '' })
 const dialog = reactive({ visible: false, editing: false })
 const formRef = ref()
 const form = reactive({ id: null, username: '', nickname: '', password: '', status: 1, role_ids: [] })

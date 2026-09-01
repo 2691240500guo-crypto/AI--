@@ -6,7 +6,7 @@ import { exportOperationLogs, listOperationLogs } from '@/api/audit'
 const rows = ref([])
 const total = ref(0)
 const loading = ref(false)
-const query = reactive({ page: 1, page_size: 10, action: '' })
+const query = reactive({ page: 1, page_size: 20, action: '' })
 
 const methodTag = {
   GET: 'info', POST: 'success', PUT: 'warning', DELETE: 'danger', PATCH: 'primary'
