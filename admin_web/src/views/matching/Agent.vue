@@ -1,45 +1,49 @@
 <template>
   <div class="agent-page">
-    <!-- ===== 步骤条 ===== -->
-    <el-card shadow="never" class="step-card">
-      <el-steps :active="activeStep" align-center finish-status="success">
-        <el-step title="选择岗位" description="选择待匹配岗位" />
-        <el-step title="解析需求" description="AI 拆解岗位要求" />
-        <el-step title="执行匹配" description="向量检索+双重打分" />
-        <el-step title="查看结果" description="排序/解释/图表" />
-      </el-steps>
-
-      <div class="toolbar">
-        <el-select v-model="positionId" placeholder="选择岗位" filterable style="width: 260px" @change="onPositionChange">
-          <el-option v-for="p in positions" :key="p.id" :label="`${p.name} (${p.code})`" :value="p.id" />
-        </el-select>
-        <el-button type="primary" :loading="parsing" :disabled="!positionId" @click="parseAndMatch">🚀 一键解析并匹配</el-button>
-        <el-divider direction="vertical" />
-        <span class="tip">反向匹配：</span>
-        <el-input v-model="reverseTalentId" placeholder="输入人才ID" style="width: 120px" clearable />
-        <el-button :loading="reversing" :disabled="!reverseTalentId" @click="doReverse">人才→岗位</el-button>
+    <!-- ===== 唯一入口：自然语言 Agent ===== -->
+    <el-card shadow="never" class="agent-entry">
+      <div class="agent-title">
+        <span class="title-icon">🤖</span>
+        <span class="title-text">岗位人才匹配Agent</span>
+        <span class="title-tip">一句话描述需求，AI 自动完成</span>
       </div>
-
-      <!-- 自然语言操作入口 -->
-      <el-divider content-position="left"><span class="tip">💬 自然语言操作</span></el-divider>
       <el-input
         v-model="nlpInput"
-        placeholder="直接用自然语言操作 Agent，例如：帮我找适合后端开发岗位的人才，要求硕士、3年以上经验、会Python"
+        type="textarea"
+        :rows="3"
+        placeholder="试试这样说：帮我找适合后端开发岗位的人才，要求硕士、3年以上经验、会Python"
+        class="agent-input"
         clearable
-        @keyup.enter="handleChat"
-      >
-        <template #append>
-          <el-button :loading="nlpLoading" @click="handleChat">发送</el-button>
-        </template>
-      </el-input>
-      <div v-if="nlpReply" class="nlp-reply">🤖 {{ nlpReply }}</div>
-      <div class="nlp-examples">
-        示例：
-        <el-tag size="small" effect="plain" class="tag" @click="fillNlp('分析后端开发工程师的岗位要求')">分析XX岗位的要求</el-tag>
-        <el-tag size="small" effect="plain" class="tag" @click="fillNlp('帮我找适合后端开发岗位的人才，要求硕士、3年以上经验、会Python')">按条件找人才</el-tag>
-        <el-tag size="small" effect="plain" class="tag" @click="fillNlp('人才5适合什么岗位')">人才反向匹配</el-tag>
-        <el-tag size="small" effect="plain" class="tag" @click="fillNlp('为什么人才7排第一')">匹配依据解释</el-tag>
+        @keydown.enter.prevent.ctrl="handleChat"
+      />
+      <div class="agent-actions">
+        <el-button type="primary" size="large" :loading="nlpLoading" @click="handleChat">🚀 发送</el-button>
+        <el-tag
+          v-for="t in QUICK_QUERIES"
+          :key="t"
+          size="default"
+          effect="plain"
+          class="quick-tag"
+          @click="fillNlp(t)"
+        >{{ t }}</el-tag>
       </div>
+      <div v-if="nlpReply" class="nlp-reply">🤖 {{ nlpReply }}</div>
+    </el-card>
+
+    <!-- ===== 功能提示 ===== -->
+    <el-card shadow="never" class="hint-card">
+      <div class="hint-title">💡 我能帮你做什么</div>
+      <el-row :gutter="16">
+        <el-col :xs="12" :sm="6" v-for="cap in CAPABILITIES" :key="cap.text">
+          <div class="cap-item">
+            <span class="cap-icon">{{ cap.icon }}</span>
+            <div>
+              <div class="cap-text">{{ cap.text }}</div>
+              <div class="cap-desc">{{ cap.desc }}</div>
+            </div>
+          </div>
+        </el-col>
+      </el-row>
     </el-card>
 
     <!-- ===== 岗位需求解析区 ===== -->
@@ -78,20 +82,6 @@
           </div>
         </el-col>
       </el-row>
-    </el-card>
-
-    <!-- ===== 筛选排序区 ===== -->
-    <el-card v-if="parsed" shadow="never" class="section-card">
-      <div class="toolbar">
-        <span class="tip">筛选条件：</span>
-        <el-select v-model="filterDegree" placeholder="学历门槛（覆盖）" clearable style="width: 140px">
-          <el-option v-for="d in ['博士', '硕士', '本科', '大专']" :key="d" :label="d" :value="d" />
-        </el-select>
-        <el-input-number v-model="filterYears" :min="0" :max="20" placeholder="经验门槛（年）" style="width: 150px" />
-        <el-input v-model="filterSkills" placeholder="必备技能（逗号分隔，如 Python,MySQL）" clearable style="width: 240px" />
-        <el-button type="primary" plain :loading="matching" @click="doMatch">🔍 重新匹配</el-button>
-        <span class="tip ml">共 {{ results.length }} 名候选</span>
-      </div>
     </el-card>
 
     <!-- ===== 可视化区：柱状图/折线图/饼图 ===== -->
@@ -222,7 +212,7 @@
 
     <!-- ===== 反向匹配结果 ===== -->
     <el-card v-if="reverseResults.length" shadow="never" class="section-card">
-      <template #header><span>🔄 人才 {{ reverseTalentId }} 适配岗位（反向匹配）</span></template>
+      <template #header><span>🔄 人才适配岗位（反向匹配）</span></template>
       <el-table :data="reverseResults" stripe border>
         <el-table-column label="岗位ID" prop="position_id" width="80" align="center" />
         <el-table-column label="岗位名称" prop="position_name" min-width="160" />
@@ -270,112 +260,38 @@ import { onBeforeUnmount, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import * as echarts from 'echarts'
-import { agentChat, agentParse, agentReverse, agentRun, listPositions, updateResultStatus } from '@/api/matching'
+import { agentChat, updateResultStatus } from '@/api/matching'
 
 const router = useRouter()
 
 const DIM_LABEL = { skill: '技能', degree: '学历', years: '经验', quality: '综合素质' }
 const DEGREE_WEIGHTS = { skill: 0.4, degree: 0.2, years: 0.2, quality: 0.2 }
 
-// ===== 岗位 =====
-const positions = ref([])
-const positionId = ref(null)
-async function loadPositions() {
-  const all = []
-  let page = 1
-  for (;;) {
-    const res = await listPositions({ page, page_size: 200 })
-    const items = res.data.items || []
-    all.push(...items)
-    const meta = res.data.meta
-    if (!items.length || (meta && page >= meta.total_pages)) break
-    page++
-  }
-  positions.value = all
-}
+// 一句话快问（点击自动填入输入框）
+const QUICK_QUERIES = [
+  '分析后端开发工程师的岗位要求',
+  '帮我找适合后端开发岗位的人才，要求硕士、3年以上经验、会Python',
+  '人才5适合什么岗位',
+  '为什么人才7排第一',
+]
 
-// ===== 解析 & 匹配 =====
-const activeStep = ref(0)
+// 我能帮你做什么
+const CAPABILITIES = [
+  { icon: '📋', text: '岗位解析', desc: 'AI 拆解任职要求/技能/经验门槛' },
+  { icon: '🎯', text: '智能匹配', desc: '按条件筛选并排序候选人' },
+  { icon: '🔄', text: '反向匹配', desc: '按人才找适配岗位' },
+  { icon: '💬', text: '匹配解释', desc: '解释推荐依据与维度得分' },
+]
+
+// ===== 状态 =====
 const parsed = ref(null)
 const results = ref([])
 const reverseResults = ref([])
-const parsing = ref(false)
-const matching = ref(false)
-const reversing = ref(false)
-const reverseTalentId = ref('')
-
-// 筛选覆盖
-const filterDegree = ref('')
-const filterYears = ref(null)
-const filterSkills = ref('')
-
-function onPositionChange() {
-  parsed.value = null
-  results.value = []
-  activeStep.value = 0
-  disposeCharts()
-}
-
-async function parseAndMatch() {
-  if (!positionId.value) return ElMessage.warning('请先选择岗位')
-  parsing.value = true
-  try {
-    const res = await agentParse({ position_id: positionId.value })
-    parsed.value = res.data
-    activeStep.value = 1
-    ElMessage.success('岗位需求解析完成')
-    await doMatch()
-  } catch (e) {
-    /* 拦截器已提示 */
-  } finally {
-    parsing.value = false
-  }
-}
-
-async function doMatch() {
-  matching.value = true
-  try {
-    const payload = { position_id: positionId.value, top_k: 10, gen_explain: true, min_score: 0 }
-    if (filterDegree.value) payload.degree_required = filterDegree.value
-    if (filterYears.value !== null && filterYears.value !== undefined && filterYears.value !== '') {
-      payload.years_required = Number(filterYears.value)
-    }
-    if (filterSkills.value.trim()) {
-      payload.mandatory_skills = filterSkills.value.split(/[,，;；]/).map((s) => s.trim()).filter(Boolean)
-    }
-    const res = await agentRun(payload)
-    results.value = res.data.results || []
-    activeStep.value = 2
-    if (results.value.length) {
-      activeStep.value = 3
-      renderCharts()
-      ElMessage.success(`匹配完成，共 ${results.value.length} 名候选`)
-    } else {
-      ElMessage.warning('无符合条件的候选，可放宽筛选条件')
-    }
-  } finally {
-    matching.value = false
-  }
-}
-
-async function doReverse() {
-  const tid = Number(reverseTalentId.value)
-  if (!tid) return ElMessage.warning('请输入人才ID')
-  reversing.value = true
-  try {
-    const res = await agentReverse({ talent_id: tid, top_k: 10, min_score: 0 })
-    reverseResults.value = res.data.results || []
-    if (!reverseResults.value.length) ElMessage.warning('未找到适配岗位（请确认人才ID存在且已向量化）')
-  } finally {
-    reversing.value = false
-  }
-}
-
-// ===== 自然语言操作 =====
 const nlpInput = ref('')
 const nlpReply = ref('')
 const nlpLoading = ref(false)
 
+// ===== 自然语言操作（唯一入口） =====
 function fillNlp(text) {
   nlpInput.value = text
 }
@@ -392,13 +308,9 @@ async function handleChat() {
     const { intent, result } = data
     if (intent === 'parse' && result) {
       parsed.value = result
-      activeStep.value = Math.max(activeStep.value, 1)
     } else if (intent === 'match' && result) {
       results.value = result.results || []
-      if (results.value.length) {
-        activeStep.value = 3
-        renderCharts()
-      }
+      if (results.value.length) renderCharts()
     } else if (intent === 'reverse' && result) {
       reverseResults.value = result.results || []
     } else if (intent === 'explain' && result) {
@@ -547,13 +459,35 @@ function resizeCharts() {
 onBeforeUnmount(disposeCharts)
 
 // 初始化
-loadPositions()
 window.addEventListener('resize', resizeCharts)
 onBeforeUnmount(() => window.removeEventListener('resize', resizeCharts))
 </script>
 
 <style scoped>
-.agent-page { padding: 4px; }
+.agent-page { padding: 4px; max-width: 1080px; margin: 0 auto; }
+
+/* ===== 自然语言入口卡片 ===== */
+.agent-entry {
+  background: linear-gradient(135deg, #f5f7fa 0%, #e8eef7 100%);
+  border: none;
+  border-radius: 12px;
+}
+.agent-title { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
+.title-icon { font-size: 22px; }
+.title-text { font-size: 18px; font-weight: 700; color: #303133; }
+.title-tip { font-size: 12px; color: #909399; }
+.agent-input :deep(textarea) { font-size: 15px; padding: 12px 14px; line-height: 1.6; }
+.agent-actions { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
+.quick-tag { cursor: pointer; user-select: none; transition: all 0.2s; }
+.quick-tag:hover { background: #ecf5ff; border-color: #409eff; color: #409eff; }
+
+/* ===== 功能提示卡 ===== */
+.hint-card { border: none; border-radius: 10px; }
+.hint-title { font-size: 14px; color: #606266; font-weight: 600; margin-bottom: 12px; }
+.cap-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; }
+.cap-icon { font-size: 22px; line-height: 1; flex-shrink: 0; margin-top: 2px; }
+.cap-text { font-size: 14px; font-weight: 600; color: #303133; }
+.cap-desc { font-size: 12px; color: #909399; margin-top: 2px; line-height: 1.5; }
 .step-card { margin-bottom: 16px; }
 .section-card { margin-bottom: 16px; }
 .toolbar { display: flex; align-items: center; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
