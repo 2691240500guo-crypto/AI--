@@ -98,3 +98,39 @@ class MatchTaskOut(BaseModel):
     task: str = "match"
     total: int = 0
     results: list[dict[str, Any]] = []
+
+
+# ==================== 岗位人才匹配 Agent（M-Agent） ====================
+
+
+class AgentParseRequest(BaseModel):
+    position_id: int = Field(..., ge=1, description="岗位ID")
+
+
+class AgentRunRequest(BaseModel):
+    """岗位→人才匹配请求。"""
+    position_id: int = Field(..., ge=1, description="岗位ID")
+    top_k: int = Field(10, ge=1, le=100, description="返回候选数")
+    min_score: float = Field(0.0, ge=0, le=100, description="最低匹配分过滤")
+    gen_explain: bool = Field(True, description="是否生成匹配原因解释")
+    # 筛选排序覆盖项（不传则用 Agent 解析的门槛）
+    degree_required: str | None = Field(None, description="学历门槛覆盖：博士/硕士/本科/大专")
+    years_required: int | None = Field(None, ge=0, description="经验门槛覆盖（年）")
+    mandatory_skills: list[str] | None = Field(None, description="必备技能覆盖")
+
+
+class AgentReverseRequest(BaseModel):
+    """人才→岗位反向匹配请求。"""
+    talent_id: int = Field(..., ge=1, description="人才ID")
+    top_k: int = Field(10, ge=1, le=100, description="返回岗位数")
+    min_score: float = Field(0.0, ge=0, le=100, description="最低匹配分过滤")
+
+
+class AgentChatRequest(BaseModel):
+    """自然语言操作请求。"""
+    message: str = Field(..., min_length=1, max_length=500, description="自然语言指令")
+
+
+class ResultStatusRequest(BaseModel):
+    """匹配结果状态更新（0候选 1推荐 2录用）。"""
+    status: int = Field(..., ge=0, le=2, description="0候选 1推荐 2录用")
