@@ -47,3 +47,29 @@ export function listRules() {
 export function listAlerts(params) {
   return http.get('/matching/alerts', { params })
 }
+
+// ===== 岗位人才匹配 Agent（AI）=====
+// 岗位智能解析
+export function agentParse(data) {
+  return http.post('/matching/agent/parse', data)
+}
+
+// 岗位→人才匹配
+export function agentRun(data) {
+  return http.post('/matching/agent/run', data)
+}
+
+// 人才→岗位反向匹配
+export function agentReverse(data) {
+  return http.post('/matching/agent/reverse', data)
+}
+
+// 自然语言操作
+export function agentChat(data) {
+  return http.post('/matching/agent/chat', data)
+}
+
+// 更新匹配结果状态（0候选 1推荐 2录用）
+export function updateResultStatus(id, status) {
+  return http.put(`/matching/result/${id}/status`, { status })
+}

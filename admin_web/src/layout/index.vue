@@ -39,6 +39,7 @@ async function onLogout() {
           <template #title>岗位匹配</template>
           <el-menu-item index="/matching/position">岗位管理</el-menu-item>
           <el-menu-item index="/matching/result">匹配结果</el-menu-item>
+          <el-menu-item index="/matching/agent">岗位人才匹配Agent</el-menu-item>
         </el-sub-menu>
       </el-menu>
     </el-aside>
