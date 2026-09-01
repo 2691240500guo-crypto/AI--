@@ -188,6 +188,9 @@ async function handleChat() {
       agentMsg.chartType = data.chart_type || 'bar'
       agentMsg.results = result.results || []
       agentMsg.chartTitle = CHART_TITLE[agentMsg.chartType] || '候选人匹配度'
+      // 主动渲染（修改对象内部属性不会触发 watch(messages)）
+      await nextTick()
+      renderChart(agentMsg)
     }
     // match/reverse/explain/unknown：仅展示 reply
   } finally {
