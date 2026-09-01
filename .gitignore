@@ -31,3 +31,5 @@ admin_web/dist-verify*/
 htmlcov/
 *.db
 _alembic_baseline.db
+
+~\$*.xlsx
