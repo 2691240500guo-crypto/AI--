@@ -16,7 +16,18 @@ const routes = [
       { path: 'matching/position', name: 'matching-position', component: () => import('@/views/matching/Position.vue'), meta: { title: '岗位管理', static: true } },
       { path: 'matching/result', name: 'matching-result', component: () => import('@/views/matching/Result.vue'), meta: { title: '匹配结果', static: true } },
       // 智能测评-在线答题（A 域独立答题页，不在菜单里，静态注册保证可直接访问）
-      { path: 'assessment/answer/:id', name: 'assessment-answer', component: () => import('@/views/assessment/answer.vue'), meta: { title: '在线答题', static: true } }
+      { path: 'assessment/answer/:id', name: 'assessment-answer', component: () => import('@/views/assessment/answer.vue'), meta: { title: '在线答题', static: true } },
+      // 人才档案域（T 域，hy 分支合并）：详情/新增/编辑/简历解析/治理/RAG 静态路由
+      { path: 'talent/detail/:id', name: 'talent-detail', component: () => import('@/views/talent/detail.vue'), meta: { title: '人才档案详情', static: true } },
+      { path: 'talent/new', name: 'talent-new', component: () => import('@/views/talent/edit.vue'), meta: { title: '新增人才档案', static: true } },
+      { path: 'talent/edit/:id', name: 'talent-edit', component: () => import('@/views/talent/edit.vue'), meta: { title: '编辑人才档案', static: true } },
+      { path: 'talent/upload', name: 'talent-upload', component: () => import('@/views/talent/ResumeImport.vue'), meta: { title: '简历智能解析', static: true } },
+      { path: 'talent/governance', name: 'talent-governance', component: () => import('@/views/talent/Governance.vue'), meta: { title: '数据治理', static: true } },
+      { path: 'talent/rag', name: 'talent-rag', component: () => import('@/views/talent/RagQA.vue'), meta: { title: 'RAG 研判', static: true } },
+      // 在线学习（hy 分支合并）：视频/课程/进度
+      { path: 'course/videos', name: 'course-videos', component: () => import('@/views/course/VideoManage.vue'), meta: { title: '视频管理', static: true } },
+      { path: 'course/list', name: 'course-list', component: () => import('@/views/course/CourseList.vue'), meta: { title: '课程列表', static: true } },
+      { path: 'course/progress', name: 'course-progress', component: () => import('@/views/course/CourseProgress.vue'), meta: { title: '学习进度', static: true } }
     ]
   },
   // 兜底 404（放最后）
