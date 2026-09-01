@@ -26,9 +26,7 @@ const routes = [
       // 在线学习（hy 分支合并）：视频/课程/进度
       { path: 'course/videos', name: 'course-videos', component: () => import('@/views/course/VideoManage.vue'), meta: { title: '视频管理', static: true } },
       { path: 'course/list', name: 'course-list', component: () => import('@/views/course/CourseList.vue'), meta: { title: '课程列表', static: true } },
-      { path: 'course/progress', name: 'course-progress', component: () => import('@/views/course/CourseProgress.vue'), meta: { title: '学习进度', static: true } },
-      // 智能测评-在线答题（A 域独立答题页，不在菜单里，静态注册保证可直接访问）
-      { path: 'assessment/answer/:id', name: 'assessment-answer', component: () => import('@/views/assessment/answer.vue'), meta: { title: '在线答题', static: true } }
+      { path: 'course/progress', name: 'course-progress', component: () => import('@/views/course/CourseProgress.vue'), meta: { title: '学习进度', static: true } }
     ]
   },
   // 兜底 404（放最后）
