@@ -5,7 +5,7 @@ import router from '@/router'
 
 const apiBase = import.meta.env.VITE_API_BASE || '/api/v1'
 
-const http = axios.create({ baseURL: apiBase, timeout: 15000 })
+const http = axios.create({ baseURL: apiBase, timeout: 90000 })
 
 http.interceptors.request.use((config) => {
   const token = sessionStorage.getItem('token')
