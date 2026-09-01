@@ -6,12 +6,18 @@ import { exportLoginLogs, listLoginLogs } from '@/api/audit'
 const rows = ref([])
 const total = ref(0)
 const loading = ref(false)
-const query = reactive({ page: 1, page_size: 10, username: '' })
+const query = reactive({ page: 1, page_size: 20, username: '' })
+const timeRange = ref([])
+
+function formatTime(value) {
+  if (!value) return '—'
+  return value.replace('T', ' ').slice(0, 19)
+}
 
 async function load() {
   loading.value = true
   try {
-    const res = await listLoginLogs(query)
+    const res = await listLoginLogs({ ...query, ...timeParams() })
     rows.value = res.data.items
     total.value = res.data.meta.total
   } finally {
@@ -21,7 +27,7 @@ async function load() {
 
 async function doExport() {
   try {
-    const blob = await exportLoginLogs({ username: query.username || undefined })
+    const blob = await exportLoginLogs({ username: query.username || undefined, ...timeParams() })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -34,6 +40,13 @@ async function doExport() {
   }
 }
 
+function timeParams() {
+  return {
+    begin: timeRange.value?.[0] || undefined,
+    end: timeRange.value?.[1] || undefined
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -41,6 +54,7 @@ onMounted(load)
   <el-card>
     <div class="bar">
       <el-input v-model="query.username" placeholder="按账号筛选" style="width:240px" clearable @keyup.enter="query.page=1;load()" />
+      <el-date-picker v-model="timeRange" type="datetimerange" value-format="YYYY-MM-DD HH:mm:ss" start-placeholder="开始时间" end-placeholder="结束时间" range-separator="至" style="width:380px" @change="query.page=1" />
       <el-button type="primary" @click="query.page=1;load()">查询</el-button>
       <el-button type="primary" plain @click="doExport">导出 CSV</el-button>
     </div>
@@ -57,7 +71,9 @@ onMounted(load)
       </el-table-column>
       <el-table-column prop="message" label="说明" min-width="160" show-overflow-tooltip />
       <el-table-column prop="ip" label="IP" width="140" />
-      <el-table-column prop="created_at" label="时间" width="180" />
+      <el-table-column label="时间" width="180">
+        <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
+      </el-table-column>
     </el-table>
 
     <el-pagination style="margin-top:14px;justify-content:flex-end" layout="total, prev, pager, next" :total="total"

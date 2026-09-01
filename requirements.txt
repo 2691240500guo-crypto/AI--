@@ -30,14 +30,14 @@ bcrypt==4.1.*             # passlib 的 bcrypt 后端
 # 以下为【按需启用】区块：不装不影响系统模块运行
 # ============================================================
 
-# ---------- 业务工具（二期接入时取消注释）----------
-openpyxl==3.1.*            # Excel 批量导入/导出（C 智能测评 A-1）
-# redis==5.0.*             # 缓存/限流/会话（config 已配 REDIS_URL，尚未接入）
+# ---------- 业务工具 ----------
+openpyxl==3.1.*            # Excel 批量导入/导出（人才/测评）
+# redis==5.0.*             # 缓存/限流/会话（config 已配 REDIS_URL，尚未接入，可选）
 
-# ---------- AI 引擎 ----------
-# ollama>=0.3.0            # 其他模块可选，本 C Agent 不使用
-# pymilvus>=2.4.0          # 向量数据库（app/utils/vector_store.py）
-# minio>=7.2.0             # 对象存储（app/utils/object_storage.py）
-# langchain>=0.3.0         # 可选：复杂 Agent / RAG 编排
-langgraph>=0.2.0,<1.0     # C 测评 Agent 状态图
+# ---------- AI 引擎（必需：岗位匹配/人才向量化/简历上传/报表导出依赖）----------
+# ollama>=0.3.0            # 已弃用（大模型统一走硅基流动），不安装
+pymilvus>=2.4.0           # 向量数据库（app/utils/vector_store.py，Milvus 2.6）
+minio>=7.2.0              # 对象存储（app/utils/object_storage.py，简历/报表附件）
+# langchain>=0.3.0         # 可选：复杂 Agent / RAG 编排（当前未使用）
+langgraph>=0.2.0,<1.0     # LangGraph 协同图编排（app/ai/graph.py）
 httpx>=0.27,<1.0          # 硅基流动 OpenAI 兼容接口
