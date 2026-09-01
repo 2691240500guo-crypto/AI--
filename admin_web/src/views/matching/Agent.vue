@@ -461,18 +461,33 @@ function initBar(list) {
 }
 
 function initLine(list) {
-  const top5 = list.slice(0, 5)
+  // 折线图：Top10 候选人按排名展示匹配度走势（单条趋势线，参考 ECharts 标准折线图样式）
   const line = echarts.init(lineChart.value)
   line.setOption({
     tooltip: { trigger: 'axis' },
-    legend: { top: 0, data: ['技能', '学历', '经验', '综合素质'] },
-    grid: { left: 40, right: 20, top: 34, bottom: 30 },
-    xAxis: { type: 'category', data: top5.map((r) => `人才${r.talent_id}`) },
-    yAxis: { type: 'value', max: 100 },
-    series: ['skill', 'degree', 'years', 'quality'].map((k) => ({
-      name: DIM_LABEL[k], type: 'line', smooth: true,
-      data: top5.map((r) => Number(parseDims(r.dimension_json)[k] ?? 0)),
-    })),
+    grid: { left: 50, right: 30, top: 30, bottom: 40 },
+    xAxis: {
+      type: 'category', name: '排名',
+      data: list.map((r) => r.rank),
+      boundaryGap: false,
+      axisLabel: { fontSize: 12, color: '#6e7681' },
+    },
+    yAxis: {
+      type: 'value', name: '匹配度', min: (v) => Math.max(0, Math.floor(v.min - 5)), max: 100,
+      axisLabel: { fontSize: 12, color: '#6e7681' },
+      splitLine: { lineStyle: { color: '#f0f0f0' } },
+    },
+    series: [{
+      name: '匹配度',
+      type: 'line',
+      smooth: false,
+      symbol: 'circle', symbolSize: 8,
+      data: list.map((r) => ({ value: Number(r.score), name: `人才${r.talent_id}` })),
+      itemStyle: { color: '#409eff', borderColor: '#fff', borderWidth: 2 },
+      lineStyle: { color: '#409eff', width: 2 },
+      label: { show: true, position: 'top', fontSize: 11, color: '#6e7681', formatter: '{c}' },
+      areaStyle: { color: 'rgba(64, 158, 255, 0.08)' },
+    }],
   })
   chartInstances.push(line)
 }
