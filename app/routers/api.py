@@ -2,7 +2,7 @@
 from fastapi import APIRouter
 
 from app.routers import auth, user, role, menu, dept, dict_item, message, audit, matching
-from app.routers import analytics, training
+from app.routers import analytics, training, assessment
 
 api = APIRouter()
 api.include_router(auth.router, prefix="/auth", tags=["auth"])
@@ -18,3 +18,4 @@ api.include_router(audit.router, prefix="/audit", tags=["audit"])
 api.include_router(matching.router, prefix="/matching", tags=["matching"])
 api.include_router(analytics.router, prefix="/analytics", tags=["analytics"])
 api.include_router(training.router, prefix="/training", tags=["training"])
+api.include_router(assessment.router, prefix="/assessment", tags=["assessment"])

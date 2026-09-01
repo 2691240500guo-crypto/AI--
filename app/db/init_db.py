@@ -63,6 +63,34 @@ def seed(db: Session) -> None:
             db.add(item)
     db.flush()
 
+    # 智能测评管理端菜单（A 域）：测评首页、题库、题目、试卷、发起、成绩
+    assess_root = db.query(Menu).filter_by(title="智能测评").first()
+    if not assess_root:
+        assess_root = Menu(parent_id=0, title="智能测评", path="/assessment", component="Layout", perm=None, type=1, sort=4)
+        db.add(assess_root)
+        db.flush()
+
+    assess_menus = [
+        Menu(parent_id=assess_root.id, title="测评首页", path="/assessment/home", component="assessment/Home", perm="assessment:home", type=2, sort=0),
+        Menu(parent_id=assess_root.id, title="题库管理", path="/assessment/bank", component="assessment/Bank", perm="assessment:bank", type=2, sort=1),
+        Menu(parent_id=assess_root.id, title="题目管理", path="/assessment/question", component="assessment/Question", perm="assessment:question", type=2, sort=2),
+        Menu(parent_id=assess_root.id, title="试卷管理", path="/assessment/paper", component="assessment/Paper", perm="assessment:paper", type=2, sort=3),
+        Menu(parent_id=assess_root.id, title="发起测评", path="/assessment/launch", component="assessment/Launch", perm="assessment:launch", type=2, sort=4),
+        Menu(parent_id=assess_root.id, title="成绩查询", path="/assessment/result", component="assessment/Result", perm="assessment:result", type=2, sort=5),
+    ]
+    for item in assess_menus:
+        existing = db.query(Menu).filter_by(title=item.title).first()
+        if existing:
+            existing.parent_id = assess_root.id
+            existing.path = item.path
+            existing.component = item.component
+            existing.perm = item.perm
+            existing.type = item.type
+            existing.sort = item.sort
+        else:
+            db.add(item)
+    db.flush()
+
     # 数据字典类型
     if not db.query(DictType).first():
         db.add(DictType(code="user_status", name="用户状态"))
