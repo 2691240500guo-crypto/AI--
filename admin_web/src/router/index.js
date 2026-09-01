@@ -10,7 +10,11 @@ const routes = [
     component: () => import('@/layout/index.vue'),
     redirect: '/dashboard',
     children: [
-      { path: 'dashboard', name: 'dashboard', component: () => import('@/views/dashboard.vue'), meta: { title: '数据看板' } }
+      { path: 'dashboard', name: 'dashboard', component: () => import('@/views/dashboard.vue'), meta: { title: '数据看板' } },
+      // 岗位匹配域（M 域）静态路由：sys_menu 未种子 matching 菜单项前，用静态路由保证页面可直接访问
+      // meta.static=true 保护：registerDynamicRoutes 清理旧动态路由时跳过，避免登录后被 removeRoute 导致 404
+      { path: 'matching/position', name: 'matching-position', component: () => import('@/views/matching/Position.vue'), meta: { title: '岗位管理', static: true } },
+      { path: 'matching/result', name: 'matching-result', component: () => import('@/views/matching/Result.vue'), meta: { title: '匹配结果', static: true } }
     ]
   },
   // 兜底 404（放最后）
@@ -34,7 +38,8 @@ function resolveComponent(component) {
 
 export function registerDynamicRoutes(menus) {
   const parent = router.options.routes.find((r) => r.path === '/')
-  const children = (parent?.children || []).filter((c) => c.name !== 'dashboard')
+  // 清理旧动态路由时跳过 meta.static=true 的静态路由（如岗位匹配域页面），避免登录后被误删
+  const children = (parent?.children || []).filter((c) => c.name !== 'dashboard' && !c.meta?.static)
   // 清理旧动态路由（登录态切换时避免重复注册）
   for (const c of children) {
     if (router.hasRoute(c.name)) router.removeRoute(c.name)

@@ -33,6 +33,12 @@ async function onLogout() {
           </el-sub-menu>
           <el-menu-item v-else :index="root.path || '/'">{{ root.title }}</el-menu-item>
         </template>
+        <!-- 岗位匹配域（M 域）：sys_menu 暂未种子 matching 菜单项，此处注入静态分组，保证页面可操作 -->
+        <el-sub-menu index="/matching">
+          <template #title>岗位匹配</template>
+          <el-menu-item index="/matching/position">岗位管理</el-menu-item>
+          <el-menu-item index="/matching/result">匹配结果</el-menu-item>
+        </el-sub-menu>
       </el-menu>
     </el-aside>
     <el-container>
