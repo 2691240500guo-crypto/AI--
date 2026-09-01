@@ -15,6 +15,7 @@ const routes = [
       // meta.static=true 保护：registerDynamicRoutes 清理旧动态路由时跳过，避免登录后被 removeRoute 导致 404
       { path: 'matching/position', name: 'matching-position', component: () => import('@/views/matching/Position.vue'), meta: { title: '岗位管理', static: true } },
       { path: 'matching/result', name: 'matching-result', component: () => import('@/views/matching/Result.vue'), meta: { title: '匹配结果', static: true } },
+      { path: 'matching/agent', name: 'matching-agent', component: () => import('@/views/matching/Agent.vue'), meta: { title: '岗位人才匹配Agent', static: true } },
       // 智能测评-在线答题（A 域独立答题页，不在菜单里，静态注册保证可直接访问）
       { path: 'assessment/answer/:id', name: 'assessment-answer', component: () => import('@/views/assessment/answer.vue'), meta: { title: '在线答题', static: true } }
     ]

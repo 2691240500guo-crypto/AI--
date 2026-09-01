@@ -20,6 +20,10 @@ from app.dao.matching import MatchPushLogDAO, MatchResultDAO, MatchRuleDAO, PosP
 from app.db.session import get_db
 from app.models.matching import MatchResult, PosPosition, MatchRule, MatchPushLog
 from app.schemas.matching import (
+    AgentChatRequest,
+    AgentParseRequest,
+    AgentReverseRequest,
+    AgentRunRequest,
     MatchRequest,
     MatchResultOut,
     MatchRuleCreate,
@@ -31,6 +35,7 @@ from app.schemas.matching import (
     VectorOut,
 )
 from app.services.matching import MatchingService
+from app.ai.agents.match_agent import MatchAgent
 from app.utils.pagination import PageParams, count_rows, paged_result
 from app.utils.response import ok
 
@@ -185,3 +190,42 @@ def list_alerts(position_id: int | None = None, db: Session = Depends(get_db)):
 def generate_alerts(position_id: int | None = None, db: Session = Depends(get_db)):
     alerts = MatchingService.generate_alerts(db, position_id=position_id)
     return ok({"total": len(alerts), "alerts": alerts})
+
+
+# ==================== 岗位人才匹配 Agent（AI） ====================
+
+@router.post("/agent/parse")
+def agent_parse_requirement(body: AgentParseRequest, db: Session = Depends(get_db)):
+    """岗位智能解析：AI 拆解任职要求/技能标准/经验门槛/学历/综合素质 → 标签体系。"""
+    result = MatchAgent.parse_requirement(db, body.position_id)
+    return ok(result)
+
+
+@router.post("/agent/run")
+def agent_run_match(body: AgentRunRequest, db: Session = Depends(get_db)):
+    """岗位→人才匹配：向量检索 + 硬过滤 + 软加权 + 排序 + 落库 + 解释。"""
+    filters = {
+        "degree_required": body.degree_required,
+        "years_required": body.years_required,
+        "mandatory_skills": body.mandatory_skills,
+    }
+    results = MatchAgent.run_match(
+        db, body.position_id, top_k=body.top_k,
+        min_score=body.min_score, gen_explain=body.gen_explain,
+        filters=filters,
+    )
+    return ok({"total": len(results), "results": results})
+
+
+@router.post("/agent/reverse")
+def agent_reverse_match(body: AgentReverseRequest, db: Session = Depends(get_db)):
+    """人才→岗位反向匹配：人才画像 → 检索岗位 → 打分排序。"""
+    results = MatchAgent.reverse_match(db, body.talent_id, top_k=body.top_k,
+                                       min_score=body.min_score)
+    return ok({"total": len(results), "results": results})
+
+
+@router.post("/agent/chat")
+def agent_chat(body: AgentChatRequest, db: Session = Depends(get_db)):
+    """自然语言操作：意图识别 → 参数抽取 → 执行 → 自然语言回复。"""
+    return ok(MatchAgent.chat(db, body.message))
