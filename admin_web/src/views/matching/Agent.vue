@@ -188,7 +188,8 @@ async function handleChat() {
       agentMsg.chartType = data.chart_type || 'bar'
       agentMsg.results = result.results || []
       agentMsg.chartTitle = CHART_TITLE[agentMsg.chartType] || '候选人匹配度'
-      // 主动渲染（修改对象内部属性不会触发 watch(messages)）
+      // 双重 nextTick 等 el-card (v-if) 与内部 v-show div 都挂载完成，再主动渲染
+      await nextTick()
       await nextTick()
       renderChart(agentMsg)
     }
@@ -226,7 +227,10 @@ watch(messages, async (list) => {
 function renderChart(m) {
   const type = m.chartType
   const el = chartEls.get(`${m.id}:${type}`)
-  if (!el) return
+  if (!el) {
+    console.warn('[chart] el not bound', m.id, type, 'available:', [...chartEls.keys()])
+    return
+  }
   const key = `${m.id}:${type}`
   // 复用实例或新建
   let chart = chartInstances.get(key)
@@ -237,6 +241,8 @@ function renderChart(m) {
   if (type === 'bar') setBarOption(chart, m.results)
   else if (type === 'line') setLineOption(chart, m.results)
   else if (type === 'pie') setPieOption(chart, m.results)
+  // 确保容器尺寸正确（v-show false → true 切换时可能未及时布局）
+  chart.resize()
 }
 
 function setBarOption(chart, list) {
