@@ -38,13 +38,22 @@ const router = createRouter({ history: createWebHistory(), routes })
 
 // ===== 动态路由：按 /menus/mine 下发的菜单注册 =====
 // 菜单表 component 字段约定：相对 src/views 的路径，如 system/User -> views/system/User.vue
-const viewModules = import.meta.glob('@/views/**/*.vue')
+// 使用 src 绝对路径可确保 Vite 在开发和生产构建中生成同一份模块索引。
+const viewModules = import.meta.glob('/src/views/**/*.vue')
 
 function resolveComponent(component) {
   if (!component) return null
-  // 菜单 component 可能是 system/User，而文件是 system/user.vue —— 统一小写后匹配
-  const norm = component.replace(/\.vue$/, '').toLowerCase()
-  const hit = Object.keys(viewModules).find((k) => k.toLowerCase().endsWith(`/${norm}.vue`))
+  // 菜单 component 可能带 views/、src/ 或 .vue 后缀，统一后再匹配文件索引。
+  const norm = component
+    .replace(/^@?\/?src\/views\//i, '')
+    .replace(/^views\//i, '')
+    .replace(/^\/+/, '')
+    .replace(/\.vue$/, '')
+    .toLowerCase()
+  const hit = Object.keys(viewModules).find((key) => {
+    const normalizedKey = key.replace(/\\/g, '/').toLowerCase()
+    return normalizedKey.endsWith(`/views/${norm}.vue`)
+  })
   // 命中返回懒加载组件；未命中返回 null（页面缺失时渲染空，避免构建期动态 import 报错）
   return hit ? viewModules[hit] : null
 }
@@ -57,7 +66,7 @@ export function registerDynamicRoutes(menus) {
   for (const c of children) {
     if (router.hasRoute(c.name)) router.removeRoute(c.name)
   }
-  const leaf = menus.filter((m) => m.type === 2 && m.path)   // 菜单页
+  const leaf = menus.filter((m) => m.type === 2 && m.path && m.status !== 0).sort((a, b) => (a.sort - b.sort) || (a.id - b.id))
   const folders = menus.filter((m) => m.type === 1)           // 目录
   for (const m of leaf) {
     const fullPath = m.path.startsWith('/') ? m.path : `/${m.path}`
@@ -91,6 +100,7 @@ router.beforeEach(async (to) => {
       await user.restore()
     } catch (e) {
       console.warn('[router] restore failed:', e?.message)
+      if (to.name === 'not-found') return to.fullPath
     }
   }
   if (to.meta.title) document.title = `${to.meta.title} · AI 人才平台`

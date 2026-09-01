@@ -23,21 +23,40 @@ depends_on: Union[str, Sequence[str], None] = None
 
 
 def upgrade() -> None:
-    op.add_column(
-        'trn_training_plan',
-        sa.Column('weakness_tags', sa.String(length=500), nullable=False, server_default=''),
-    )
-    op.add_column(
-        'trn_training_plan',
-        sa.Column('improvement', sa.Integer(), nullable=False, server_default='0'),
-    )
-    op.add_column(
-        'trn_learning_record',
-        sa.Column('learned_minutes', sa.Integer(), nullable=False, server_default='0'),
-    )
+    inspector = sa.inspect(op.get_bind())
+    table_columns = {
+        table: {column["name"] for column in inspector.get_columns(table)}
+        for table in ("trn_training_plan", "trn_learning_record")
+        if table in inspector.get_table_names()
+    }
+    if "trn_training_plan" in table_columns:
+        if "weakness_tags" not in table_columns["trn_training_plan"]:
+            op.add_column(
+                "trn_training_plan",
+                sa.Column("weakness_tags", sa.String(length=500), nullable=False, server_default=""),
+            )
+        if "improvement" not in table_columns["trn_training_plan"]:
+            op.add_column(
+                "trn_training_plan",
+                sa.Column("improvement", sa.Integer(), nullable=False, server_default="0"),
+            )
+    if "trn_learning_record" in table_columns and "learned_minutes" not in table_columns["trn_learning_record"]:
+        op.add_column(
+            "trn_learning_record",
+            sa.Column("learned_minutes", sa.Integer(), nullable=False, server_default="0"),
+        )
 
 
 def downgrade() -> None:
-    op.drop_column('trn_learning_record', 'learned_minutes')
-    op.drop_column('trn_training_plan', 'improvement')
-    op.drop_column('trn_training_plan', 'weakness_tags')
+    inspector = sa.inspect(op.get_bind())
+    table_columns = {
+        table: {column["name"] for column in inspector.get_columns(table)}
+        for table in ("trn_training_plan", "trn_learning_record")
+        if table in inspector.get_table_names()
+    }
+    if "learned_minutes" in table_columns.get("trn_learning_record", set()):
+        op.drop_column("trn_learning_record", "learned_minutes")
+    if "improvement" in table_columns.get("trn_training_plan", set()):
+        op.drop_column("trn_training_plan", "improvement")
+    if "weakness_tags" in table_columns.get("trn_training_plan", set()):
+        op.drop_column("trn_training_plan", "weakness_tags")

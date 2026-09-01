@@ -6,8 +6,18 @@ from app.models.dict_item import DictType, DictItem
 from app.models.operation_log import OperationLog, LoginLog
 from app.models.message import Message
 from app.models.matching import PosPosition, MatchRule, MatchResult, MatchPushLog
+from app.models.agent import AgentTask
 from app.models.assessment import (
-    QuestionBank, Question, Paper, PaperQuestion, Result, ResultDetail,
+    AssessmentAnswerEvent,
+    AssessmentBatch,
+    AssessmentCapabilityModel,
+    AssessmentPaper,
+    AssessmentQuestion,
+    AssessmentResult,
+    AssessmentResultDetail,
+    AssessmentTrainingOutbox,
+    PaperQuestion,
+    QuestionBank,
 )
 # ---- hy 分支合并：人才档案域 + 在线学习 ----
 from app.models.talent import (
@@ -26,7 +36,10 @@ __all__ = [
     "Dept", "Position", "DictType", "DictItem",
     "OperationLog", "LoginLog", "Message",
     "PosPosition", "MatchRule", "MatchResult", "MatchPushLog",
-    "QuestionBank", "Question", "Paper", "PaperQuestion", "Result", "ResultDetail",
+    "AgentTask",
+    "QuestionBank", "AssessmentQuestion", "AssessmentPaper", "AssessmentCapabilityModel", "AssessmentBatch", "PaperQuestion",
+    "AssessmentResult", "AssessmentResultDetail", "AssessmentAnswerEvent",
+    "AssessmentTrainingOutbox",
     "Talent", "TalentEducation", "TalentWorkExperience", "TalentProject",
     "TalentCertificate", "TalentTag", "TalentTalentTag", "TalentResumeParseLog",
     "TalentDict", "TalentReport", "TalentMerge",
