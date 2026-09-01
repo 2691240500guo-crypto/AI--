@@ -79,18 +79,20 @@ def download_report(object_name: str,
 @router.post("/nl2sql", response_model=ApiResp[NL2SQLOut])
 async def nl2sql(req: NL2SQLRequest,
                  _=Depends(require_permission("analytics:nl2sql"))):
-    """Agent⑤ 问数入口（D1 骨架：接收自然语言，返回统一结构的占位响应）。
-
-    D1 不调用 Agent（run() 尚未实现），先固定返回 skeleton 状态，
-    保证 P11 前端今天就能对着这套字段结构开始写页面。
-    """
+    """Agent⑤ 问数入口（D2：真实调用引擎，返回 SQL+数据+图表）。"""
+    from app.ai.agents.query_agent import get_query_agent
+    result = await get_query_agent().run({
+        "question": req.question,
+        "chart_type": req.chart_type or "bar",
+    })
+    # 契约出参：sql/columns/rows/chart_json/status
     return ok({
         "question": req.question,
-        "sql": None,
-        "columns": [],
-        "rows": [],
-        "chart_json": None,
-        "status": "skeleton",
+        "sql": result.get("sql"),
+        "columns": result.get("columns", []),
+        "rows": result.get("rows", []),
+        "chart_json": result.get("chart_json"),
+        "status": result.get("status", "failed"),
     })
 
 # 同样用 ApiResp 包装，避免 response_model 与 ok() 包装冲突导致的 500
