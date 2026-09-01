@@ -469,9 +469,14 @@ class MatchAgent:
 
         # 2.5 岗位名规则兜底：LLM 未提取出岗位名时，从消息中按"XX岗位"模式提取（清洗动词前缀）
         if intent in ("match", "chart", "parse") and not pid:
-            m = re.search(r"([\u4e00-\u9fa5A-Za-z0-9+#\- ]{1,20}?)岗位", message)
+            # 模式1：XX岗位 / XX职位
+            m = re.search(r"([\u4e00-\u9fa5A-Za-z0-9+#\- ]{1,20}?)岗位|([\u4e00-\u9fa5A-Za-z0-9+#\- ]{1,20}?)职位", message)
             if not m:
+                # 模式2：适合/匹配/找 XX 人才/岗位
                 m = re.search(r"(?:适合|匹配|找)\s*([\u4e00-\u9fa5A-Za-z0-9+#\- ]{1,16}?)(?:的)?(?:人才|岗位|人)", message)
+            if not m:
+                # 模式3：生成/画/看 XX 的 (折线|柱状|饼)图（chart 指令无"岗位"关键词时用）
+                m = re.search(r"(?:生成|画|显示|看|帮我)\s*([\u4e00-\u9fa5A-Za-z0-9+#\- ]{1,20}?)(?:的)?(?:折线图|柱状图|柱形图|饼图|图)\b", message)
             if m:
                 name = m.group(1).strip()
                 for w in ("生成", "画一下", "显示", "查看", "看看", "分析", "解析", "帮我找", "帮我", "找", "适合", "匹配", "一下", "给", "的", "看看"):
