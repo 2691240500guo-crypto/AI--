@@ -489,10 +489,13 @@ class MatchAgent:
                 data = cls.parse_requirement(db, pid)
                 result["result"] = data
             elif intent in ("match", "chart") and pid:
-                data = cls.run_match(db, pid, top_k=10, gen_explain=True, filters=filters or None)
+                # chart 意图不需要逐条 LLM 解释（省 30-50 秒）；match 默认也不生成（前端按需点"匹配依据"按钮生成）
+                do_explain = (intent == "match")
+                data = cls.run_match(db, pid, top_k=10, gen_explain=do_explain, filters=filters or None)
                 result["result"] = {"total": len(data), "results": data}
                 if intent == "chart":
                     result["chart_type"] = parsed.get("chart_type") or "bar"
+                    result["result"]["chart_type"] = result["chart_type"]
                     result["intent"] = "chart"
                 else:
                     result["intent"] = "match"
@@ -719,11 +722,8 @@ class MatchAgent:
                 top = result["results"][0]
                 ctype = {"bar": "柱状图", "line": "折线图", "pie": "饼图"}.get(
                     result.get("chart_type", "bar"), "柱状图")
-                return llm.chat(
-                    f"岗位匹配了{result['total']}名候选，已生成{ctype}。第1名人才#{top['talent_id']}得分{top['score']}。"
-                    "请用 50 字以内中文告知用户图表已生成并简述图表要点。",
-                    system="你是 HR 招聘助手，输出简洁自然。",
-                )
+                # chart 回复简单可规则化，直接返回（省 LLM 5-8 秒）
+                return f"已生成{ctype}（{result['total']}名候选）。第1名：人才#{top['talent_id']}，{top['score']}分。"
         except Exception:  # noqa: BLE001
             pass
         # 降级规则化

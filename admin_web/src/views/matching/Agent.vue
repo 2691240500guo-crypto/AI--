@@ -245,9 +245,9 @@
             type="textarea"
             :rows="2"
             :autosize="{ minRows: 2, maxRows: 6 }"
-            placeholder="试试这样说：帮我找适合后端开发岗位的人才，要求硕士、3年以上经验、会Python（Ctrl+Enter 发送）"
+            placeholder="试试这样说：帮我找适合后端开发岗位的人才，要求硕士、3年以上经验、会Python（Enter 发送，Shift+Enter 换行）"
             :disabled="nlpLoading"
-            @keydown.enter.prevent.ctrl="handleChat"
+            @keydown.enter.exact.prevent="handleChat"
           />
           <el-button
             class="send-btn"
