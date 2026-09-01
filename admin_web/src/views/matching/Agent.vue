@@ -209,6 +209,8 @@ const STORAGE_KEY = 'agent_conv_history_v2'
 const conversations = ref(loadConversations())
 const activeConvId = ref(null)
 const messages = ref([])
+const nlpInput = ref('')
+const nlpLoading = ref(false)
 let msgSeq = 0
 let chartInstances = new Map()
 
