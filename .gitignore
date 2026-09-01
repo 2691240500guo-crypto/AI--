@@ -1,0 +1,29 @@
+# ---- Python ----
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+*.log
+.env
+
+# ---- 前端 ----
+node_modules/
+admin_web/dist/
+miniapp/dist/
+
+# ---- IDE / 系统 ----
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# ---- 工作区数据（本地记忆，不共享）----
+.workbuddy/
+
+# ---- 测试 / 临时 ----
+.pytest_cache/
+.coverage
+htmlcov/
+*.db
+_alembic_baseline.db

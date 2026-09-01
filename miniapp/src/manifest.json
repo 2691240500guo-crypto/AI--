@@ -1,0 +1,17 @@
+{
+  "name": "AI人才平台小程序",
+  "appid": "",
+  "description": "AI 数字化人才平台小程序",
+  "versionName": "0.1.0",
+  "versionCode": "100",
+  "transformPx": false,
+  "app-plus": {},
+  "h5": {
+    "router": { "mode": "hash" }
+  },
+  "mp-weixin": {
+    "appid": "",
+    "setting": { "urlCheck": false },
+    "usingComponents": true
+  }
+}

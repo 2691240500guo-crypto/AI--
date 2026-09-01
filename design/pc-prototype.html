@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI数字化人才平台 · PC 管理端原型</title>
+<style>
+  :root{
+    --brand:#2563eb; --brand-soft:#eaf0ff; --ink:#1f2937; --ink2:#6b7280; --ink3:#9ca3af;
+    --line:#e5e7eb; --bg:#f5f7fa; --card:#fff; --ok:#16a34a; --warn:#f59e0b; --danger:#ef4444;
+    --r:12px; --shadow:0 1px 3px rgba(16,24,40,.06);
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Microsoft YaHei","PingFang SC",system-ui,sans-serif;color:var(--ink);background:#eef1f6}
+  .topbar{background:linear-gradient(90deg,#1e3a8a,#2563eb);color:#fff;padding:10px 20px;display:flex;justify-content:space-between;align-items:center;position:sticky;top:0;z-index:5}
+  .topbar .t{font-size:15px;font-weight:700;letter-spacing:.5px}
+  .topbar span{font-size:12px;opacity:.85}
+  section{max-width:1180px;margin:18px auto;padding:0 16px}
+  h2{font-size:15px;margin:26px 6px 12px;color:#334155;display:flex;align-items:center;gap:8px}
+  h2::before{content:"";width:4px;height:16px;background:var(--brand);border-radius:2px}
+  h2 small{font-weight:400;color:var(--ink3);font-size:12px}
+  .grid{display:grid;gap:16px}
+  .cards{display:flex;gap:16px;flex-wrap:wrap}
+  .card{flex:1;min-width:230px;background:var(--card);border:1px solid var(--line);border-radius:var(--r);box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column}
+  .card .c-head{font-size:12px;color:var(--ink2);padding:12px 14px;border-bottom:1px solid var(--line);background:#fafbfc;display:flex;justify-content:space-between;align-items:center}
+  .card .c-body{padding:14px;flex:1}
+  .note{background:#fff8e6;border:1px solid #f5e1a8;color:#8a6d1a;font-size:12px;padding:10px 14px;border-radius:8px;margin:10px 0}
+  /* UI atoms */
+  .logo{width:28px;height:28px;border-radius:8px;background:#fff;display:inline-flex;align-items:center;justify-content:center;font-weight:800;color:var(--brand);margin-right:8px}
+  .row{display:flex;align-items:center;gap:10px}
+  .search{display:flex;gap:8px;flex-wrap:wrap;align-items:center}
+  .ipt{border:1px solid var(--line);border-radius:8px;height:34px;padding:0 12px;font-size:13px;background:#fff;color:var(--ink2);display:inline-flex;align-items:center;min-width:130px}
+  .btn{border-radius:8px;height:34px;padding:0 16px;font-size:13px;border:1px solid var(--line);background:#fff;color:var(--ink);cursor:pointer;display:inline-flex;align-items:center;gap:6px}
+  .btn.p{background:var(--brand);border-color:var(--brand);color:#fff}
+  .btn.g{background:var(--ok);border-color:var(--ok);color:#fff}
+  .btn.w{color:var(--warn);border-color:#fde68a}
+  .avatar{width:30px;height:30px;border-radius:50%;background:var(--brand-soft);color:var(--brand);display:inline-flex;align-items:center;justify-content:center;font-size:12px;font-weight:600}
+  table{width:100%;border-collapse:collapse;font-size:12.5px}
+  th{background:#f8fafc;color:var(--ink3);font-weight:500;text-align:left;padding:10px 12px;border-bottom:1px solid var(--line)}
+  td{padding:11px 12px;border-bottom:1px solid #f1f2f4;color:var(--ink)}
+  tr:hover td{background:#fafbff}
+  .tag{font-size:11px;padding:2px 9px;border-radius:20px;background:var(--brand-soft);color:var(--brand)}
+  .tag.o{background:#fff1f0;color:#e5533c}.tag.g{background:#e8f7ee;color:#1c8a4c}.tag.y{background:#fff7e0;color:#c07a0a}
+  .score{font-weight:700;color:var(--brand)}
+  .side{width:210px;background:#111827;color:#d1d5db;display:flex;flex-direction:column}
+  .side .logo{color:#fff;background:#2563eb}
+  .side .m{padding:11px 18px;font-size:13px;display:flex;gap:10px;align-items:center;border-left:3px solid transparent;color:#9ca3af;cursor:pointer}
+  .side .m.on{border-left-color:var(--brand);background:#1f2937;color:#fff}
+  .stat{display:flex;gap:14px;flex:1}
+  .stat .s{flex:1;background:var(--card);border:1px solid var(--line);border-radius:var(--r);padding:14px;box-shadow:var(--shadow)}
+  .stat .s .v{font-size:24px;font-weight:700;margin-top:4px}
+  .bar{height:8px;border-radius:6px;background:#eef2f7;overflow:hidden;margin-top:8px}
+  .bar i{display:block;height:100%;background:var(--brand);border-radius:6px}
+  /* app-like mock */
+  .phone{width:300px;border-radius:26px;border:8px solid #111827;background:#f7f8fa;overflow:hidden;flex-shrink:0}
+  .phone .ph{padding:12px 14px;background:linear-gradient(135deg,#2563eb,#3b82f6);color:#fff}
+  .tabbar{display:flex;border-top:1px solid var(--line);background:#fff}
+  .tabbar .tb{flex:1;text-align:center;font-size:10.5px;color:var(--ink3);padding:8px 0}
+  .tabbar .tb.on{color:var(--brand);font-weight:600}
+  .legend{font-size:11px;color:var(--ink3);margin-top:8px;line-height:1.7}
+  footer{max-width:1180px;margin:30px auto 40px;text-align:center;color:var(--ink3);font-size:12px}
+</style>
+</head>
+<body>
+<div class="topbar">
+  <div class="row"><span class="logo">AI</span><span class="t">AI 数字化人才平台 · PC 管理端 UI 基准</span></div>
+  <span>参考原型：简单 · 干净 · 舒服 · 后续前端以此为准</span>
+</div>
+
+<section>
+  <div class="note">这是「UI 设计基准」参考图。统一原则：白色卡片 + 浅灰底、8-12px 圆角、主色 #2563eb、克制的留白、表格化数据呈现、层级分明的侧边栏。后续所有页面沿用这套组件与风格。</div>
+</section>
+
+<!-- 1 登录页 -->
+<section>
+  <h2>1. 登录页 <small>简洁居中卡片，无多余装饰</small></h2>
+  <div class="card" style="max-width:900px;margin:0 auto;padding:0">
+    <div style="display:flex;min-height:340px">
+      <div style="flex:1.1;background:linear-gradient(135deg,#1e40af,#3b82f6);color:#fff;padding:40px;display:flex;flex-direction:column;justify-content:center">
+        <div style="font-size:26px;font-weight:800">AI 数字化人才平台</div>
+        <div style="font-size:13px;margin:12px 0 26px;opacity:.85">智能档案 · AI测评 · 人岗匹配 · 数据决策</div>
+        <div style="font-size:12px;opacity:.7">· 基于 AI Agent 的人才全流程管理<br>· 数据私有化 · 多端同步</div>
+      </div>
+      <div style="flex:1;padding:44px 36px;display:flex;flex-direction:column;justify-content:center;gap:14px">
+        <div style="font-size:19px;font-weight:700">欢迎回来</div>
+        <div class="ipt" style="width:100%">账号 / 手机号</div>
+        <div class="ipt" style="width:100%">密码 ······</div>
+        <div class="row" style="justify-content:space-between;font-size:12px;color:var(--ink2)">记住我 ☐ <span style="color:var(--brand)">忘记密码?</span></div>
+        <div class="btn p" style="width:100%;justify-content:center;height:40px">登 录</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 2 主布局 -->
+<section>
+  <h2>2. 主布局 <small>左侧导航 + 顶部全局栏 + 内容区</small></h2>
+  <div class="card" style="padding:0;display:flex;height:430px">
+    <div class="side">
+      <div class="row" style="padding:16px 18px"><span class="logo">AI</span><span style="color:#fff;font-weight:700;font-size:14px">人才平台</span></div>
+      <div class="m on">📊 数据看板</div>
+      <div class="m">🧑‍🤝‍🧑 人才档案</div>
+      <div class="m">📝 智能测评</div>
+      <div class="m">🎯 人岗匹配</div>
+      <div class="m">🎓 培训赋能</div>
+      <div class="m">💬 AI 助手</div>
+      <div class="m">🔔 消息中心</div>
+      <div class="m">⚙️ 系统管理</div>
+      <div style="flex:1"></div>
+      <div class="m">👤 退出登录</div>
+    </div>
+    <div style="flex:1;display:flex;flex-direction:column">
+      <div style="height:50px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between;padding:0 18px;background:#fff">
+        <div style="font-size:15px;font-weight:600">数据看板</div>
+        <div class="row" style="gap:14px">
+          <div class="ipt" style="min-width:200px">🔍 搜索人才 / 岗位 / 文档...</div>
+          <span class="avatar">管</span><span style="font-size:13px">管理员</span>
+        </div>
+      </div>
+      <div style="flex:1;padding:18px;background:var(--bg);overflow:auto">
+        <div class="stat">
+          <div class="s">人才总量<div class="v">1,286</div><div class="bar"><i style="width:72%"></i></div></div>
+          <div class="s">测评合格率<div class="v">86%</div><div class="bar"><i style="width:86%"></i></div></div>
+          <div class="s">匹配成功率<div class="v">91%</div><div class="bar"><i style="width:91%"></i></div></div>
+          <div class="s">培训完成率<div class="v">78%</div><div class="bar"><i style="width:78%"></i></div></div>
+        </div>
+        <div class="grid" style="grid-template-columns:1fr 1fr;margin-top:16px">
+          <div class="card"><div class="c-head">人才结构分布 <span class="tag">年龄/学历</span></div><div class="c-body"><div style="height:150px;display:flex;align-items:flex-end;gap:10px;padding-top:10px">
+            <div style="flex:1;text-align:center"><div class="bar" style="transform:rotate(180deg)"><i style="width:100%;height:44px"></i></div><div style="font-size:11px;margin-top:4px">25以下</div></div>
+            <div style="flex:1;text-align:center"><div class="bar" style="transform:rotate(180deg)"><i style="width:100%;height:82px;background:#3b82f6"></i></div><div style="font-size:11px;margin-top:4px">26-35</div></div>
+            <div style="flex:1;text-align:center"><div class="bar" style="transform:rotate(180deg)"><i style="width:100%;height:66px;background:#60a5fa"></i></div><div style="font-size:11px;margin-top:4px">36-45</div></div>
+            <div style="flex:1;text-align:center"><div class="bar" style="transform:rotate(180deg)"><i style="width:100%;height:34px;background:#93c5fd"></i></div><div style="font-size:11px;margin-top:4px">46+</div></div>
+          </div></div></div>
+          <div class="card"><div class="c-head">最近待办 <span class="tag o">3 条</span></div><div class="c-body" style="font-size:12.5px;display:flex;flex-direction:column;gap:10px">
+            <div class="row" style="justify-content:space-between"><span>📄 张伟 简历待确认入库</span><span class="tag y">待处理</span></div>
+            <div class="row" style="justify-content:space-between"><span>📝 数据部 测评待阅卷</span><span class="tag y">待处理</span></div>
+            <div class="row" style="justify-content:space-between"><span>🎯 研发岗 缺 2 名核心人才</span><span class="tag o">预警</span></div>
+          </div></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- 3 档案列表 -->
+<section>
+  <h2>3. 人才档案列表 <small>搜索区 + 表格 + 分页，数据密集但有序</small></h2>
+  <div class="card" style="padding:0">
+    <div class="search" style="padding:14px">
+      <div class="ipt">🔍 姓名/关键词</div>
+      <div class="ipt">学历 全部</div>
+      <div class="ipt">技能/标签 全部</div>
+      <div class="ipt">部门 全部</div>
+      <div class="btn w">清除</div>
+      <div style="flex:1"></div>
+      <div class="btn">⬇ 导出</div>
+      <div class="btn">Excel 导入</div>
+      <div class="btn">✚ 新建档案</div>
+    </div>
+    <table>
+      <thead><tr><th>姓名</th><th>部门/岗位</th><th>学历</th><th>技能标签</th><th>能力等级</th><th>更新</th><th>操作</th></tr></thead>
+      <tbody>
+        <tr><td><div class="row"><span class="avatar">张</span>张伟</div></td><td>研发部/算法工程师</td><td>硕士</td><td><span class="tag">AI</span> <span class="tag">Python</span> <span class="tag g">骨干</span></td><td><span class="score">高级</span></td><td>2026-08-29</td><td><span style="color:var(--brand)">查看丨编辑丨匹配</span></td></tr>
+        <tr><td><div class="row"><span class="avatar" style="background:#fef3c7;color:#b2500c">李</span>李娜</div></td><td>市场部/产品经理</td><td>本科</td><td><span class="tag">产品</span> <span class="tag">数据</span></td><td><span class="score">中级</span></td><td>2026-08-28</td><td><span style="color:var(--brand)">查看丨编辑丨匹配</span></td></tr>
+        <tr><td><div class="row"><span class="avatar" style="background:#e8f7ee;color:#1c8a4c">王</span>王强</div></td><td>研发部/前端</td><td>本科</td><td><span class="tag">Vue</span> <span class="tag y">储备</span></td><td><span class="score">中级</span></td><td>2026-08-27</td><td><span style="color:var(--brand)">查看丨编辑丨匹配</span></td></tr>
+      </tbody>
+    </table>
+    <div style="padding:12px 14px;display:flex;justify-content:flex-end;gap:8px;align-items:center;font-size:12px;color:var(--ink2)">共 1,286 条 &nbsp; ‹ 1 2 3 … 43 ›</div>
+  </div>
+</section>
+
+<!-- 4 AI 助手 -->
+<section>
+  <h2>4. AI 助手（问答 + 问数） <small>对话式，RAG 溯源</small></h2>
+  <div class="card" style="padding:0;display:flex;flex-direction:column;height:300px">
+    <div style="flex:1;padding:16px;display:flex;flex-direction:column;gap:10px;overflow:auto;background:#fafbfc">
+      <div style="max-width:70%;align-self:flex-end;background:var(--brand);color:#fff;border-radius:12px 12px 3px 12px;padding:9px 12px;font-size:13px">统计一下本科以上且技能含 AI 的骨干人才数量？</div>
+      <div style="max-width:78%;align-self:flex-start;background:#fff;border:1px solid var(--line);border-radius:12px 12px 12px 3px;padding:10px 12px;font-size:13px">
+        共 118 名骨干人才符合条件，较上季度 +12%。<span class="tag g">已生成图表</span>
+        <div style="margin-top:8px;font-size:11px;color:var(--ink3)">↗ 数据来源已溯源 · 支持导出报告</div>
+      </div>
+    </div>
+    <div style="padding:12px;border-top:1px solid var(--line);display:flex;gap:10px;background:#fff">
+      <div class="ipt" style="flex:1">提问：如"研发部技能缺口分析""查有 3 年 AI 项目经验的骨干"</div>
+      <div class="btn p">发送</div>
+    </div>
+  </div>
+</section>
+
+<footer>PC 管理端 UI 基准 · AI Talent Platform · 供前端设计参照 ｜ 主色 #2563eb / 白卡片 / 圆角 8-12px</footer>
+</body>
+</html>

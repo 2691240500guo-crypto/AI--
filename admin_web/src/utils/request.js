@@ -1,0 +1,59 @@
+import axios from 'axios'
+import { ElMessage } from 'element-plus'
+import { useUserStore } from '@/stores/user'
+import router from '@/router'
+
+const http = axios.create({ baseURL: import.meta.env.VITE_API_BASE || '/api', timeout: 15000 })
+
+http.interceptors.request.use((config) => {
+  const token = sessionStorage.getItem('token')
+  if (token) config.headers.Authorization = `Bearer ${token}`
+  return config
+})
+
+http.interceptors.response.use(
+  (resp) => {
+    // 文件流（blob）直接返回，不按统一响应解析
+    if (resp.config.responseType === 'blob') {
+      return resp.data
+    }
+    const body = resp.data
+    // 后端统一响应 {code, message, data}
+    if (body && body.code !== 0) {
+      ElMessage.error(body.message || '请求失败')
+      return Promise.reject(new Error(body.message))
+    }
+    return body
+  },
+  async (err) => {
+    const status = err.response?.status
+    if (status === 401) {
+      // token 失效，尝试用 refresh_token 续期
+      const ok = await tryRefresh()
+      if (ok) return http(err.config)
+      const user = useUserStore()
+      user.logout()
+    } else {
+      ElMessage.error(err.response?.data?.message || err.message)
+    }
+    return Promise.reject(err)
+  }
+)
+
+async function tryRefresh() {
+  const rt = sessionStorage.getItem('refresh_token')
+  if (!rt) return false
+  try {
+    const res = await axios.post(
+      `${import.meta.env.VITE_API_BASE || '/api'}/auth/refresh`,
+      { refresh_token: rt }
+    )
+    sessionStorage.setItem('token', res.data.data.access_token)
+    sessionStorage.setItem('refresh_token', res.data.data.refresh_token)
+    return true
+  } catch {
+    return false
+  }
+}
+
+export default http
