@@ -208,11 +208,9 @@ function scrollToBottom() {
 
 // ===== 图表渲染（按消息隔离，chart 意图渲染对应类型单图） =====
 function bindChartEl(msgId, type, el) {
-  if (el) {
-    chartEls.set(`${msgId}:${type}`, el)
-  } else {
-    chartEls.delete(`${msgId}:${type}`)
-  }
+  // 只 set 不 delete：v-show 切换或 Vue 重新渲染时会用 el=null 调用 ref 函数，
+  // delete 会清空 Map 导致后续 init 拿不到 el；用 set 时校验是 Element 即可
+  if (el && el.tagName) chartEls.set(`${msgId}:${type}`, el)
 }
 
 // 监听消息流：新出现带 chartType 的消息 → 渲染其图表
