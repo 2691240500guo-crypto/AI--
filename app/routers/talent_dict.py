@@ -7,6 +7,7 @@
 """
 # hq新增内容 - 人才档案批次2.1 + 合并
 from fastapi import APIRouter, Depends, HTTPException, Query
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.deps import require_permission
@@ -21,6 +22,8 @@ router = APIRouter()
 def _with_stats(db: Session, rows: list[TalentTag]) -> list[dict]:
     """为标签列表附带绑定人才数量（前端「绑定人才」列）。
 
+    性能优化：原来每个标签循环内 2 次查询（COUNT + 前5名），165 个标签 = 330+ 次
+    远程 SQL 往返（~23s）。改为一次 ``GROUP BY`` 聚合拿全部计数。
     hq+ 2026-09-01：同时返回 ``type``（合并前 7 大类 code）+ ``category``（袁武原 category），
     前端 tags.vue 用 type 显示合并前的旧分类（fit/experience/level/strength/quality/potential），
     edit.vue 改用 category 与袁武对齐。其他模块不受影响。
@@ -35,13 +38,16 @@ def _with_stats(db: Session, rows: list[TalentTag]) -> list[dict]:
         "potential": "potential",  # 潜力评级
         "custom": "strength",      # 职业特长（兜底类：泛词/AI抽取标签）
     }
+    if not rows:
+        return []
+    tag_ids = [t.id for t in rows]
+    counts = dict(db.execute(
+        select(TalentTalentTag.tag_id, func.count())
+        .where(TalentTalentTag.tag_id.in_(tag_ids))
+        .group_by(TalentTalentTag.tag_id)
+    ).all())
     items = []
     for t in rows:
-        cnt = db.query(TalentTalentTag).filter(TalentTalentTag.tag_id == t.id).count()
-        names = [
-            n[0] for n in db.query(TalentTalentTag.talent_id)
-            .filter(TalentTalentTag.tag_id == t.id).limit(5).all()
-        ]
         items.append({
             "id": t.id,
             "code": t.name,                                    # 旧字段（兼容）
@@ -50,7 +56,7 @@ def _with_stats(db: Session, rows: list[TalentTag]) -> list[dict]:
             "category": t.category,                            # 袁武原 code（edit.vue 用）
             "sort": 0,
             "enabled": 1,
-            "talent_count": cnt,
+            "talent_count": counts.get(t.id, 0),
             "talent_names": [],                                 # 简单版不展开姓名（量大），保留字段
             "is_builtin": t.is_builtin,
             "description": t.description,

@@ -11,6 +11,7 @@ const questionStats = ref([])
 const batchStats = ref([])
 const loading = ref(false)
 const statsLoading = ref(false)
+const batchLoading = ref(false)
 const errorMessage = ref('')
 const page = ref(1)
 const pageSize = ref(20)
@@ -32,22 +33,35 @@ async function load() {
   try {
     const params = { page: page.value, page_size: pageSize.value, ...filters }
     const filterParams = { talent_id: filters.talent_id, paper_id: filters.paper_id, batch_id: filters.batch_id }
-    const [resultResponse, statsResponse, questionResponse, batchResponse] = await Promise.all([
+    // 首屏只等 3 个接口（列表+概览+题目维度）；批次统计(getBatchStatistics)较慢，拆到 loadBatchStats 次级异步加载
+    const [resultResponse, statsResponse, questionResponse] = await Promise.all([
       listResults(params),
       getStatistics(filterParams),
       getQuestionStatistics({ paper_id: filters.paper_id, batch_id: filters.batch_id }),
-      getBatchStatistics({ paper_id: filters.paper_id, batch_id: filters.batch_id }),
     ])
     rows.value = resultResponse.data.items || []
     total.value = resultResponse.data.meta?.total || 0
     Object.assign(stats, statsResponse.data || {})
     questionStats.value = questionResponse.data.items || []
-    batchStats.value = batchResponse.data.items || []
   } catch (error) {
     errorMessage.value = error?.message || '成绩统计加载失败，请重试'
   } finally {
     loading.value = false
     statsLoading.value = false
+  }
+  loadBatchStats() // 次级加载，不阻塞首屏渲染
+}
+
+async function loadBatchStats() {
+  batchLoading.value = true
+  try {
+    const batchResponse = await getBatchStatistics({ paper_id: filters.paper_id, batch_id: filters.batch_id })
+    batchStats.value = batchResponse.data.items || []
+  } catch (error) {
+    // 批次统计失败不阻塞页面，静默置空
+    batchStats.value = []
+  } finally {
+    batchLoading.value = false
   }
 }
 
@@ -130,7 +144,7 @@ onMounted(async () => {
           </div>
         </el-tab-pane>
         <el-tab-pane label="批次分析">
-          <el-table v-if="batchStats.length" :data="batchStats" stripe>
+          <el-table v-if="batchStats.length" :data="batchStats" v-loading="batchLoading" stripe>
         <el-table-column prop="batch_no" label="批次号" min-width="170" />
         <el-table-column prop="batch_name" label="批次名称" min-width="180" show-overflow-tooltip />
         <el-table-column prop="total_results" label="应测" width="75" />

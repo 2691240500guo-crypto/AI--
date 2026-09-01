@@ -1,6 +1,8 @@
 """C 智能测评数据访问层。业务规则由 assessment service 负责。"""
 
-from sqlalchemy import func, select
+from decimal import Decimal
+
+from sqlalchemy import and_, case, func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.dao.base import BaseDAO
@@ -134,6 +136,42 @@ class AssessmentBatchDAO(BaseDAO[AssessmentBatch]):
         ).all())
         return rows, db.scalar(count_stmt) or 0
 
+    @classmethod
+    def batch_statistics(cls, db: Session, *, batch_id: int | None = None,
+                         paper_id: int | None = None) -> list[dict]:
+        """按批次 SQL 聚合统计。
+
+        替代旧实现「逐批次 page_size=100000 全量拉结果 + Python 循环聚合」，
+        一次 GROUP BY 查询完成 total/completed/pass/avg 聚合，避免远程库多轮往返。
+        """
+        completed = AssessmentResult.status.in_([2, 3])
+        pass_cond = and_(
+            completed,
+            AssessmentResult.score / AssessmentPaper.total_score >= Decimal("0.60"),
+        )
+        stmt = (
+            select(
+                AssessmentBatch.id.label("batch_id"),
+                AssessmentBatch.batch_no,
+                AssessmentBatch.name,
+                AssessmentBatch.paper_id,
+                func.count(AssessmentResult.id).label("total_results"),
+                func.coalesce(func.sum(case((completed, 1), else_=0)), 0).label("completed_results"),
+                func.coalesce(func.sum(case((pass_cond, 1), else_=0)), 0).label("pass_count"),
+                func.avg(case((completed, AssessmentResult.score), else_=None)).label("avg_score"),
+            )
+            .select_from(AssessmentBatch)
+            .outerjoin(AssessmentResult, AssessmentResult.batch_id == AssessmentBatch.id)
+            .outerjoin(AssessmentPaper, AssessmentPaper.id == AssessmentBatch.paper_id)
+            .group_by(AssessmentBatch.id, AssessmentBatch.batch_no, AssessmentBatch.name, AssessmentBatch.paper_id)
+            .order_by(AssessmentBatch.id.desc())
+        )
+        if batch_id is not None:
+            stmt = stmt.where(AssessmentBatch.id == batch_id)
+        if paper_id is not None:
+            stmt = stmt.where(AssessmentBatch.paper_id == paper_id)
+        return [dict(row._mapping) for row in db.execute(stmt).all()]
+
 
 class PaperQuestionDAO(BaseDAO[PaperQuestion]):
     __model__ = PaperQuestion
@@ -238,6 +276,76 @@ class AssessmentResultDAO(BaseDAO[AssessmentResult]):
             selectinload(cls.__model__.details),
         )
         return list(db.scalars(stmt).all())
+
+    @classmethod
+    def statistics(cls, db: Session, *, talent_id: int | None = None,
+                   paper_id: int | None = None, batch_id: int | None = None) -> dict:
+        """整体统计 SQL 聚合（替代 list_completed 全量加载 + Python 循环聚合）。
+
+        返回 total_results / completed_results / average_score / average_rate /
+        pass_count / dimensions（按题目维度快照聚合）。
+        """
+        completed = cls.__model__.status.in_([2, 3])
+        conditions = [completed]
+        if talent_id is not None:
+            conditions.append(cls.__model__.talent_id == talent_id)
+        if paper_id is not None:
+            conditions.append(cls.__model__.paper_id == paper_id)
+        if batch_id is not None:
+            conditions.append(cls.__model__.batch_id == batch_id)
+
+        rate_ok = and_(
+            completed, AssessmentPaper.total_score > 0,
+            cls.__model__.score / AssessmentPaper.total_score >= Decimal("0.60"),
+        )
+        agg_stmt = (
+            select(
+                func.count(cls.__model__.id).label("total_results"),
+                func.coalesce(func.sum(case((completed, 1), else_=0)), 0).label("completed_results"),
+                func.avg(case((completed, cls.__model__.score), else_=None)).label("avg_score"),
+                func.avg(case(
+                    (and_(completed, AssessmentPaper.total_score > 0),
+                     cls.__model__.score / AssessmentPaper.total_score),
+                    else_=None,
+                )).label("avg_rate"),
+                func.coalesce(func.sum(case((rate_ok, 1), else_=0)), 0).label("pass_count"),
+            )
+            .select_from(cls.__model__)
+            .outerjoin(AssessmentPaper, AssessmentPaper.id == cls.__model__.paper_id)
+            .where(*conditions)
+        )
+        agg = db.execute(agg_stmt).one()._mapping
+
+        dim_stmt = (
+            select(
+                PaperQuestion.dimension_snapshot.label("dimension"),
+                func.coalesce(func.sum(AssessmentResultDetail.score), 0).label("score"),
+                func.coalesce(func.sum(PaperQuestion.score_snapshot), 0).label("total_score"),
+                func.count(func.distinct(cls.__model__.id)).label("result_count"),
+                func.count(func.distinct(PaperQuestion.question_id)).label("question_count"),
+            )
+            .select_from(cls.__model__)
+            .join(PaperQuestion, PaperQuestion.paper_id == cls.__model__.paper_id)
+            .outerjoin(
+                AssessmentResultDetail,
+                and_(
+                    AssessmentResultDetail.result_id == cls.__model__.id,
+                    AssessmentResultDetail.question_id == PaperQuestion.question_id,
+                ),
+            )
+            .where(*conditions)
+            .group_by(PaperQuestion.dimension_snapshot)
+            .order_by(PaperQuestion.dimension_snapshot)
+        )
+        dims = db.execute(dim_stmt).all()
+        return {
+            "total_results": agg["total_results"] or 0,
+            "completed_results": agg["completed_results"] or 0,
+            "average_score": agg["avg_score"],
+            "average_rate": agg["avg_rate"],
+            "pass_count": agg["pass_count"] or 0,
+            "dimensions": [dict(d._mapping) for d in dims],
+        }
 
 
 class AssessmentResultDetailDAO(BaseDAO[AssessmentResultDetail]):
