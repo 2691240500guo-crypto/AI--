@@ -4,9 +4,9 @@
     <div class="chat-list" ref="chatListRef">
       <!-- 空状态：欢迎语 + 能力 + 快问 -->
       <div v-if="!messages.length" class="chat-empty">
-        <div class="hero-icon">📊</div>
-        <h1 class="hero-title">岗位图表生成Agent</h1>
-        <p class="hero-subtitle">一句话生成任意岗位的折线图 / 柱状图 / 饼图</p>
+        <div class="hero-icon">🤖</div>
+        <h1 class="hero-title">岗位人才匹配Agent</h1>
+        <p class="hero-subtitle">岗位需求解析 · 双向智能匹配 · 适配度打分 · 原因解释 · 可视化展示</p>
 
         <div class="hint-block">
           <div class="hint-label">我能帮你做什么</div>
@@ -39,7 +39,7 @@
         <div v-else class="msg-row agent-msg">
           <div class="agent-avatar">AI</div>
           <div class="agent-content">
-            <!-- 回复气泡（loading / 文本） -->
+            <!-- 回复气泡 -->
             <div class="reply-bubble" :class="{ 'is-loading': m.loading }">
               <template v-if="m.loading">思考中…</template>
               <template v-else>{{ m.reply || '（无回复）' }}</template>
@@ -83,6 +83,55 @@
               </el-row>
             </el-card>
 
+            <!-- 匹配结果：候选列表（match 意图，含维度得分与 Top3 解释） -->
+            <el-card v-if="m.results && m.results.length && !m.chartType" shadow="never" class="section-card">
+              <template #header><span>🏆 候选人才（按匹配度排序）</span></template>
+              <div v-for="r in m.results" :key="r.talent_id" class="cand-row">
+                <div class="cand-left">
+                  <el-tag :type="r.rank <= 3 ? 'danger' : 'info'" effect="dark" round size="small" class="cand-rank">{{ r.rank }}</el-tag>
+                  <el-avatar :size="34" :src="r.avatar || ''" class="cand-avatar">{{ (r.talent_name || '人').slice(0, 1) }}</el-avatar>
+                  <div class="cand-id">
+                    <div class="cand-name">{{ r.talent_name || `人才${r.talent_id}` }}<span class="cand-tag">#{{ r.talent_id }}</span></div>
+                    <div class="cand-meta">{{ r.current_title || '暂无职位' }} · {{ r.degree || '学历未知' }} · {{ r.years || 0 }}年经验</div>
+                  </div>
+                </div>
+                <div class="cand-right">
+                  <div class="cand-score">
+                    <el-progress :percentage="Number(r.score)" :color="scoreColor(r.score)" :stroke-width="9" class="cand-bar" />
+                    <b class="cand-num">{{ r.score }}</b>
+                  </div>
+                  <div class="cand-dims">
+                    <span v-for="(v, k) in parseDims(r.dimension_json)" :key="k" class="dim-chip">
+                      {{ DIM_LABEL[k] }}<b>{{ v }}</b>
+                    </span>
+                  </div>
+                  <div v-if="r.explain" class="cand-explain">💬 {{ r.explain }}</div>
+                </div>
+              </div>
+            </el-card>
+
+            <!-- 反向匹配结果（reverse 意图） -->
+            <el-card v-if="m.reverseResults && m.reverseResults.length" shadow="never" class="section-card">
+              <template #header><span>🔄 人才适配岗位（反向匹配）</span></template>
+              <el-table :data="m.reverseResults" stripe border>
+                <el-table-column label="岗位" prop="position_name" min-width="160" />
+                <el-table-column label="匹配度" width="180">
+                  <template #default="{ row }">
+                    <el-progress :percentage="Number(row.score)" :color="scoreColor(row.score)" :stroke-width="10" />
+                  </template>
+                </el-table-column>
+                <el-table-column label="四维得分" min-width="210">
+                  <template #default="{ row }">
+                    <div class="dims">
+                      <span v-for="(v, k) in parseDims(row.dimension_json)" :key="k" class="dim-chip">
+                        {{ DIM_LABEL[k] }}<b>{{ v }}</b>
+                      </span>
+                    </div>
+                  </template>
+                </el-table-column>
+              </el-table>
+            </el-card>
+
             <!-- 图表（chart 意图：单张对应类型大图） -->
             <el-card v-if="m.chartType && m.results && m.results.length" shadow="never" class="section-card charts-card">
               <template #header>
@@ -108,7 +157,7 @@
             type="textarea"
             :rows="2"
             :autosize="{ minRows: 2, maxRows: 6 }"
-            placeholder="试试这样说：生成后端开发的折线图（Enter 发送，Shift+Enter 换行）"
+            placeholder="试试这样说：帮我找适合后端开发的人才（Enter 发送，Shift+Enter 换行）"
             :disabled="nlpLoading"
             @keydown.enter.exact.prevent="handleChat"
           />
@@ -126,7 +175,7 @@
 </template>
 
 <script setup>
-import { nextTick, onBeforeUnmount, onMounted, ref, watch } from 'vue'
+import { nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import * as echarts from 'echarts'
 import { agentChat } from '@/api/matching'
@@ -139,28 +188,28 @@ const CHART_TITLE = {
   pie: '匹配结果分布（推荐/候选/储备）',
 }
 
-// 一句话快问（点击自动填入）
 const QUICK_QUERIES = [
-  '生成后端开发的折线图',
-  '生成AI架构师的柱状图',
-  '生成前端开发的饼图',
+  '帮我找适合后端开发的人才',
   '分析后端开发工程师的岗位要求',
+  '生成后端开发的折线图',
+  '为什么人才4排第一',
+  '人才5适合什么岗位',
 ]
 
 const CAPABILITIES = [
-  { icon: '📈', text: '折线图', desc: 'Top10 候选人匹配度走势' },
-  { icon: '📊', text: '柱状图', desc: '各候选人匹配度对比' },
-  { icon: '🥧', text: '饼图', desc: '匹配结果分布占比' },
-  { icon: '📋', text: '岗位解析', desc: 'AI 拆解岗位任职要求' },
+  { icon: '📋', text: '岗位解析', desc: 'AI 拆解任职要求/技能/经验门槛' },
+  { icon: '🎯', text: '人才匹配', desc: '向量检索+硬过滤+软加权打分排序' },
+  { icon: '📊', text: '可视化', desc: '柱状图/折线图/饼图展示匹配维度' },
+  { icon: '💬', text: '匹配解释', desc: '说明推荐依据与维度得分' },
 ]
 
 // ===== 状态 =====
-const messages = ref([])  // [{id, role, text, reply, loading, parsed, chartType, results, chartTitle}]
+const messages = ref([])
 const nlpInput = ref('')
 const nlpLoading = ref(false)
 let msgSeq = 0
-let chartEls = new Map()      // `${msgId}:${type}` -> DOM
-let chartInstances = new Map()  // `${msgId}:${type}` -> echarts 实例
+let chartEls = new Map()
+let chartInstances = new Map()
 
 function fillNlp(text) { nlpInput.value = text }
 
@@ -184,16 +233,19 @@ async function handleChat() {
     const { intent, result } = data
     if (intent === 'parse' && result) {
       agentMsg.parsed = result
+    } else if (intent === 'match' && result) {
+      agentMsg.results = result.results || []
     } else if (intent === 'chart' && result) {
       agentMsg.chartType = data.chart_type || 'bar'
       agentMsg.results = result.results || []
       agentMsg.chartTitle = CHART_TITLE[agentMsg.chartType] || '候选人匹配度'
-      // 双重 nextTick 等 el-card (v-if) 与内部 v-show div 都挂载完成，再主动渲染
       await nextTick()
       await nextTick()
       renderChart(agentMsg)
+    } else if (intent === 'reverse' && result) {
+      agentMsg.reverseResults = result.results || []
     }
-    // match/reverse/explain/unknown：仅展示 reply
+    // explain/unknown：仅展示 reply
   } finally {
     nlpLoading.value = false
     scrollToBottom()
@@ -206,31 +258,28 @@ function scrollToBottom() {
   })
 }
 
-// ===== 图表渲染（按消息隔离，chart 意图渲染对应类型单图） =====
-function bindChartEl(msgId, type, el) {
-  // 只 set 不 delete：v-show 切换或 Vue 重新渲染时会用 el=null 调用 ref 函数，
-  // delete 会清空 Map 导致后续 init 拿不到 el；用 set 时校验是 Element 即可
-  if (el && el.tagName) chartEls.set(`${msgId}:${type}`, el)
+// ===== 工具 =====
+function parseDims(json) {
+  if (!json) return {}
+  try { return JSON.parse(json) } catch { return {} }
+}
+function scoreColor(s) {
+  const n = Number(s)
+  if (n >= 80) return '#67c23a'
+  if (n >= 60) return '#e6a23c'
+  return '#f56c6c'
 }
 
-// 监听消息流：新出现带 chartType 的消息 → 渲染其图表
-watch(messages, async (list) => {
-  const chartMsgs = list.filter((m) => m.role === 'agent' && m.chartType && m.results && m.results.length)
-  for (const m of chartMsgs) {
-    await nextTick()
-    renderChart(m)
-  }
-})
+// ===== 图表渲染（按消息隔离） =====
+function bindChartEl(msgId, type, el) {
+  if (el && el.tagName) chartEls.set(`${msgId}:${type}`, el)
+}
 
 function renderChart(m) {
   const type = m.chartType
   const el = chartEls.get(`${m.id}:${type}`)
-  if (!el) {
-    console.warn('[chart] el not bound', m.id, type, 'available:', [...chartEls.keys()])
-    return
-  }
+  if (!el) return
   const key = `${m.id}:${type}`
-  // 复用实例或新建
   let chart = chartInstances.get(key)
   if (!chart) {
     chart = echarts.init(el)
@@ -239,7 +288,6 @@ function renderChart(m) {
   if (type === 'bar') setBarOption(chart, m.results)
   else if (type === 'line') setLineOption(chart, m.results)
   else if (type === 'pie') setPieOption(chart, m.results)
-  // 确保容器尺寸正确（v-show false → true 切换时可能未及时布局）
   chart.resize()
 }
 
@@ -252,11 +300,7 @@ function setBarOption(chart, list) {
       data: list.map((r) => r.talent_name || `人才${r.talent_id}`),
       axisLabel: { fontSize: 12, color: '#6e7681', interval: 0, rotate: 30 },
     },
-    yAxis: {
-      type: 'value', name: '匹配度', max: 100,
-      axisLabel: { fontSize: 12, color: '#6e7681' },
-      splitLine: { lineStyle: { color: '#f0f0f0' } },
-    },
+    yAxis: { type: 'value', name: '匹配度', max: 100, axisLabel: { fontSize: 12, color: '#6e7681' }, splitLine: { lineStyle: { color: '#f0f0f0' } } },
     series: [{
       type: 'bar', barWidth: 28,
       data: list.map((r) => Number(r.score)),
@@ -276,11 +320,7 @@ function setLineOption(chart, list) {
       boundaryGap: false,
       axisLabel: { fontSize: 12, color: '#6e7681' },
     },
-    yAxis: {
-      type: 'value', name: '匹配度', min: (v) => Math.max(0, Math.floor(v.min - 5)), max: 100,
-      axisLabel: { fontSize: 12, color: '#6e7681' },
-      splitLine: { lineStyle: { color: '#f0f0f0' } },
-    },
+    yAxis: { type: 'value', name: '匹配度', min: (v) => Math.max(0, Math.floor(v.min - 5)), max: 100, axisLabel: { fontSize: 12, color: '#6e7681' }, splitLine: { lineStyle: { color: '#f0f0f0' } } },
     series: [{
       type: 'line', smooth: false,
       symbol: 'circle', symbolSize: 8,
@@ -395,7 +435,7 @@ onBeforeUnmount(() => {
   50% { opacity: 1; }
 }
 
-/* ===== 解析卡片 ===== */
+/* ===== 结果卡片 ===== */
 .section-card { margin-top: 12px; border-radius: 10px; }
 .card-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .dim-box { border: 1px solid #ebeef5; border-radius: 6px; padding: 12px; height: 100%; }
@@ -406,6 +446,36 @@ onBeforeUnmount(() => {
 .skill-tags { display: flex; flex-wrap: wrap; }
 .empty { color: #c0c4cc; font-size: 13px; }
 .tag { margin: 0 4px 4px 0; }
+
+/* ===== 候选列表 ===== */
+.cand-row {
+  display: flex; align-items: center; gap: 12px;
+  padding: 10px 4px; border-bottom: 1px solid #f0f2f5;
+}
+.cand-row:last-child { border-bottom: none; }
+.cand-row:hover { background: #fafbfc; border-radius: 8px; }
+.cand-left { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+.cand-rank { flex-shrink: 0; }
+.cand-avatar { background: #409eff; color: #fff; font-weight: 600; flex-shrink: 0; }
+.cand-name { font-weight: 600; color: #1f2328; }
+.cand-tag { color: #c0c4cc; font-size: 12px; margin-left: 4px; }
+.cand-meta { font-size: 12px; color: #8b949e; margin-top: 2px; }
+.cand-right { flex: 1.2; min-width: 0; }
+.cand-score { display: flex; align-items: center; gap: 8px; }
+.cand-bar { flex: 1; }
+.cand-num { font-size: 15px; font-weight: 700; color: #409eff; }
+.cand-dims { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.dim-chip {
+  font-size: 11px; color: #606266; background: #f5f7fa;
+  border: 1px solid #e5e7eb; border-radius: 4px; padding: 2px 6px;
+}
+.dim-chip b { color: #409eff; margin-left: 2px; }
+.cand-explain {
+  margin-top: 8px; font-size: 12px; color: #606266;
+  background: #f0f9eb; border: 1px solid #e1f3d8; border-radius: 6px;
+  padding: 8px 10px; line-height: 1.6;
+}
+.dims { display: flex; gap: 6px; flex-wrap: wrap; }
 
 /* ===== 图表 ===== */
 .charts-card { background: #fafbfc; }

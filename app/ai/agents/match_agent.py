@@ -363,12 +363,14 @@ class MatchAgent:
                 "skills": m.get("skills", []),
                 "status": rec.status,
             }
-            # 解释生成（LLM 失败自动降级规则化）
-            if gen_explain:
+            # 解释生成（仅 Top3 生成 LLM 解释避免全量卡顿；LLM 失败自动降级规则化）
+            if gen_explain and rank <= 3:
                 try:
                     item["explain"] = MatchingService.explain(db, rec.id, force=False)
                 except Exception:  # noqa: BLE001
                     item["explain"] = ""
+            else:
+                item["explain"] = ""
             saved.append(item)
         db.commit()
         return saved
