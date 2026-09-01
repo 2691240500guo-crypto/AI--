@@ -1,7 +1,7 @@
 """C 智能测评数据访问层。业务规则由 assessment service 负责。"""
 
 from sqlalchemy import func, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.dao.base import BaseDAO
 from app.models.assessment import (
@@ -178,6 +178,7 @@ class AssessmentResultDAO(BaseDAO[AssessmentResult]):
         if conditions:
             stmt = stmt.where(*conditions)
             count_stmt = count_stmt.where(*conditions)
+        stmt = stmt.options(selectinload(cls.__model__.paper))
         rows = list(db.scalars(
             stmt.order_by(cls.__model__.id.desc()).offset((page - 1) * page_size).limit(page_size)
         ).all())
@@ -232,7 +233,10 @@ class AssessmentResultDAO(BaseDAO[AssessmentResult]):
             conditions.append(cls.__model__.paper_id == paper_id)
         if batch_id is not None:
             conditions.append(cls.__model__.batch_id == batch_id)
-        stmt = select(cls.__model__).where(*conditions).order_by(cls.__model__.id.asc())
+        stmt = select(cls.__model__).where(*conditions).order_by(cls.__model__.id.asc()).options(
+            selectinload(cls.__model__.paper).selectinload(AssessmentPaper.question_links),
+            selectinload(cls.__model__.details),
+        )
         return list(db.scalars(stmt).all())
 
 
