@@ -205,9 +205,9 @@
 
         <!-- chart 意图：只渲染指定单图（全宽大图） -->
         <div v-if="latestChartType" class="single-chart-wrap">
-          <div ref="barChart" v-if="latestChartType === 'bar'" class="chart chart-single" />
-          <div ref="lineChart" v-if="latestChartType === 'line'" class="chart chart-single" />
-          <div ref="pieChart" v-if="latestChartType === 'pie'" class="chart chart-single" />
+          <div ref="barChart" v-show="latestChartType === 'bar'" class="chart chart-single" />
+          <div ref="lineChart" v-show="latestChartType === 'line'" class="chart chart-single" />
+          <div ref="pieChart" v-show="latestChartType === 'pie'" class="chart chart-single" />
         </div>
 
         <!-- 默认：四图 2x2 -->
@@ -416,7 +416,8 @@ async function handleChat() {
 
 function scrollToBottom() {
   nextTick(() => {
-    if (chatListRef.value) chatListRef.value.scrollTop = chatListRef.value.scrollHeight
+    // 页面整体滚动（chat-list 不限高度，靠 body 滚动），让最新消息与 charts-card 进入视野
+    window.scrollTo({ top: document.body.scrollHeight, behavior: 'smooth' })
   })
 }
 
