@@ -31,7 +31,7 @@
 <script setup>
 import { ref, computed, onMounted } from 'vue'
 import EChart from '@/components/EChart.vue'
-import { getOverview, getTrend, getDistribution } from '@/api/analytics'
+import { getOverview, getTrend, getDistribution } from '@/api/analytics.js'
 import { ElMessage } from 'element-plus'
 
 const loading = ref(false)
@@ -39,7 +39,7 @@ const kpis = ref([])
 const charts = ref({})
 const dateRange = ref(null)
 const deptId = ref(null)
-const deptOptions = ref([{ value: 1, label: '研发部' }, { value: 2, label: '产品部' }]) // 一期占位，可接 /depts
+const deptOptions = ref([{ value: 1, label: '研发部' }, { value: 2, label: '产品部' }])
 
 async function load() {
   loading.value = true
@@ -47,7 +47,6 @@ async function load() {
     const p = {}
     if (dateRange.value) { p.from = dateRange.value[0]; p.to = dateRange.value[1] }
     if (deptId.value) p.dept_id = deptId.value
-    // 后端 /overview 当前忽略日期/部门参数，返回固定指标字典
     const ov = (await getOverview(p)).data
     kpis.value = [
       { key: 'talent_total', label: '人才总量', value: ov.talent_total ?? 0 },
@@ -55,14 +54,13 @@ async function load() {
       { key: 'training_completion_rate', label: '培训完成率', value: Math.round((ov.training_completion_rate ?? 0) * 100), suffix: '%' },
       { key: 'match_avg_score', label: '平均匹配度', value: ov.match_avg_score ?? 0 },
     ]
-    // 学历结构（饼图/柱图共用），来自 overview.talent_by_degree
     const degree = Object.entries(ov.talent_by_degree || {}).map(([name, value]) => ({ name, value }))
-    // 趋势/分布后端当前返回 []（TODO），先请求占位，后端补全后自动出图
     const trend = (await getTrend({ metric: 'talent_new', days: 30 })).data || []
     const dist = (await getDistribution({ dimension: 'degree' })).data || []
     charts.value = { degree, trend_line: trend, dist_items: dist, score_radar: [] }
   } catch { ElMessage.error('看板加载失败') } finally { loading.value = false }
 }
+
 
 const trendOption = computed(() => ({
   tooltip: { trigger: 'axis' },
