@@ -1,5 +1,6 @@
-// 请求封装：带 token、统一响应、401 续期（小程序版）
-const BASE_URL = 'http://127.0.0.1:8000/api'
+// 请求封装：带 token、统一响应、401 续期（H5 版）
+// 后端路由前缀为 /api/v1（见 app/core/config.py），通过 vite 代理 /api → 127.0.0.1:8000
+const BASE_URL = '/api/v1'
 
 export function request(options) {
   return new Promise((resolve, reject) => {

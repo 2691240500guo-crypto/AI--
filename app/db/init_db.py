@@ -38,6 +38,31 @@ def seed(db: Session) -> None:
             db.add(m)
     db.flush()
 
+    # 智能培训管理端菜单（T-P5-03）：课程库、学习计划、效果分析
+    training_root = db.query(Menu).filter_by(title="智能培训").first()
+    if not training_root:
+        training_root = Menu(parent_id=0, title="智能培训", path="/training", component="Layout", perm=None, type=1, sort=3)
+        db.add(training_root)
+        db.flush()
+
+    training_menus = [
+        Menu(parent_id=training_root.id, title="课程库管理", path="/training/course", component="training/Course", perm="training:course", type=2, sort=1),
+        Menu(parent_id=training_root.id, title="学习计划管理", path="/training/plan", component="training/Plan", perm="training:plan", type=2, sort=2),
+        Menu(parent_id=training_root.id, title="培训效果分析", path="/training/effect", component="training/Effect", perm="training:effect", type=2, sort=3),
+    ]
+    for item in training_menus:
+        existing = db.query(Menu).filter_by(title=item.title).first()
+        if existing:
+            existing.parent_id = training_root.id
+            existing.path = item.path
+            existing.component = item.component
+            existing.perm = item.perm
+            existing.type = item.type
+            existing.sort = item.sort
+        else:
+            db.add(item)
+    db.flush()
+
     # 数据字典类型
     if not db.query(DictType).first():
         db.add(DictType(code="user_status", name="用户状态"))
