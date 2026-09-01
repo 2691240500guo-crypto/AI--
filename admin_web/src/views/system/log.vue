@@ -6,16 +6,22 @@ import { exportOperationLogs, listOperationLogs } from '@/api/audit'
 const rows = ref([])
 const total = ref(0)
 const loading = ref(false)
-const query = reactive({ page: 1, page_size: 10, action: '' })
+const query = reactive({ page: 1, page_size: 20, action: '', username: '' })
+const timeRange = ref([])
 
 const methodTag = {
   GET: 'info', POST: 'success', PUT: 'warning', DELETE: 'danger', PATCH: 'primary'
 }
 
+function formatTime(value) {
+  if (!value) return '—'
+  return value.replace('T', ' ').slice(0, 19)
+}
+
 async function load() {
   loading.value = true
   try {
-    const res = await listOperationLogs(query)
+    const res = await listOperationLogs({ ...query, ...timeParams() })
     rows.value = res.data.items
     total.value = res.data.meta.total
   } finally {
@@ -25,7 +31,7 @@ async function load() {
 
 async function doExport() {
   try {
-    const blob = await exportOperationLogs({ action: query.action || undefined })
+    const blob = await exportOperationLogs({ action: query.action || undefined, username: query.username || undefined, ...timeParams() })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
@@ -38,6 +44,13 @@ async function doExport() {
   }
 }
 
+function timeParams() {
+  return {
+    begin: timeRange.value?.[0] || undefined,
+    end: timeRange.value?.[1] || undefined
+  }
+}
+
 onMounted(load)
 </script>
 
@@ -45,6 +58,8 @@ onMounted(load)
   <el-card>
     <div class="bar">
       <el-input v-model="query.action" placeholder="按动作筛选，如 user / 创建" style="width:240px" clearable @keyup.enter="query.page=1;load()" />
+      <el-input v-model="query.username" placeholder="按操作人筛选" style="width:200px" clearable @keyup.enter="query.page=1;load()" />
+      <el-date-picker v-model="timeRange" type="datetimerange" value-format="YYYY-MM-DD HH:mm:ss" start-placeholder="开始时间" end-placeholder="结束时间" range-separator="至" style="width:380px" @change="query.page=1" />
       <el-button type="primary" @click="query.page=1;load()">查询</el-button>
       <el-button type="primary" plain @click="doExport">导出 CSV</el-button>
     </div>
@@ -71,7 +86,9 @@ onMounted(load)
       <el-table-column prop="request_body" label="请求内容" min-width="200" show-overflow-tooltip>
         <template #default="{ row }">{{ row.request_body || '—' }}</template>
       </el-table-column>
-      <el-table-column prop="created_at" label="时间" width="170" />
+      <el-table-column label="时间" width="170">
+        <template #default="{ row }">{{ formatTime(row.created_at) }}</template>
+      </el-table-column>
     </el-table>
 
     <el-pagination style="margin-top:14px;justify-content:flex-end" layout="total, prev, pager, next" :total="total"
