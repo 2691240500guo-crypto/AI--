@@ -1,50 +1,46 @@
 <template>
   <div class="agent-page">
     <!-- ===== 唯一入口：自然语言 Agent ===== -->
-    <el-card shadow="never" class="agent-entry">
-      <div class="agent-title">
-        <span class="title-icon">🤖</span>
-        <span class="title-text">岗位人才匹配Agent</span>
-        <span class="title-tip">一句话描述需求，AI 自动完成</span>
-      </div>
-      <el-input
-        v-model="nlpInput"
-        type="textarea"
-        :rows="3"
-        placeholder="试试这样说：帮我找适合后端开发岗位的人才，要求硕士、3年以上经验、会Python"
-        class="agent-input"
-        clearable
-        @keydown.enter.prevent.ctrl="handleChat"
-      />
-      <div class="agent-actions">
-        <el-button type="primary" size="large" :loading="nlpLoading" @click="handleChat">🚀 发送</el-button>
-        <el-tag
-          v-for="t in QUICK_QUERIES"
-          :key="t"
-          size="default"
-          effect="plain"
-          class="quick-tag"
-          @click="fillNlp(t)"
-        >{{ t }}</el-tag>
-      </div>
-      <div v-if="nlpReply" class="nlp-reply">🤖 {{ nlpReply }}</div>
-    </el-card>
+    <div class="agent-hero">
+      <div class="hero-icon">🤖</div>
+      <h1 class="hero-title">岗位人才匹配Agent</h1>
+      <p class="hero-subtitle">用一句话描述需求，AI 自动完成岗位解析 / 智能匹配 / 反向匹配 / 依据解释</p>
 
-    <!-- ===== 功能提示 ===== -->
-    <el-card shadow="never" class="hint-card">
-      <div class="hint-title">💡 我能帮你做什么</div>
-      <el-row :gutter="16">
-        <el-col :xs="12" :sm="6" v-for="cap in CAPABILITIES" :key="cap.text">
-          <div class="cap-item">
-            <span class="cap-icon">{{ cap.icon }}</span>
+      <el-card shadow="never" class="agent-input-card">
+        <el-input
+          v-model="nlpInput"
+          type="textarea"
+          :rows="3"
+          placeholder="试试这样说：帮我找适合后端开发岗位的人才，要求硕士、3年以上经验、会Python"
+          @keydown.enter.prevent.ctrl="handleChat"
+        />
+        <div class="input-actions">
+          <el-button type="primary" size="large" :loading="nlpLoading" @click="handleChat">🚀 发送</el-button>
+        </div>
+      </el-card>
+
+      <div v-if="nlpReply" class="nlp-reply">🤖 {{ nlpReply }}</div>
+
+      <div class="hint-block">
+        <div class="hint-label">我能帮你做什么</div>
+        <div class="cap-row">
+          <div v-for="c in CAPABILITIES" :key="c.text" class="cap-chip">
+            <span class="cap-icon">{{ c.icon }}</span>
             <div>
-              <div class="cap-text">{{ cap.text }}</div>
-              <div class="cap-desc">{{ cap.desc }}</div>
+              <div class="cap-text">{{ c.text }}</div>
+              <div class="cap-desc">{{ c.desc }}</div>
             </div>
           </div>
-        </el-col>
-      </el-row>
-    </el-card>
+        </div>
+      </div>
+
+      <div class="hint-block">
+        <div class="hint-label">试试这样问</div>
+        <div class="quick-row">
+          <span v-for="q in QUICK_QUERIES" :key="q" class="quick-chip" @click="fillNlp(q)">{{ q }}</span>
+        </div>
+      </div>
+    </div>
 
     <!-- ===== 岗位需求解析区 ===== -->
     <el-card v-if="parsed" shadow="never" class="section-card">
@@ -466,28 +462,116 @@ onBeforeUnmount(() => window.removeEventListener('resize', resizeCharts))
 <style scoped>
 .agent-page { padding: 4px; max-width: 1080px; margin: 0 auto; }
 
-/* ===== 自然语言入口卡片 ===== */
-.agent-entry {
-  background: linear-gradient(135deg, #f5f7fa 0%, #e8eef7 100%);
-  border: none;
-  border-radius: 12px;
+/* ===== 首屏 Agent 入口（Codex/Claude 风格） ===== */
+.agent-hero {
+  max-width: 760px;
+  margin: 40px auto 32px;
+  padding: 0 16px;
+  text-align: center;
 }
-.agent-title { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }
-.title-icon { font-size: 22px; }
-.title-text { font-size: 18px; font-weight: 700; color: #303133; }
-.title-tip { font-size: 12px; color: #909399; }
-.agent-input :deep(textarea) { font-size: 15px; padding: 12px 14px; line-height: 1.6; }
-.agent-actions { display: flex; align-items: center; gap: 8px; margin-top: 12px; flex-wrap: wrap; }
-.quick-tag { cursor: pointer; user-select: none; transition: all 0.2s; }
-.quick-tag:hover { background: #ecf5ff; border-color: #409eff; color: #409eff; }
+.hero-icon {
+  font-size: 44px;
+  line-height: 1;
+  margin-bottom: 12px;
+}
+.hero-title {
+  font-size: 26px;
+  font-weight: 700;
+  color: #1f2328;
+  margin: 0 0 6px;
+  letter-spacing: 0.3px;
+}
+.hero-subtitle {
+  font-size: 13px;
+  color: #6e7681;
+  margin: 0 0 24px;
+  line-height: 1.6;
+}
 
-/* ===== 功能提示卡 ===== */
-.hint-card { border: none; border-radius: 10px; }
-.hint-title { font-size: 14px; color: #606266; font-weight: 600; margin-bottom: 12px; }
-.cap-item { display: flex; align-items: flex-start; gap: 10px; padding: 10px 0; }
-.cap-icon { font-size: 22px; line-height: 1; flex-shrink: 0; margin-top: 2px; }
-.cap-text { font-size: 14px; font-weight: 600; color: #303133; }
-.cap-desc { font-size: 12px; color: #909399; margin-top: 2px; line-height: 1.5; }
+/* 输入卡片 */
+.agent-input-card {
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 14px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.04);
+  padding: 14px 16px 12px;
+  text-align: left;
+}
+.agent-input-card :deep(.el-textarea__inner) {
+  font-size: 15px;
+  padding: 6px 0;
+  border: none;
+  box-shadow: none;
+  resize: none;
+  line-height: 1.7;
+  color: #1f2328;
+}
+.agent-input-card :deep(.el-textarea__inner::placeholder) { color: #a1a8b3; }
+.input-actions { display: flex; justify-content: flex-end; gap: 8px; padding-top: 4px; }
+
+/* Agent 回复气泡 */
+.nlp-reply {
+  margin-top: 14px;
+  padding: 10px 14px;
+  background: #f6f8fa;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  color: #1f2328;
+  line-height: 1.6;
+  font-size: 14px;
+  text-align: left;
+}
+
+/* 提示区块 */
+.hint-block { margin-top: 28px; text-align: left; }
+.hint-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #6e7681;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 12px;
+}
+.cap-row {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+}
+.cap-chip {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 12px;
+  background: #ffffff;
+  border: 1px solid #e5e7eb;
+  border-radius: 10px;
+  transition: all 0.2s;
+}
+.cap-chip:hover { border-color: #409eff; box-shadow: 0 2px 8px rgba(64, 158, 255, 0.08); }
+.cap-icon { font-size: 20px; line-height: 1; flex-shrink: 0; margin-top: 2px; }
+.cap-text { font-size: 13px; font-weight: 600; color: #1f2328; }
+.cap-desc { font-size: 11px; color: #8b949e; margin-top: 3px; line-height: 1.5; }
+
+/* 快问 chip */
+.quick-row { display: flex; flex-wrap: wrap; gap: 8px; }
+.quick-chip {
+  display: inline-block;
+  padding: 6px 14px;
+  background: #ffffff;
+  border: 1px solid #d0d7de;
+  border-radius: 16px;
+  font-size: 12px;
+  color: #1f2328;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.2s;
+  line-height: 1.5;
+}
+.quick-chip:hover {
+  background: #f6f8fa;
+  border-color: #409eff;
+  color: #409eff;
+}
 .step-card { margin-bottom: 16px; }
 .section-card { margin-bottom: 16px; }
 .toolbar { display: flex; align-items: center; gap: 8px; margin-top: 16px; flex-wrap: wrap; }
