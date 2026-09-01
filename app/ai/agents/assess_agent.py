@@ -39,7 +39,10 @@ async def run(input_data: dict[str, Any]) -> dict[str, Any]:
             db.commit()
             db.refresh(result)
 
-            level = report.get("rating") or "C"
+            # 契约口径：level 输出字母 S/A/B/C（映射 优秀=S/良好=A/合格=B/待提升=C）
+            # report.rating 保留 C 域中文原值（前端展示用）
+            rating = report.get("rating") or "C"
+            level = _cn_to_level(str(rating))
             shortcomings = [str(w) for w in report.get("weaknesses", [])]
             return {
                 "report": report,
@@ -50,3 +53,12 @@ async def run(input_data: dict[str, Any]) -> dict[str, Any]:
     except Exception as exc:  # noqa: BLE001
         logger.exception("Agent② 测评分析失败: %s", exc)
         return {"status": "failed", "error_msg": str(exc)}
+
+
+# 契约等级映射：C 域中文 rating → 契约字母 S/A/B/C（graph 复测路由依赖）
+_LEVEL_MAP = {"优秀": "S", "良好": "A", "合格": "B", "待提升": "C"}
+
+
+def _cn_to_level(rating: str) -> str:
+    """中文等级 → 契约字母；已是字母原样返回。"""
+    return _LEVEL_MAP.get(rating, rating if rating in ("S", "A", "B", "C") else "C")

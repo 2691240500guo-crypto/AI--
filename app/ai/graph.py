@@ -7,12 +7,16 @@
     - 节点 = 一个 Agent / 业务步骤，签名 async def node(state) -> dict（返回要更新的字段）
     - 边 = 顺序边（无条件）/ 条件边（路由函数决定走向，支持循环）
 
-节点已接入真实 Agent（统一走 app.ai.agents 的 run() 契约入口）：
-    parse    → resume_agent.run（Agent① 简历解析）
+节点已接入真实 Agent（统一走 app.ai.agents 契约入口）：
+    parse    → resume_agent.run（Agent① 简历解析；无 file_url 时透传）
     assess   → 业务节点：校验在线测评已交卷（A-3/4）
     report   → assess_agent.run（Agent② 测评分析，产出 shortcomings）
     training → train_agent.run（Agent④ 培训推送，短板→计划）
     retest   → 业务节点：复测计数（上限 3 防死循环）
+    match    → MatchAgent.reverse_match（Agent③ 岗位匹配，人岗闭环）
+    query    → query_agent.run（Agent⑤ NL2SQL，问数闭环）
+
+入口分流（route_entry）：question → 问数⑤；position_ids → 人岗①→③；否则成长②→④。
 
 依赖：langgraph>=0.2（见 requirements.txt）。
 """
@@ -52,10 +56,16 @@ class AgentState(TypedDict, total=False):
 # 2. 节点（真实 Agent，统一走 app.ai.agents 契约入口）
 # ---------------------------------------------------------------------------
 async def node_parse(state: AgentState) -> dict:
-    """Agent① 简历解析：下载 → 结构化 → 落库 → 打标签 → 向量。"""
+    """Agent① 简历解析：下载 → 结构化 → 落库 → 打标签 → 向量。
+
+    无 file_url 时透传（人岗闭环/问数闭环入口不需要简历解析）。
+    """
+    file_url = state.get("file_url")
+    if not file_url:
+        return {"agent_code": "resume", "error": None}
     from app.ai.agents import resume_agent
     out = await resume_agent.run({
-        "file_url": state.get("file_url") or "",
+        "file_url": file_url,
         "file_type": state.get("file_type") or "pdf",
         "filename": state.get("filename"),
     })
@@ -119,9 +129,59 @@ async def node_retest(state: AgentState) -> dict:
     return {"agent_code": "retest", "retest_count": (state.get("retest_count") or 0) + 1}
 
 
+async def node_match(state: AgentState) -> dict:
+    """Agent③ 岗位匹配（人岗闭环 ①→③）：人才 → 岗位向量检索 + 加权打分。
+
+    复用 P6/P7 的 MatchAgent.reverse_match（人才画像向量 → position_vec 召回 → 打分）。
+    """
+    if state.get("error"):
+        return {"agent_code": "match", "error": state["error"]}
+    talent_id = state.get("talent_id")
+    if not talent_id:
+        return {"agent_code": "match", "error": "缺少 talent_id（需先有人才档案）"}
+    from app.ai.agents.match_agent import MatchAgent
+    from app.db.session import SessionLocal
+    position_ids = state.get("position_ids") or []
+    top_k = max(len(position_ids), 5) if position_ids else 5
+    with SessionLocal() as db:
+        try:
+            results = MatchAgent.reverse_match(db, talent_id, top_k=top_k)
+            if position_ids:
+                results = [r for r in results if r["position_id"] in position_ids]
+        except Exception as exc:  # noqa: BLE001
+            return {"agent_code": "match", "error": f"岗位匹配失败: {exc}"}
+    return {"agent_code": "match", "matches": results, "error": None}
+
+
+async def node_query(state: AgentState) -> dict:
+    """Agent⑤ NL2SQL（问数闭环 ⑤）：自然语言 → SQL → 只读执行 → 图表。"""
+    if state.get("error"):
+        return {"agent_code": "query", "error": state["error"]}
+    question = state.get("question")
+    if not question:
+        return {"agent_code": "query", "error": "缺少 question"}
+    from app.ai.agents import query_agent
+    out = await query_agent.run({
+        "question": question,
+        "chart_type": state.get("chart_type") or "bar",
+    })
+    if out.get("status") != "done":
+        return {"agent_code": "query", "error": out.get("error_msg") or "问数失败"}
+    return {"agent_code": "query", "answer": out, "error": None}
+
+
 # ---------------------------------------------------------------------------
 # 3. 条件边（路由函数：返回目标分支名）
 # ---------------------------------------------------------------------------
+def route_entry(state: AgentState) -> str:
+    """入口分流（三大闭环）：有 question → 问数⑤；有 position_ids → 人岗①→③；否则成长②→④。"""
+    if state.get("question"):
+        return "query"
+    if state.get("position_ids"):
+        return "match"
+    return "assess"
+
+
 def route_report(state: AgentState) -> str:
     """报告完成后（A-7 联动）：存在短板 → 培训；无短板 → 结束。"""
     return "training" if state.get("shortcomings") else "end"
@@ -144,6 +204,8 @@ _DEFAULT_NODES = {
     "report": node_report,
     "training": node_training,
     "retest": node_retest,
+    "match": node_match,
+    "query": node_query,
 }
 
 
@@ -157,9 +219,14 @@ def build_graph(overrides: dict | None = None):
     for name, fn in nodes.items():
         g.add_node(name, fn)
 
-    # 链路 A 成长闭环：档案 → 测评 → 报告 →（短板）培训 → 复测 →（不合格循环）
+    # 入口分流：问数⑤ / 人岗①→③ / 成长②→④
     g.set_entry_point("parse")
-    g.add_edge("parse", "assess")
+    g.add_conditional_edges("parse", route_entry,
+                            {"assess": "assess", "match": "match", "query": "query"})
+    g.add_edge("query", END)
+    g.add_edge("match", END)
+
+    # 链路 A 成长闭环：档案 → 测评 → 报告 →（短板）培训 → 复测 →（不合格循环）
     g.add_edge("assess", "report")
     g.add_conditional_edges("report", route_report, {"training": "training", "end": END})
     g.add_edge("training", "retest")
