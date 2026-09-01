@@ -1,39 +1,6 @@
 <template>
   <div class="agent-page">
-    <!-- ===== 左侧常驻对话栏（千问风格） ===== -->
-    <aside class="agent-aside">
-      <div class="brand">
-        <span class="brand-icon">🤖</span>
-        <span class="brand-name">岗位匹配Agent</span>
-      </div>
-
-      <div class="nav-section">
-        <div class="nav-title">对话列表</div>
-        <el-empty v-if="!conversations.length" :image-size="60" description="暂无对话" />
-        <div v-else class="conv-list">
-          <div v-for="group in groupedConvs" :key="group.label" class="conv-group">
-            <div class="group-label">{{ group.label }}</div>
-            <div
-              v-for="c in group.items"
-              :key="c.id"
-              class="conv-item"
-              :class="{ 'is-active': c.id === activeConvId }"
-              @click="openConv(c.id)"
-            >
-              <el-icon class="conv-icon"><ChatDotRound /></el-icon>
-              <span class="conv-title">{{ c.title || '新对话' }}</span>
-              <el-icon class="conv-del" @click.stop="deleteConv(c.id)"><Delete /></el-icon>
-            </div>
-          </div>
-        </div>
-      </div>
-
-      <div class="aside-footer">
-        <span class="user-name">超级管理员</span>
-      </div>
-    </aside>
-
-    <!-- ===== 右侧主对话区 ===== -->
+    <!-- ===== 主对话区（单栏，全宽） ===== -->
     <main class="agent-main">
       <!-- 对话流（可滚动） -->
       <div class="chat-list" ref="chatListRef">
@@ -176,7 +143,7 @@
         </template>
       </div>
 
-      <!-- 输入栏（main 底部固定） -->
+      <!-- 输入栏（底部固定） -->
       <div class="chat-input-bar">
         <div class="chat-input-inner">
           <div class="chat-input-card">
@@ -466,74 +433,14 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resizeAll); dispose
 </script>
 
 <style scoped>
-/* ===== 双栏布局 ===== */
+/* ===== 单栏布局（填满 el-main 区域） ===== */
 .agent-page {
-  display: flex;
-  height: calc(100vh - 0px);
-  min-height: 600px;
-  background: #fff;
-}
-
-/* ===== 左侧栏（千问风格） ===== */
-.agent-aside {
-  width: 260px;
-  flex-shrink: 0;
-  background: #f7f8fa;
-  border-right: 1px solid #ebeef5;
   display: flex;
   flex-direction: column;
   height: 100%;
+  background: #fff;
   overflow: hidden;
 }
-.brand {
-  display: flex; align-items: center; gap: 8px;
-  padding: 14px 16px;
-  font-weight: 700; color: #1f2328;
-}
-.brand-icon { font-size: 22px; }
-.brand-name { font-size: 15px; }
-.new-conv-btn {
-  margin: 0 16px 14px;
-  width: calc(100% - 32px);
-  background: #1f2328; color: #fff; border-color: #1f2328;
-}
-.new-conv-btn:hover { background: #2d3138; border-color: #2d3138; }
-
-.nav-section { flex: 1; overflow-y: auto; padding: 0 8px; }
-.nav-title {
-  font-size: 11px; color: #8b949e; font-weight: 600;
-  text-transform: uppercase; letter-spacing: 0.5px;
-  padding: 8px 12px 4px;
-}
-.conv-list { padding: 0 4px; }
-.group-label {
-  font-size: 11px; color: #8b949e; font-weight: 600;
-  padding: 8px 8px 4px;
-}
-.conv-item {
-  display: flex; align-items: center; gap: 8px;
-  padding: 7px 10px; border-radius: 8px; cursor: pointer;
-  color: #303133; font-size: 13px;
-  transition: all 0.15s;
-}
-.conv-item:hover { background: #ebeef5; }
-.conv-item.is-active { background: #ecf5ff; color: #409eff; font-weight: 600; }
-.conv-icon { font-size: 14px; color: #8b949e; flex-shrink: 0; }
-.conv-item.is-active .conv-icon { color: #409eff; }
-.conv-title {
-  flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
-}
-.conv-del {
-  opacity: 0; color: #f56c6c; transition: opacity 0.15s;
-  font-size: 14px;
-}
-.conv-item:hover .conv-del { opacity: 1; }
-
-.aside-footer {
-  padding: 12px 16px; border-top: 1px solid #ebeef5;
-  font-size: 13px; color: #6e7681;
-}
-.user-name { font-weight: 600; }
 
 /* ===== 主对话区 ===== */
 .agent-main {
@@ -541,13 +448,15 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resizeAll); dispose
   display: flex;
   flex-direction: column;
   height: 100%;
+  min-height: 0; /* 关键：允许 flex 子项收缩 */
   overflow: hidden;
   background: #fff;
 }
 .chat-list {
   flex: 1;
+  min-height: 0; /* 关键 */
   overflow-y: auto;
-  padding: 24px 24px 0;
+  padding: 24px 24px 16px;
   max-width: 820px;
   margin: 0 auto;
   width: 100%;
@@ -653,11 +562,12 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resizeAll); dispose
 .chart { width: 100%; }
 .chart-single { height: 360px; }
 
-/* ===== 输入栏（main 底部固定） ===== */
+/* ===== 输入栏（主区底部固定，高度自适应） ===== */
 .chat-input-bar {
   flex-shrink: 0;
-  padding: 16px 24px 20px;
+  padding: 12px 24px 16px;
   background: linear-gradient(to top, #ffffff 70%, rgba(255,255,255,0));
+  border-top: 1px solid #f0f2f5;
 }
 .chat-input-inner { max-width: 820px; margin: 0 auto; }
 .chat-input-card {
