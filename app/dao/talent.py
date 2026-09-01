@@ -5,10 +5,19 @@
 查重与批量取数能力。所有查询走 SQLAlchemy ORM，禁裸 SQL。
 """
 from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.dao.base import BaseDAO
 from app.models.talent import Talent, TalentTag, TalentTalentTag
+
+
+# 人才域通用预加载：标签/教育/工作/项目（避免列表/导出/统计接口 N+1 懒加载）
+_TALENT_LOAD = (
+    selectinload(Talent.tag_rels).selectinload(TalentTalentTag.tag),
+    selectinload(Talent.educations),
+    selectinload(Talent.works),
+    selectinload(Talent.projects),
+)
 
 
 class TalentDAO(BaseDAO[Talent]):
@@ -34,6 +43,7 @@ class TalentDAO(BaseDAO[Talent]):
                                  skill=skill, years_min=years_min, level=level,
                                  only_valid=only_valid)
         stmt = select(Talent).where(*conds).order_by(Talent.id.desc())
+        stmt = stmt.options(*_TALENT_LOAD)
         stmt = stmt.offset((page - 1) * page_size).limit(page_size)
         return list(db.scalars(stmt).all())
 
@@ -97,7 +107,8 @@ class TalentDAO(BaseDAO[Talent]):
     @classmethod
     def list_all_valid(cls, db: Session, limit: int = 2000) -> list[Talent]:
         return list(db.scalars(
-            select(Talent).where(Talent.status == 1).limit(limit)).all())
+            select(Talent).where(Talent.status == 1).options(*_TALENT_LOAD).limit(limit)
+        ).all())
 
     # hq+  按姓名/手机号精确查询（我的去重模块 detect_duplicate 复用）
     @classmethod
