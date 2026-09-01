@@ -152,17 +152,21 @@
               type="textarea"
               :rows="2"
               :autosize="{ minRows: 2, maxRows: 6 }"
-              placeholder="试试这样说：帮我找适合后端开发的人才（Enter 发送，Shift+Enter 换行）"
+              placeholder="试试这样说：帮我找适合后端开发的人才"
               :disabled="nlpLoading"
+              class="input-area"
               @keydown.enter.exact.prevent="handleChat"
             />
-            <el-button
-              class="send-btn"
-              type="primary"
-              size="large"
-              :loading="nlpLoading"
-              @click="handleChat"
-            >🚀 发送</el-button>
+            <div class="input-footer">
+              <span class="input-tip">Enter 发送 · Shift+Enter 换行</span>
+              <el-button
+                class="send-btn"
+                type="primary"
+                size="large"
+                :loading="nlpLoading"
+                @click="handleChat"
+              >🚀 发送</el-button>
+            </div>
           </div>
         </div>
       </div>
@@ -571,19 +575,24 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resizeAll); dispose
 }
 .chat-input-inner { max-width: 820px; margin: 0 auto; }
 .chat-input-card {
-  display: flex; align-items: flex-end; gap: 10px;
   background: #fff; border: 1px solid #e5e7eb; border-radius: 18px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
-  padding: 10px 12px 10px 16px;
+  padding: 12px 16px 10px;
   transition: border-color 0.2s;
 }
 .chat-input-card:focus-within { border-color: #409eff; box-shadow: 0 4px 20px rgba(64, 158, 255, 0.12); }
-.chat-input-card :deep(.el-textarea) { flex: 1; min-width: 0; width: 100%; }
+.input-area { display: block; width: 100%; }
+.chat-input-card :deep(.el-textarea) { display: block; width: 100%; }
 .chat-input-card :deep(.el-textarea__inner) {
   font-size: 15px; padding: 6px 0; border: none; box-shadow: none;
   resize: none; line-height: 1.6; color: #1f2328; background: transparent;
-  width: 100%;
+  width: 100% !important; min-height: 40px !important;
 }
 .chat-input-card :deep(.el-textarea__inner::placeholder) { color: #a1a8b3; }
+.input-footer {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-top: 4px;
+}
+.input-tip { font-size: 12px; color: #a1a8b3; }
 .send-btn { border-radius: 14px !important; padding: 0 18px !important; height: 40px !important; }
 </style>
