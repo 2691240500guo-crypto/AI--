@@ -7,16 +7,16 @@ const TYPE_MAP = { single: '单选', multi: '多选', judge: '判断' }
 const rows = ref([])
 const total = ref(0)
 const loading = ref(false)
-const query = reactive({ page: 1, page_size: 10, keyword: '', gen_method: '' })
+const query = reactive({ page: 1, page_size: 10, keyword: '', generation_mode: '' })
 
 const dialog = reactive({ visible: false })
 const allQuestions = ref([])
 const qLoading = ref(false)
-const form = reactive({ id: null, title: '', description: '', question_ids: [], duration_min: 60, difficulty: 1, gen_method: 'manual' })
+const form = reactive({ id: null, title: '', description: '', question_ids: [], duration: 60, difficulty: 1, generation_mode: 'manual' })
 
 // AI 智能组卷
 const autoDialog = reactive({ visible: false, loading: false })
-const autoForm = reactive({ title: '', dimension: '', difficulty: null, question_count: 10, duration_min: 60 })
+const autoForm = reactive({ title: '', dimension: '', difficulty: null, question_count: 10, duration: 60 })
 const DIMENSIONS = ['技术', '沟通', '逻辑', '管理', '英语', '综合']
 
 async function load() {
@@ -29,7 +29,7 @@ async function load() {
 }
 
 async function openCreate() {
-  Object.assign(form, { title: '', description: '', question_ids: [], duration_min: 60, difficulty: 1, gen_method: 'manual' })
+  Object.assign(form, { title: '', description: '', question_ids: [], duration: 60, difficulty: 1, generation_mode: 'manual' })
   qLoading.value = true
   dialog.visible = true
   try {
@@ -49,7 +49,7 @@ async function save() {
 }
 
 async function openEdit(row) {
-  Object.assign(form, { id: row.id, title: row.title, description: row.description, question_ids: row.question_ids || [], duration_min: row.duration_min, difficulty: row.difficulty, gen_method: row.gen_method || 'manual' })
+  Object.assign(form, { id: row.id, title: row.title, description: row.description, question_ids: row.question_ids || [], duration: row.duration, difficulty: row.difficulty, generation_mode: row.generation_mode || 'manual' })
   qLoading.value = true
   dialog.visible = true
   try {
@@ -76,7 +76,7 @@ async function autoCreate() {
       dimension: autoForm.dimension || null,
       difficulty: autoForm.difficulty || null,
       question_count: autoForm.question_count,
-      duration_min: autoForm.duration_min,
+      duration: autoForm.duration,
     }
     const res = await createPaperAuto(payload)
     ElMessage.success(`智能组卷成功：${res.data.title}（${res.data.question_count}题 / ${res.data.total_score}分）`)
@@ -96,13 +96,13 @@ onMounted(load)
   <el-card>
     <div class="bar">
       <el-input v-model="query.keyword" placeholder="按试卷标题搜索" style="width:220px" clearable @keyup.enter="query.page=1;load()" />
-      <el-select v-model="query.gen_method" placeholder="组卷方式" clearable style="width:140px" @change="query.page=1;load()">
+      <el-select v-model="query.generation_mode" placeholder="组卷方式" clearable style="width:140px" @change="query.page=1;load()">
         <el-option label="手动组卷" value="manual" />
         <el-option label="智能抽题" value="auto" />
       </el-select>
       <el-button type="primary" @click="query.page=1;load()">查询</el-button>
       <el-button type="primary" plain @click="openCreate">手动组卷</el-button>
-      <el-button type="warning" plain @click="() => { Object.assign(autoForm, { title: '', dimension: '', difficulty: null, question_count: 10, duration_min: 60 }); autoDialog.visible = true }">
+      <el-button type="warning" plain @click="() => { Object.assign(autoForm, { title: '', dimension: '', difficulty: null, question_count: 10, duration: 60 }); autoDialog.visible = true }">
         ⚡ AI 智能组卷
       </el-button>
     </div>
@@ -111,14 +111,14 @@ onMounted(load)
       <el-table-column prop="title" label="试卷标题" min-width="200" show-overflow-tooltip />
       <el-table-column label="组卷方式" width="100">
         <template #default="{ row }">
-          <el-tag :type="row.gen_method === 'auto' ? 'warning' : 'info'" size="small">
-            {{ row.gen_method === 'auto' ? '智能抽题' : '手动组卷' }}
+          <el-tag :type="row.generation_mode === 'auto' ? 'warning' : 'info'" size="small">
+            {{ row.generation_mode === 'auto' ? '智能抽题' : '手动组卷' }}
           </el-tag>
         </template>
       </el-table-column>
       <el-table-column prop="question_count" label="题数" width="70" />
       <el-table-column prop="total_score" label="总分" width="70" />
-      <el-table-column prop="duration_min" label="时限(分)" width="80" />
+      <el-table-column prop="duration" label="时限(分)" width="80" />
       <el-table-column label="操作" width="200">
         <template #default="{ row }">
           <el-button link type="primary" @click="$router.push(`/assessment/launch?paper_id=${row.id}`)">发起</el-button>
@@ -135,14 +135,14 @@ onMounted(load)
     <el-form :model="form" label-width="80px">
       <el-form-item label="试卷标题"><el-input v-model="form.title" placeholder="如：技术能力测试卷" /></el-form-item>
       <el-form-item label="组卷方式">
-        <el-radio-group v-model="form.gen_method">
+        <el-radio-group v-model="form.generation_mode">
           <el-radio-button value="manual">手动组卷</el-radio-button>
           <el-radio-button value="auto">智能抽题</el-radio-button>
         </el-radio-group>
       </el-form-item>
       <el-form-item label="描述"><el-input v-model="form.description" type="textarea" :rows="2" /></el-form-item>
       <el-form-item label="时限">
-        <el-input-number v-model="form.duration_min" :min="1" :max="600" style="margin-right:10px" /> 分钟
+        <el-input-number v-model="form.duration" :min="1" :max="600" style="margin-right:10px" /> 分钟
       </el-form-item>
       <el-form-item label="选择题目">
         <div style="width:100%" v-loading="qLoading">
@@ -185,7 +185,7 @@ onMounted(load)
         <el-input-number v-model="autoForm.question_count" :min="1" :max="100" style="margin-right:10px" /> 道
       </el-form-item>
       <el-form-item label="时限">
-        <el-input-number v-model="autoForm.duration_min" :min="1" :max="600" style="margin-right:10px" /> 分钟
+        <el-input-number v-model="autoForm.duration" :min="1" :max="600" style="margin-right:10px" /> 分钟
       </el-form-item>
     </el-form>
     <template #footer>

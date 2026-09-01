@@ -122,8 +122,8 @@ class PaperCreate(BaseModel):
     description: str | None = None
     question_ids: list[int] = Field(default_factory=list, max_length=200)
     difficulty: int = Field(default=1, ge=1, le=5)
-    duration_min: int = Field(default=60, ge=1, le=600)
-    gen_method: str = Field(default="manual", pattern="^(manual|auto)$")
+    duration: int = Field(default=60, ge=1, le=600)
+    generation_mode: str = Field(default="manual", pattern="^(manual|auto)$")
     status: int = Field(default=1, ge=0, le=1)
 
 
@@ -134,7 +134,7 @@ class PaperAutoCreate(BaseModel):
     dimension: str | None = Field(default=None, max_length=32)   # 能力维度，空=不限
     difficulty: int | None = Field(default=None, ge=1, le=5)      # 难度，空=不限
     question_count: int = Field(default=10, ge=1, le=100)         # 题数
-    duration_min: int = Field(default=60, ge=1, le=600)
+    duration: int = Field(default=60, ge=1, le=600)
     status: int = Field(default=1, ge=0, le=1)
 
 
@@ -143,8 +143,8 @@ class PaperUpdate(BaseModel):
     description: str | None = None
     question_ids: list[int] | None = None
     difficulty: int | None = Field(default=None, ge=1, le=5)
-    duration_min: int | None = Field(default=None, ge=1, le=600)
-    gen_method: str | None = Field(default=None, pattern="^(manual|auto)$")
+    duration: int | None = Field(default=None, ge=1, le=600)
+    generation_mode: str | None = Field(default=None, pattern="^(manual|auto)$")
     status: int | None = Field(default=None, ge=0, le=1)
 
 
@@ -154,8 +154,8 @@ class PaperOut(ORMModel):
     description: str | None
     difficulty: int
     total_score: int
-    duration_min: int
-    gen_method: str = "manual"
+    duration: int
+    generation_mode: str = "manual"
     status: int
     question_count: int = 0
     created_at: datetime
@@ -251,7 +251,7 @@ class TodoItemOut(BaseModel):
     result_id: int
     paper_id: int
     paper_title: str
-    duration_min: int
+    duration: int
     total_score: int
     status: int
     question_count: int
@@ -273,7 +273,7 @@ class AnswerViewOut(BaseModel):
     result_id: int
     paper_id: int
     paper_title: str
-    duration_min: int
+    duration: int
     total_score: int
     status: int
     questions: list[AnswerViewQuestion]

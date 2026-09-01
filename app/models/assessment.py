@@ -3,7 +3,7 @@
 """
 from datetime import datetime
 
-from sqlalchemy import ForeignKey, Integer, String, Text, UniqueConstraint
+from sqlalchemy import ForeignKey, Integer, PrimaryKeyConstraint, String, Text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -59,10 +59,9 @@ class Paper(Base):
     description: Mapped[str | None] = mapped_column(Text, default=None)
     difficulty: Mapped[int] = mapped_column(default=1)  # 1-5
     total_score: Mapped[int] = mapped_column(default=100)
-    duration_min: Mapped[int] = mapped_column(default=60)  # 时限（分钟）
-    gen_method: Mapped[str] = mapped_column(String(16), default="manual")  # 组卷方式 manual/auto
+    duration: Mapped[int] = mapped_column(default=60)  # 时限（分钟），需求文档 duration(min)
+    generation_mode: Mapped[str] = mapped_column(String(16), default="manual")  # 组卷方式 manual/auto
     status: Mapped[int] = mapped_column(default=1)  # 1启用 0停用
-    created_by: Mapped[int | None] = mapped_column(ForeignKey("sys_user.id"), default=None)
     created_at: Mapped[datetime] = mapped_column(default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(default=datetime.now, onupdate=datetime.now)
 
@@ -73,11 +72,10 @@ class Paper(Base):
 
 
 class PaperQuestion(Base):
-    """试卷-题目中间表（A-2）。"""
+    """试卷-题目中间表（A-2），复合主键对齐需求文档 4.2（paper_id+question_id）。"""
     __tablename__ = "asm_paper_question"
-    __table_args__ = (UniqueConstraint("paper_id", "question_id"),)
+    __table_args__ = (PrimaryKeyConstraint("paper_id", "question_id"),)
 
-    id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     paper_id: Mapped[int] = mapped_column(ForeignKey("asm_paper.id", ondelete="CASCADE"), index=True)
     question_id: Mapped[int] = mapped_column(ForeignKey("asm_question.id", ondelete="CASCADE"), index=True)
     sort: Mapped[int] = mapped_column(default=0)
@@ -91,12 +89,11 @@ class Result(Base):
     __tablename__ = "asm_result"
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    talent_id: Mapped[int] = mapped_column(ForeignKey("talent_profile.id", ondelete="CASCADE"), index=True)
+    talent_id: Mapped[int] = mapped_column(ForeignKey("tal_talent.id", ondelete="CASCADE"), index=True)
     paper_id: Mapped[int] = mapped_column(ForeignKey("asm_paper.id"), index=True)
     status: Mapped[int] = mapped_column(default=0)  # 0未答 1答题中 2已交卷 3已出报告
     score: Mapped[int] = mapped_column(default=0)
     correct_count: Mapped[int] = mapped_column(default=0)
-    total_count: Mapped[int] = mapped_column(default=0)
     started_at: Mapped[datetime | None] = mapped_column(default=None)
     end_at: Mapped[datetime | None] = mapped_column(default=None)
     # 作答内容：[{question_id, user_answer}, ...] JSON
@@ -110,6 +107,11 @@ class Result(Base):
     details: Mapped[list["ResultDetail"]] = relationship(
         back_populates="result", cascade="all, delete-orphan", lazy="selectin"
     )
+
+    @property
+    def total_count(self) -> int:
+        """总题数（需求文档/表无此列，由作答明细派生，兼容前端展示）。"""
+        return len(self.details)
 
 
 class ResultDetail(Base):

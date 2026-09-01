@@ -27,7 +27,7 @@ const fmtRemain = computed(() => {
 })
 const remainPercent = computed(() => {
   if (!view.value) return 100
-  return Math.round(remain.value / (view.value.duration_min * 60) * 100)
+  return Math.round(remain.value / (view.value.duration * 60) * 100)
 })
 
 async function load() {
@@ -56,7 +56,7 @@ function uniStorageSet(key, val) {
 }
 
 function startTimer() {
-  remain.value = view.value.duration_min * 60
+  remain.value = view.value.duration * 60
   timer.value = setInterval(() => {
     remain.value--
     if (remain.value <= 0) {

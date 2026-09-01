@@ -14,7 +14,7 @@ from app.db.session import get_db
 from app.models.assessment import (
     Paper, Question, QuestionBank, Result, ResultDetail,
 )
-from app.models.talent import TalentProfile
+from app.models.talent import Talent
 from app.schemas.assessment import (
     AnswerItem, AnswerViewOut, AnswerViewQuestion, LaunchRequest, LaunchResponse,
     LaunchResultItem, PaperAutoCreate, PaperCreate, PaperDetailOut, PaperOut, PaperUpdate,
@@ -227,8 +227,8 @@ def delete_paper(paper_id: int, db: Session = Depends(get_db)):
 def launch(body: LaunchRequest, db: Session = Depends(get_db)):
     items = AssessmentService.launch(db, body.paper_id, body.talent_ids)
     # 关联人才姓名（用于返回）
-    talents = {t.id: t.name for t in db.query(TalentProfile).filter(
-        TalentProfile.id.in_([i.talent_id for i in items])).all()}
+    talents = {t.id: t.name for t in db.query(Talent).filter(
+        Talent.id.in_([i.talent_id for i in items])).all()}
     out_items = [LaunchResultItem(
         result_id=i.id, talent_id=i.talent_id, talent_name=talents.get(i.talent_id),
         paper_id=i.paper_id, status=i.status,
@@ -251,7 +251,7 @@ def todo(talent_id: int = Query(..., description="人才 ID"),
     for r in rows:
         items.append(TodoItemOut(
             result_id=r.id, paper_id=r.paper_id, paper_title=r.paper.title,
-            duration_min=r.paper.duration_min, total_score=r.paper.total_score,
+            duration=r.paper.duration, total_score=r.paper.total_score,
             status=r.status, question_count=len(r.paper.items), created_at=r.created_at,
         ))
     return ok(items)
@@ -292,7 +292,7 @@ def get_answer_view(result_id: int, db: Session = Depends(get_db)):
             pass
     return ok(AnswerViewOut(
         result_id=r.id, paper_id=r.paper_id, paper_title=r.paper.title,
-        duration_min=r.paper.duration_min, total_score=r.paper.total_score,
+        duration=r.paper.duration, total_score=r.paper.total_score,
         status=r.status, questions=items, previous_answers=previous,
     ))
 

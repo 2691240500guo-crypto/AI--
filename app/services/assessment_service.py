@@ -106,9 +106,9 @@ class AssessmentService:
     @staticmethod
     def create_paper(db: Session, data, user_id: int | None) -> Paper:
         paper = Paper(title=data.title, description=data.description,
-                      difficulty=data.difficulty, duration_min=data.duration_min,
-                      gen_method=getattr(data, "gen_method", "manual"),
-                      total_score=0, status=data.status, created_by=user_id)
+                      difficulty=data.difficulty, duration=data.duration,
+                      generation_mode=getattr(data, "generation_mode", "manual"),
+                      total_score=0, status=data.status)
         db.add(paper)
         db.flush()
         total = AssessmentService._replace_paper_questions_db(db, paper, data.question_ids)
@@ -140,8 +140,8 @@ class AssessmentService:
             picked += rest[: data.question_count - len(picked)]
 
         paper = Paper(title=data.title, description=data.description,
-                      difficulty=data.difficulty or 1, duration_min=data.duration_min,
-                      gen_method="auto", total_score=0, status=data.status, created_by=user_id)
+                      difficulty=data.difficulty or 1, duration=data.duration,
+                      generation_mode="auto", total_score=0, status=data.status, created_by=user_id)
         db.add(paper)
         db.flush()
         for i, question in enumerate(picked):
@@ -190,16 +190,15 @@ class AssessmentService:
         )).all())
         new_ids = [tid for tid in dict.fromkeys(talent_ids) if tid not in existing]
         # 校验人才存在
-        from app.models.talent import TalentProfile
-        valid_talents = set(db.scalars(select(TalentProfile.id).where(
-            TalentProfile.id.in_(new_ids))).all())
+        from app.models.talent import Talent
+        valid_talents = set(db.scalars(select(Talent.id).where(
+            Talent.id.in_(new_ids))).all())
         invalid = [tid for tid in new_ids if tid not in valid_talents]
         if invalid:
             raise BusinessError(400, f"人才不存在：{invalid[:5]}{'...' if len(invalid) > 5 else ''}")
         results: list[Result] = []
         for tid in new_ids:
-            r = Result(talent_id=tid, paper_id=paper_id, status=STATUS_PENDING,
-                       total_count=len(paper.items))
+            r = Result(talent_id=tid, paper_id=paper_id, status=STATUS_PENDING)
             db.add(r)
             results.append(r)
         db.flush()
@@ -328,8 +327,8 @@ class AssessmentService:
         # 人才姓名（供 LLM prompt）
         talent_name = None
         try:
-            from app.models.talent import TalentProfile
-            t = db.get(TalentProfile, result.talent_id)
+            from app.models.talent import Talent
+            t = db.get(Talent, result.talent_id)
             talent_name = t.name if t else None
         except Exception:
             talent_name = None
