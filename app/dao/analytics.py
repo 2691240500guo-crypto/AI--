@@ -5,7 +5,7 @@
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from app.utils.logger import logger  # 按基座实际logger名微调
-from datetime import date, datetime, time
+from datetime import date, datetime, time, timedelta
 
 
 def talent_total(db: Session) -> int:
@@ -32,21 +32,53 @@ def talent_by_degree(db: Session) -> dict[str, int]:
 
 
 def assess_pass_rate(db: Session) -> float:
-    """测评合格率（A 域 asm_result，负责人 P4）：status=2/3 视为已交卷，按约定口径调整。"""
-    # TODO(P10): 与 P4 确认"合格"口径（score 阈值 or 状态位）后填实现
-    return 0.0
+    """测评合格率（A 域 asm_result，负责人 P4）。
+
+    口径暂定：status in (2,3)（交卷/出报告）且 score >= 60 视为合格。
+    TODO(P10): P4 确认后可能改为只看状态位、或不同阈值——确认后只改这一处。
+    """
+    try:
+        from app.models.assessment import Result as AssessmentResult  # P4 的类名是 Result
+        total = db.scalar(select(func.count(AssessmentResult.id))) or 0
+        if total == 0:
+            return 0.0
+        passed = db.scalar(
+            select(func.count(AssessmentResult.id))
+            .where(AssessmentResult.status.in_([2, 3]),
+                   AssessmentResult.score >= 60)
+        ) or 0
+        return round(passed / total, 4)
+    except Exception as exc:
+        logger.warning("assess_pass_rate 降级: %s", exc)
+        return 0.0
 
 
 def training_completion_rate(db: Session) -> float:
-    """培训完成率（TR 域 trn_training_plan，负责人 P8）。"""
-    # TODO(P10): 与 P8 确认 plan.status 完成态取值后填实现
-    return 0.0
+    """培训计划完成率（TR 域 trn_training_plan，负责人 P8）：status=2 表示已完成。"""
+    try:
+        from app.models.training import TrainingPlan   # 惰性导入，沿用文件风格
+        total = db.scalar(select(func.count(TrainingPlan.id))) or 0
+        if total == 0:
+            return 0.0
+        done = db.scalar(
+            select(func.count(TrainingPlan.id)).where(TrainingPlan.status == 2)
+        ) or 0
+        return round(done / total, 4)
+    except Exception as exc:                            # 表未建/字段不符时降级，不拖垮看板
+        logger.warning("training_completion_rate 降级: %s", exc)
+        return 0.0
 
 
 def match_avg_score(db: Session) -> float:
-    """平均匹配度（M 域 match_result，负责人 P6）。"""
-    # TODO(P10): 与 P6 确认 score 满分制(0-100)后填实现
-    return 0.0
+    """平均匹配度（M 域 match_result，负责人 P6）：score 满分 0-100。"""
+    try:
+        from app.models.matching import MatchResult
+        avg = db.scalar(select(func.avg(MatchResult.score)))
+        return float(avg) if avg is not None else 0.0
+    except Exception as exc:
+        logger.warning("match_avg_score 降级: %s", exc)
+        return 0.0
+
 
 
 # ===== 多维筛选：列白名单 =====
@@ -108,3 +140,172 @@ def talent_filter(db: Session, filters) -> int:
     except Exception as exc:                      # 表未建 / 字段不符等一律降级
         logger.warning("talent_filter 降级: %s", exc)
         return 0
+
+def daily_new_counts(db: Session, model_key: str, days: int = 30) -> list[dict]:
+    """近 N 天每日新增计数（按 created_at 分组，无数据的天补 0，保证折线连续）。
+
+    模型白名单：model_key 只取这里定义的键，防止任意传参。
+    talent/asm_result 模型未合入时走降级返回空，不阻塞其他指标。
+    """
+    import importlib
+    _MODELS = {
+        "training_plan": ("app.models.training", "TrainingPlan", "created_at"),
+        "match_result": ("app.models.matching", "MatchResult", "created_at"),
+        "talent": ("app.models.talent", "Talent", "created_at"),
+        "asm_result": ("app.models.assessment", "Result", "created_at")  # P4 的类名是 Result
+    }
+    if model_key not in _MODELS:
+        logger.warning("trend 未知指标 %s，返回空", model_key)
+        return []
+
+    mod_path, cls_name, time_col = _MODELS[model_key]
+    try:
+        Model = getattr(importlib.import_module(mod_path), cls_name)
+    except Exception as exc:                        # 模型未合入 → 降级
+        logger.warning("%s 模型未就绪，trend 返回空: %s", model_key, exc)
+        return []
+
+    col = getattr(Model, time_col)
+    today = date.today()
+    start = today - timedelta(days=days - 1)
+    rows = db.execute(
+        select(func.date(col).label("d"), func.count(Model.id))
+        .where(col >= datetime.combine(start, time.min))
+        .group_by(func.date(col))
+    ).all()
+    by_day = {str(d): c for d, c in rows}
+    # 补零：缺的天也返回 0，前端折线图才连续
+    return [{"date": (start + timedelta(days=i)).strftime("%Y-%m-%d"),
+             "count": by_day.get((start + timedelta(days=i)).strftime("%Y-%m-%d"), 0)}
+            for i in range(days)]
+
+def distribution_items(db: Session, dimension: str) -> list[dict]:
+    """分布数据（饼图数据源）：[{name, value}]。dimension 走白名单分发。
+    字段口径：严格按需求文档 §3.2 —— tal_talent 用 degree/level 字段名，
+    P2 的表后续对齐到文档后本函数直接生效，无需改动。
+    """
+    try:
+        # ---- 岗位分布：基于已合入的 match_result + pos_position ----
+        if dimension == "position":
+            from app.models.matching import MatchResult, PosPosition
+            rows = db.execute(
+                select(PosPosition.name, func.count(MatchResult.id))
+                .join(PosPosition, MatchResult.position_id == PosPosition.id)
+                .group_by(PosPosition.id)
+                .order_by(func.count(MatchResult.id).desc())
+            ).all()
+            return [{"name": n or "未知", "value": c} for n, c in rows]
+
+        # ---- 部门分布：match_result → pos_position.dept_id → sys_dept ----
+        if dimension == "dept":
+            from app.models.matching import MatchResult, PosPosition
+            from app.models.dept import Dept
+            rows = db.execute(
+                select(Dept.name, func.count(MatchResult.id))
+                .join(PosPosition, MatchResult.position_id == PosPosition.id)
+                .join(Dept, PosPosition.dept_id == Dept.id)
+                .group_by(Dept.id)
+                .order_by(func.count(MatchResult.id).desc())
+            ).all()
+            return [{"name": n or "未知", "value": c} for n, c in rows]
+
+        # ---- 以下三个维度依赖 tal_talent（字段按需求文档：degree/level/skills）----
+        from app.models.talent import Talent          # 模型未合入时走 except 降级
+
+        if dimension == "degree":                     # 学历分布（文档字段 degree）
+            rows = db.execute(
+                select(func.coalesce(Talent.degree, "未知"), func.count(Talent.id))
+                .group_by(Talent.degree)
+                .order_by(func.count(Talent.id).desc())
+            ).all()
+            return [{"name": n, "value": c} for n, c in rows]
+
+        if dimension == "level":                      # 等级分布（文档字段 level，S/A/B/C）
+            rows = db.execute(
+                select(func.coalesce(Talent.level, "未知"), func.count(Talent.id))
+                .group_by(Talent.level)
+                .order_by(func.count(Talent.id).desc())
+            ).all()
+            return [{"name": n, "value": c} for n, c in rows]
+
+        if dimension == "skill":                      # 技能分布（分号/逗号分隔文本，只按标点拆）
+            import re
+            from collections import Counter
+            raw = db.execute(select(Talent.skills)).scalars().all()
+            cnt: Counter[str] = Counter()
+            for s in raw:
+                if not s:
+                    continue
+                for sk in re.split(r"[;,；，]+", str(s)):   # 空格是技能名一部分，不能拆！
+                    sk = sk.strip()
+                    if sk:
+                        cnt[sk] += 1
+            return [{"name": k, "value": v} for k, v in cnt.most_common(20)]
+
+        logger.warning("distribution 未知维度 %s，返回空", dimension)
+        return []
+    except Exception as exc:
+        logger.warning("distribution_items(%s) 降级: %s", dimension, exc)
+        return []
+
+def talent_rows(db: Session, filters: dict | None = None,
+                limit: int = 50_000) -> list[list]:   # 与 service 层 MAX_EXPORT_ROWS 保持一致
+
+    """按白名单筛选取人才行（导出用）：[[id, name, degree, level, dept_id], ...]。
+
+    字段严格按需求文档 §3.2（degree/level/dept_id），P2 表对齐后自动生效；
+    复用 _TALENT_COLUMNS 白名单，与 talent_filter 口径一致，防注入。
+    """
+    try:
+        from app.models.talent import Talent          # 模型未合入时走降级
+    except Exception as exc:
+        logger.warning("tal_talent 未就绪，talent_rows 返回空: %s", exc)
+        return []
+
+    try:
+        f = filters or {}
+        conds = []
+        # 1. 白名单条件（和 talent_filter 完全一致）
+        for param, (col_name, op) in _TALENT_COLUMNS.items():
+            val = f.get(param)
+            if val in (None, ""):
+                continue
+            col = getattr(Talent, col_name, None)
+            if col is None:                            # 字段缺失则跳过，不硬崩
+                logger.warning("tal_talent 缺少字段 %s，跳过筛选条件 %s", col_name, param)
+                continue
+            conds.append(col.like(f"%{val}%") if op == "like" else col == val)
+        # 2. 时间范围
+        start, end = f.get("start_date"), f.get("end_date")
+        time_col = getattr(Talent, _TIME_COLUMN, None)
+        if start and end and time_col is not None:
+            conds.append(time_col.between(
+                datetime.combine(start, time.min),
+                datetime.combine(end, time.max),
+            ))
+        # 3. 取行（列与 REPORT_DEFS["talent"] 表头对应：ID/姓名/学历/等级/部门ID）
+        rows = db.execute(
+            select(Talent.id, Talent.name, Talent.degree,
+                   Talent.level, Talent.dept_id)
+            .where(*conds)
+            .limit(limit)
+        ).all()
+        return [list(r) for r in rows]
+    except Exception as exc:
+        logger.warning("talent_rows 降级: %s", exc)
+        return []
+
+def talent_by_level(db: Session) -> dict[str, int]:
+    """等级结构分布（T 域 tal_talent，负责人 P2）：group by level（S/A/B/C，需求文档字段）。
+
+    模型未合入时返回 {}，合入后自动生效；P2 若没建 level 列需找他补。
+    """
+    try:
+        from app.models.talent import Talent          # 惰性导入：模型未合入时走降级
+        rows = db.execute(
+            select(Talent.level, func.count(Talent.id)).group_by(Talent.level)
+        ).all()
+        return {level or "未知": cnt for level, cnt in rows}
+    except Exception as exc:
+        logger.warning("talent_by_level 降级: %s", exc)
+        return {}

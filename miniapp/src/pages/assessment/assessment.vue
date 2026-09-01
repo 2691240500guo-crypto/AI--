@@ -1,7 +1,15 @@
 <template>
   <view class="wrap">
-    <view class="mk">在线测评（本期 Mock 界面，业务后端 C 在二期接入）</view>
-    <view class="def">待测清单：0 项</view>
+    <view class="card">
+      <view class="empty-ico">🚧</view>
+      <view class="mk">在线测评（业务后端二期接入）</view>
+    </view>
   </view>
 </template>
-<style scoped>.wrap{padding:40rpx 32rpx}.mk{color:#9ca3af;font-size:24rpx}.def{margin-top:20rpx;color:#1f2937}</style>
+<style lang="scss" scoped>
+.wrap { padding: 24rpx 24rpx 40rpx; min-height: 100vh; background: #f6f7f9; }
+.card { background: #fff; border-radius: 32rpx; padding: 120rpx 32rpx; text-align: center;
+  box-shadow: 0 2rpx 10rpx rgba(16,24,40,.04); }
+.empty-ico { font-size: 80rpx; margin-bottom: 24rpx; }
+.mk { color: #9ca3af; font-size: 26rpx; }
+</style>

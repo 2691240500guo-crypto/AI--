@@ -42,6 +42,16 @@ class Settings(BaseSettings):
     OLLAMA_MODEL: str = "qwen2.5:7b"
     OLLAMA_EMBED_MODEL: str = "nomic-embed-text"
     OLLAMA_TIMEOUT: int = 120
+    SILICONFLOW_BASE_URL: str = "https://api.siliconflow.cn/v1"
+    SILICONFLOW_API_KEY: str = ""
+    SILICONFLOW_MODEL: str = "deepseek-ai/DeepSeek-V4-Flash"
+    SILICONFLOW_TIMEOUT: int = 20
+
+    # ============ C 测评报告配置 ============
+    ASSESSMENT_REPORT_MODE: str = "siliconflow"
+    ASSESSMENT_PASS_RATE: float = 0.60
+    ASSESSMENT_WEAK_RATE: float = 0.60
+    ASSESSMENT_AI_TIMEOUT: int = 20
 
     # ---- 硅基流动（SiliconFlow，OpenAI 兼容 API，按需启用）----
     # LLM_STRATEGY: "ollama" | "silicon_flow"，控制 chat/embed 走哪个后端

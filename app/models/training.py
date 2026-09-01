@@ -53,8 +53,9 @@ class TrainingPlan(Base):
     status: Mapped[int] = mapped_column(default=0)                               # 0未开始 1进行中 2已完成
     deadline: Mapped[datetime | None] = mapped_column(default=None)
     generated_by: Mapped[str] = mapped_column(String(64), default="")            # Agent④ / 用户名
+    weakness_tags: Mapped[str] = mapped_column(String(500), default="")         # 能力短板/缺口，逗号分隔
+    improvement: Mapped[int] = mapped_column(default=0)                 # 提升幅度 0-100（成长轨迹）
     created_at: Mapped[datetime] = mapped_column(default=datetime.now)
-
 
 class LearningRecord(Base):
     """学习进度（TR-2）。"""
@@ -67,6 +68,7 @@ class LearningRecord(Base):
     talent_id: Mapped[int] = mapped_column(index=True)  # FK → tal_talent.id（待 T 域建表后补约束）
     progress: Mapped[int] = mapped_column(default=0)                              # 0-100
     last_lesson_id: Mapped[int] = mapped_column(default=0)
+    learned_minutes: Mapped[int] = mapped_column(default=0)    # 实际学习时长（分钟）
     updated_at: Mapped[datetime] = mapped_column(default=datetime.now, onupdate=datetime.now)
 
 
