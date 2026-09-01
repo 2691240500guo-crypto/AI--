@@ -23,6 +23,7 @@ class MessageOut(ORMModel):
     sender_id: int | None
     biz_type: str | None
     biz_id: int | None
+    push_miniapp: int = 0  # 推送状态：0 未推，1 已推（H5 补推后置 1）
     status: int
     created_at: datetime
     # 面向当前接收人
