@@ -578,9 +578,11 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resizeAll); dispose
   transition: border-color 0.2s;
 }
 .chat-input-card:focus-within { border-color: #409eff; box-shadow: 0 4px 20px rgba(64, 158, 255, 0.12); }
+.chat-input-card :deep(.el-textarea) { flex: 1; min-width: 0; width: 100%; }
 .chat-input-card :deep(.el-textarea__inner) {
   font-size: 15px; padding: 6px 0; border: none; box-shadow: none;
   resize: none; line-height: 1.6; color: #1f2328; background: transparent;
+  width: 100%;
 }
 .chat-input-card :deep(.el-textarea__inner::placeholder) { color: #a1a8b3; }
 .send-btn { border-radius: 14px !important; padding: 0 18px !important; height: 40px !important; }
