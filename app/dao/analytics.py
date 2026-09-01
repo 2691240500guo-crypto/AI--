@@ -38,7 +38,7 @@ def assess_pass_rate(db: Session) -> float:
     TODO(P10): P4 确认后可能改为只看状态位、或不同阈值——确认后只改这一处。
     """
     try:
-        from app.models.assessment import AssessmentResult   # 类名待 P4 确认
+        from app.models.assessment import Result as AssessmentResult  # P4 的类名是 Result
         total = db.scalar(select(func.count(AssessmentResult.id))) or 0
         if total == 0:
             return 0.0
@@ -152,7 +152,7 @@ def daily_new_counts(db: Session, model_key: str, days: int = 30) -> list[dict]:
         "training_plan": ("app.models.training", "TrainingPlan", "created_at"),
         "match_result": ("app.models.matching", "MatchResult", "created_at"),
         "talent": ("app.models.talent", "Talent", "created_at"),
-        "asm_result": ("app.models.assessment", "AssessmentResult", "created_at"),  # 类名待P4确认
+        "asm_result": ("app.models.assessment", "Result", "created_at")  # P4 的类名是 Result
     }
     if model_key not in _MODELS:
         logger.warning("trend 未知指标 %s，返回空", model_key)
