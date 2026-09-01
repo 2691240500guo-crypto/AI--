@@ -450,6 +450,7 @@ class MatchAgent:
         - match    岗位→人才匹配（"找适合XX的人才，要求…"）
         - reverse  人才→岗位反向匹配（"人才X适合什么岗位"）
         - explain  匹配依据解释（"为什么人才X排第一" / "人才X和岗位Y的匹配原因"）
+        - chart    图表生成（"生成XX岗位的柱状图/折线图/饼图"）
         - unknown  无法理解 → 返回帮助文案
         """
         from app.utils.llm import get_llm
@@ -466,15 +467,35 @@ class MatchAgent:
         pid = position["id"] if position else None
         tid = talent["id"] if talent else None
 
+        # 2.5 岗位名规则兜底：LLM 未提取出岗位名时，从消息中按"XX岗位"模式提取（清洗动词前缀）
+        if intent in ("match", "chart", "parse") and not pid:
+            m = re.search(r"([\u4e00-\u9fa5A-Za-z0-9+#\- ]{1,20}?)岗位", message)
+            if not m:
+                m = re.search(r"(?:适合|匹配|找)\s*([\u4e00-\u9fa5A-Za-z0-9+#\- ]{1,16}?)(?:的)?(?:人才|岗位|人)", message)
+            if m:
+                name = m.group(1).strip()
+                for w in ("生成", "画一下", "显示", "查看", "看看", "分析", "解析", "帮我找", "帮我", "找", "适合", "匹配", "一下", "给", "的", "看看"):
+                    name = name.replace(w, "")
+                name = name.strip()
+                if name:
+                    pos2 = cls._resolve_position(db, name)
+                    if pos2:
+                        pid = pos2["id"]
+
         # 3. 按意图执行
         result: dict[str, Any] = {"intent": intent, "params": parsed, "result": None}
         try:
             if intent == "parse" and pid:
                 data = cls.parse_requirement(db, pid)
                 result["result"] = data
-            elif intent == "match" and pid:
+            elif intent in ("match", "chart") and pid:
                 data = cls.run_match(db, pid, top_k=10, gen_explain=True, filters=filters or None)
                 result["result"] = {"total": len(data), "results": data}
+                if intent == "chart":
+                    result["chart_type"] = parsed.get("chart_type") or "bar"
+                    result["intent"] = "chart"
+                else:
+                    result["intent"] = "match"
             elif intent == "reverse" and tid:
                 data = cls.reverse_match(db, tid, top_k=10)
                 result["result"] = {"total": len(data), "results": data}
@@ -511,16 +532,50 @@ class MatchAgent:
             raw = get_llm().chat(prompt, system="只输出合法 JSON。")
             parsed = cls._extract_json(raw)
             if parsed:
+                # 交叉验证：消息含图表关键词时强制 chart 意图（LLM 偶尔漏判）
+                kw_chart = ("柱状图" in message or "柱形图" in message or "折线图" in message
+                            or "饼图" in message or "bar" in message.lower()
+                            or "line" in message.lower() or "pie" in message.lower())
+                if kw_chart:
+                    ct = parsed.get("chart_type")
+                    if ct not in ("bar", "line", "pie"):
+                        if "柱" in message or "bar" in message.lower():
+                            ct = "bar"
+                        elif "折" in message or "线图" in message or "line" in message.lower():
+                            ct = "line"
+                        else:
+                            ct = "pie"
+                    parsed["intent"] = "chart"
+                    parsed["chart_type"] = ct
+                intent = parsed.get("intent", "unknown")
+                # 意图-实体一致性修正：match/chart/parse 无岗位实体、reverse 无人才实体时，
+                # 若规则可识别则采用规则结果（LLM 不稳定兜底）
+                if intent in ("match", "chart", "parse") and not parsed.get("position"):
+                    rule = cls._rule_based_nlp(message)
+                    if rule.get("intent") in ("match", "chart", "parse"):
+                        rule["filters"] = parsed.get("filters") or rule.get("filters") or {}
+                        return rule
+                if intent == "reverse" and not parsed.get("talent"):
+                    rule = cls._rule_based_nlp(message)
+                    if rule.get("intent") in ("reverse", "match"):
+                        return rule
+                # LLM 判 unknown 时，若规则可识别则采用规则结果
+                if intent == "unknown":
+                    rule = cls._rule_based_nlp(message)
+                    if rule.get("intent") != "unknown":
+                        return rule
                 return {
-                    "intent": parsed.get("intent", "unknown"),
+                    "intent": intent,
                     "position": parsed.get("position"),
                     "talent": parsed.get("talent"),
+                    "chart_type": parsed.get("chart_type"),
                     "filters": parsed.get("filters") or {},
                 }
         except Exception:  # noqa: BLE001
             pass
         return cls._rule_based_nlp(message)
 
+    @classmethod
     @classmethod
     def _rule_based_nlp(cls, message: str) -> dict[str, Any]:
         """规则化兜底意图判断（LLM 不可用时）。"""
@@ -533,15 +588,31 @@ class MatchAgent:
             if d in msg:
                 filters["degree"] = d
                 break
+        # 图表意图：柱状图→bar 折线图→line 饼图→pie
+        chart_type = None
+        if any(k in msg for k in ("柱状图", "柱形图", "bar")):
+            chart_type = "bar"
+        elif any(k in msg for k in ("折线图", "线图", "line")):
+            chart_type = "line"
+        elif any(k in msg for k in ("饼图", "pie")):
+            chart_type = "pie"
+        if chart_type and any(k in msg for k in ("生成", "画", "显示", "看", "图表", "柱状图", "折线图", "饼图")):
+            return {"intent": "chart", "position": None, "talent": None,
+                    "chart_type": chart_type, "filters": filters}
         if "岗位" in msg and ("要求" in msg or "分析" in msg or "解析" in msg):
-            return {"intent": "parse", "position": None, "talent": None, "filters": filters}
+            return {"intent": "parse", "position": None, "talent": None,
+                    "chart_type": None, "filters": filters}
         if "适合" in msg and ("人才" in msg or "谁" in msg):
-            return {"intent": "match", "position": None, "talent": None, "filters": filters}
+            return {"intent": "match", "position": None, "talent": None,
+                    "chart_type": None, "filters": filters}
         if "岗位" in msg and "人才" in msg:
-            return {"intent": "reverse", "position": None, "talent": None, "filters": filters}
+            return {"intent": "reverse", "position": None, "talent": None,
+                    "chart_type": None, "filters": filters}
         if "为什么" in msg or "依据" in msg:
-            return {"intent": "explain", "position": None, "talent": None, "filters": filters}
-        return {"intent": "unknown", "position": None, "talent": None, "filters": filters}
+            return {"intent": "explain", "position": None, "talent": None,
+                    "chart_type": None, "filters": filters}
+        return {"intent": "unknown", "position": None, "talent": None,
+                "chart_type": None, "filters": filters}
 
     @classmethod
     def _resolve_position(cls, db: Session, name: str | None) -> dict[str, Any] | None:
@@ -551,17 +622,21 @@ class MatchAgent:
         from sqlalchemy import text as sa_text
 
         key = str(name).strip()
+        key2 = key.replace(" ", "")  # 去空格变体（兼容"AI 架构师"vs"AI架构师"）
         row = db.execute(
-            sa_text("SELECT id, name FROM pos_position WHERE name = :k OR code = :k LIMIT 1"),
-            {"k": key},
+            sa_text("SELECT id, name FROM pos_position WHERE name = :k OR code = :k "
+                    "OR REPLACE(name, ' ', '') = :k2 LIMIT 1"),
+            {"k": key, "k2": key2},
         ).mappings().first()
         if row:
             return dict(row)
-        # 模糊包含匹配
+        # 模糊包含匹配（含去空格变体）
         row = db.execute(
             sa_text("SELECT id, name FROM pos_position WHERE :k LIKE CONCAT('%', name, '%') "
-                    "OR name LIKE CONCAT('%', :k, '%') LIMIT 1"),
-            {"k": key},
+                    "OR name LIKE CONCAT('%', :k, '%') "
+                    "OR REPLACE(name, ' ', '') LIKE CONCAT('%', :k2, '%') "
+                    "OR :k2 LIKE CONCAT('%', REPLACE(name, ' ', ''), '%') LIMIT 1"),
+            {"k": key, "k2": key2},
         ).mappings().first()
         return dict(row) if row else None
 
@@ -640,6 +715,15 @@ class MatchAgent:
                 )
             if intent == "explain" and result:
                 return f"匹配依据：{result['explain']}"
+            if intent == "chart" and result and result.get("results"):
+                top = result["results"][0]
+                ctype = {"bar": "柱状图", "line": "折线图", "pie": "饼图"}.get(
+                    result.get("chart_type", "bar"), "柱状图")
+                return llm.chat(
+                    f"岗位匹配了{result['total']}名候选，已生成{ctype}。第1名人才#{top['talent_id']}得分{top['score']}。"
+                    "请用 50 字以内中文告知用户图表已生成并简述图表要点。",
+                    system="你是 HR 招聘助手，输出简洁自然。",
+                )
         except Exception:  # noqa: BLE001
             pass
         # 降级规则化
@@ -655,6 +739,10 @@ class MatchAgent:
             return f"最适配岗位：「{top['position_name']}」（{top['score']}分），共 {result['total']} 个适配岗位。"
         if intent == "explain" and result:
             return f"匹配依据：{result['explain']}"
+        if intent == "chart" and result and result.get("results"):
+            ctype = {"bar": "柱状图", "line": "折线图", "pie": "饼图"}.get(
+                result.get("chart_type", "bar"), "柱状图")
+            return f"已生成{ctype}（{result['total']}名候选）。第1名：人才#{result['results'][0]['talent_id']}，{result['results'][0]['score']}分。"
         return ("我是岗位人才匹配助手，可以这样问我：\n"
                 "· 「分析XX岗位的要求」→ 解析岗位需求\n"
                 "· 「找适合XX岗位的人才，硕士、3年经验、会Python」→ 匹配人才\n"

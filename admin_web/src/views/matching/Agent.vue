@@ -197,29 +197,42 @@
         </div>
       </template>
 
-      <!-- 最新匹配的可视化图表（最新匹配的可显示） -->
+      <!-- 最新匹配的可视化图表（chart 意图→单图，默认→四图） -->
       <el-card v-if="latestMatchResults.length" shadow="never" class="section-card charts-card">
-        <template #header><span>📊 匹配可视化</span></template>
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <div class="chart-title">柱状图 · 候选人才匹配度总分</div>
-            <div ref="barChart" class="chart" />
-          </el-col>
-          <el-col :span="12">
-            <div class="chart-title">折线图 · Top5 各维度得分走势</div>
-            <div ref="lineChart" class="chart" />
-          </el-col>
-        </el-row>
-        <el-row :gutter="16" class="mt">
-          <el-col :span="12">
-            <div class="chart-title">饼图 · 匹配结果分布（推荐/候选/储备）</div>
-            <div ref="pieChart" class="chart" />
-          </el-col>
-          <el-col :span="12">
-            <div class="chart-title">维度权重占比（默认规则）</div>
-            <div ref="pieWeightChart" class="chart" />
-          </el-col>
-        </el-row>
+        <template #header>
+          <span>📊 匹配可视化{{ latestChartType ? ` · ${CHART_LABEL[latestChartType] || ''}` : '' }}</span>
+        </template>
+
+        <!-- chart 意图：只渲染指定单图（全宽大图） -->
+        <div v-if="latestChartType" class="single-chart-wrap">
+          <div ref="barChart" v-if="latestChartType === 'bar'" class="chart chart-single" />
+          <div ref="lineChart" v-if="latestChartType === 'line'" class="chart chart-single" />
+          <div ref="pieChart" v-if="latestChartType === 'pie'" class="chart chart-single" />
+        </div>
+
+        <!-- 默认：四图 2x2 -->
+        <template v-else>
+          <el-row :gutter="16">
+            <el-col :span="12">
+              <div class="chart-title">柱状图 · 候选人才匹配度总分</div>
+              <div ref="barChart" class="chart" />
+            </el-col>
+            <el-col :span="12">
+              <div class="chart-title">折线图 · Top5 各维度得分走势</div>
+              <div ref="lineChart" class="chart" />
+            </el-col>
+          </el-row>
+          <el-row :gutter="16" class="mt">
+            <el-col :span="12">
+              <div class="chart-title">饼图 · 匹配结果分布（推荐/候选/储备）</div>
+              <div ref="pieChart" class="chart" />
+            </el-col>
+            <el-col :span="12">
+              <div class="chart-title">维度权重占比（默认规则）</div>
+              <div ref="pieWeightChart" class="chart" />
+            </el-col>
+          </el-row>
+        </template>
       </el-card>
     </div>
 
@@ -311,6 +324,16 @@ const latestMatchResults = computed(() => {
   return []
 })
 
+// 最新图表类型（chart 意图指定 bar/line/pie，否则 null 显示默认 4 图）
+const latestChartType = computed(() => {
+  for (let i = messages.value.length - 1; i >= 0; i--) {
+    const m = messages.value[i]
+    if (m.role === 'agent' && m.chartType) return m.chartType
+  }
+  return null
+})
+const CHART_LABEL = { bar: '柱状图', line: '折线图', pie: '饼图' }
+
 // ===== 工具 =====
 function parseDims(json) {
   if (!json) return {}
@@ -373,6 +396,9 @@ async function handleChat() {
       agentMsg.parsed = result
     } else if (intent === 'match' && result) {
       agentMsg.results = result.results || []
+    } else if (intent === 'chart' && result) {
+      agentMsg.chartType = data.chart_type || 'bar'
+      agentMsg.results = result.results || []
     } else if (intent === 'reverse' && result) {
       agentMsg.reverseResults = result.results || []
     } else if (intent === 'explain' && result) {
@@ -401,10 +427,24 @@ const pieChart = ref(null)
 const pieWeightChart = ref(null)
 let chartInstances = []
 
-function renderCharts(list) {
+function renderCharts(list, type) {
   if (!list.length) return
   disposeCharts()
-  // 柱状图
+  if (type) {
+    // chart 意图：只渲染指定类型单图
+    if (type === 'bar' && barChart.value) initBar(list)
+    else if (type === 'line' && lineChart.value) initLine(list)
+    else if (type === 'pie' && pieChart.value) initPie(list)
+    return
+  }
+  // 默认四图
+  if (barChart.value) initBar(list)
+  if (lineChart.value) initLine(list)
+  if (pieChart.value) initPie(list)
+  if (pieWeightChart.value) initPieWeight()
+}
+
+function initBar(list) {
   const bar = echarts.init(barChart.value)
   bar.setOption({
     tooltip: { trigger: 'axis' },
@@ -418,8 +458,9 @@ function renderCharts(list) {
     }],
   })
   chartInstances.push(bar)
+}
 
-  // 折线图
+function initLine(list) {
   const top5 = list.slice(0, 5)
   const line = echarts.init(lineChart.value)
   line.setOption({
@@ -434,8 +475,9 @@ function renderCharts(list) {
     })),
   })
   chartInstances.push(line)
+}
 
-  // 饼图：匹配结果分布
+function initPie(list) {
   const dist = { 推荐: 0, 候选: 0, 储备: 0 }
   list.forEach((r) => {
     const s = Number(r.score)
@@ -454,8 +496,9 @@ function renderCharts(list) {
     }],
   })
   chartInstances.push(pie)
+}
 
-  // 饼图：维度权重占比
+function initPieWeight() {
   const pieW = echarts.init(pieWeightChart.value)
   pieW.setOption({
     tooltip: { trigger: 'item' },
@@ -477,11 +520,11 @@ function resizeCharts() {
   chartInstances.forEach((c) => c.resize())
 }
 
-// 监听最新匹配结果：等 DOM 更新完成后再渲染图表（修复 charts 不显示的 bug）
-watch(latestMatchResults, async (val) => {
+// 监听最新匹配结果与图表类型：等 DOM 更新完成后再渲染图表（修复 charts 不显示的 bug）
+watch([latestMatchResults, latestChartType], async ([val, ctype]) => {
   if (val.length) {
     await nextTick()
-    renderCharts(val)
+    renderCharts(val, ctype)
   } else {
     disposeCharts()
   }
@@ -617,6 +660,8 @@ onBeforeUnmount(() => {
 .charts-card { background: #fafbfc; }
 .chart { height: 260px; width: 100%; }
 .chart-title { font-size: 13px; color: #6e7681; margin-bottom: 8px; font-weight: 500; }
+.single-chart-wrap { max-width: 640px; margin: 0 auto; }
+.chart-single { height: 360px; }
 
 /* ===== 输入栏（固定底部，避开侧边栏 220px） ===== */
 .chat-input-bar {
