@@ -63,12 +63,13 @@ function resolveComponent(component) {
 }
 
 export function registerDynamicRoutes(menus) {
-  const parent = router.options.routes.find((r) => r.path === '/')
-  // 清理旧动态路由时跳过 meta.static=true 的静态路由（如岗位匹配域页面），避免登录后被误删
-  const children = (parent?.children || []).filter((c) => c.name !== 'dashboard' && !c.meta?.static)
-  // 清理旧动态路由（登录态切换时避免重复注册）
-  for (const c of children) {
-    if (router.hasRoute(c.name)) router.removeRoute(c.name)
+  // 只清理本次 registerDynamicRoutes 之前留下的路由（name 以 'dynamic-' 开头），
+  // 必须保留所有静态路由（home / dashboard / 三个 redirect 路由 / meta.static=true），
+  // 否则 /home 等被误删后，没有菜单权限码的非超管用户登录后跳 /home → 路由不存在 → 404。
+  for (const r of router.getRoutes()) {
+    if (r.name && String(r.name).startsWith('dynamic-')) {
+      router.removeRoute(r.name)
+    }
   }
   const leaf = menus.filter((m) => m.type === 2 && m.path && m.status !== 0).sort((a, b) => (a.sort - b.sort) || (a.id - b.id))
   const folders = menus.filter((m) => m.type === 1)           // 目录

@@ -12,7 +12,7 @@ from typing import Any
 from fastapi import APIRouter, Depends
 from pydantic import BaseModel
 
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, require_client
 from app.db.session import SessionLocal
 from app.utils.response import BusinessError, ok
 
@@ -32,7 +32,7 @@ def _is_query(message: str) -> bool:
 
 
 @router.post("/chat")
-async def chat(body: ChatRequest, user=Depends(get_current_user)):
+async def chat(body: ChatRequest, user=Depends(require_client("app"))):
     """对话入口：按意图分流 NL2SQL / RAG，返回回答文本 + 可选图表配置。"""
     message = (body.message or "").strip()
     if not message:
@@ -80,3 +80,42 @@ async def chat(body: ChatRequest, user=Depends(get_current_user)):
         "chart_json": result.get("chart_json"),
         "type": result.get("type"),
     })
+
+
+class ConversationQuery(BaseModel):
+    page: int = 1
+    page_size: int = 20
+    conv_type: str | None = None  # rag / nl2sql / 缺省全部
+
+
+class ConversationOut(BaseModel):
+    id: int
+    type: str
+    question: str
+    answer: str
+    chart_json: Any | None
+    created_at: Any | None
+
+
+@router.get("/conversations")
+def list_conversations(body: ConversationQuery = Depends(),
+                       user=Depends(require_client("app"))):
+    """AI 对话历史（AI-6 历史追溯）：仅返回当前用户本人记录，按时间倒序分页。"""
+    from sqlalchemy import text
+    where = "user_id = :uid"
+    params: dict[str, Any] = {"uid": user.id, "limit": body.page_size, "offset": (body.page - 1) * body.page_size}
+    if body.conv_type:
+        where += " AND type = :t"
+        params["t"] = body.conv_type
+    with SessionLocal() as db:
+        rows = db.execute(
+            text(f"SELECT id, type, question, answer, chart_json, created_at FROM ai_conversation "
+                 f"WHERE {where} ORDER BY id DESC LIMIT :limit OFFSET :offset"),
+            params,
+        ).mappings().all()
+        total = db.execute(
+            text(f"SELECT COUNT(*) FROM ai_conversation WHERE {where}"), params
+        ).scalar() or 0
+    items = [ConversationOut(**dict(r)) for r in rows]
+    return ok({"items": items, "total": total, "page": body.page, "page_size": body.page_size})
+

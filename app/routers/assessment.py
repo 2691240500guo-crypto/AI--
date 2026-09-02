@@ -45,7 +45,7 @@ from app.schemas.assessment import (
     TrainingLinkOut,
 )
 from app.schemas.agent import AgentTaskOut
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, require_client
 from app.services.assessment_import_service import AssessmentImportService
 from app.services.assessment_service import AssessmentService
 from app.utils.pagination import paged_result
@@ -359,8 +359,8 @@ def launch_assessment(body: LaunchRequest, user: User = Depends(get_current_user
         _raise_business_error(exc)
 
 
-@router.get("/todo", dependencies=[Depends(get_current_user)])
-def list_todo(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+@router.get("/todo", dependencies=[Depends(require_client("app"))])
+def list_todo(user: User = Depends(require_client("app")), db: Session = Depends(get_db)):
     rows = AssessmentService.list_todo(db, user)
     return ok([AssessmentResultListOut(
         **AssessmentResultOut.model_validate(result).model_dump(),
@@ -369,24 +369,24 @@ def list_todo(user: User = Depends(get_current_user), db: Session = Depends(get_
     ) for result in rows])
 
 
-@router.get("/papers/{paper_id}/answer", dependencies=[Depends(get_current_user)])
-def answer_by_paper(paper_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+@router.get("/papers/{paper_id}/answer", dependencies=[Depends(require_client("app"))])
+def answer_by_paper(paper_id: int, user: User = Depends(require_client("app")), db: Session = Depends(get_db)):
     try:
         return ok(AnswerSnapshotOut.model_validate(AssessmentService.get_answer_by_paper(db, paper_id, user)))
     except Exception as exc:
         _raise_business_error(exc)
 
 
-@router.get("/result/{result_id}/answer", dependencies=[Depends(get_current_user)])
-def get_answer(result_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+@router.get("/result/{result_id}/answer", dependencies=[Depends(require_client("app"))])
+def get_answer(result_id: int, user: User = Depends(require_client("app")), db: Session = Depends(get_db)):
     try:
         return ok(AnswerSnapshotOut.model_validate(AssessmentService.get_answer_snapshot(db, result_id, user)))
     except Exception as exc:
         _raise_business_error(exc)
 
 
-@router.post("/result/{result_id}/answer", dependencies=[Depends(get_current_user)])
-def save_answer(result_id: int, body: AnswerSaveRequest, user: User = Depends(get_current_user),
+@router.post("/result/{result_id}/answer", dependencies=[Depends(require_client("app"))])
+def save_answer(result_id: int, body: AnswerSaveRequest, user: User = Depends(require_client("app")),
                 db: Session = Depends(get_db)):
     try:
         snapshot = AssessmentService.save_answers(db, result_id, body.answers, user)
@@ -397,8 +397,8 @@ def save_answer(result_id: int, body: AnswerSaveRequest, user: User = Depends(ge
         _raise_business_error(exc)
 
 
-@router.post("/result/{result_id}/events", dependencies=[Depends(get_current_user)])
-def record_event(result_id: int, body: AnswerEventCreate, user: User = Depends(get_current_user),
+@router.post("/result/{result_id}/events", dependencies=[Depends(require_client("app"))])
+def record_event(result_id: int, body: AnswerEventCreate, user: User = Depends(require_client("app")),
                  db: Session = Depends(get_db)):
     try:
         event = AssessmentService.record_answer_event(
@@ -411,9 +411,9 @@ def record_event(result_id: int, body: AnswerEventCreate, user: User = Depends(g
         _raise_business_error(exc)
 
 
-@router.post("/result/{result_id}/submit", dependencies=[Depends(get_current_user)])
+@router.post("/result/{result_id}/submit", dependencies=[Depends(require_client("app"))])
 def submit_result(result_id: int, body: AnswerSaveRequest | None = Body(default=None),
-                  user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+                  user: User = Depends(require_client("app")), db: Session = Depends(get_db)):
     try:
         result, details = AssessmentService.submit(
             db, result_id, body.answers if body else None, user
@@ -562,8 +562,8 @@ def get_agent_task(task_id: int, user: User = Depends(get_current_user), db: Ses
         _raise_business_error(exc)
 
 
-@router.get("/result/{result_id}/report", dependencies=[Depends(get_current_user)])
-def get_report(result_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+@router.get("/result/{result_id}/report", dependencies=[Depends(require_client(["admin", "app"]))])
+def get_report(result_id: int, user: User = Depends(require_client(["admin", "app"])), db: Session = Depends(get_db)):
     try:
         report = AssessmentService.get_report(db, result_id, user)
         db.commit()
@@ -573,8 +573,8 @@ def get_report(result_id: int, user: User = Depends(get_current_user), db: Sessi
         _raise_business_error(exc)
 
 
-@router.post("/result/{result_id}/report", dependencies=[Depends(get_current_user)])
-def generate_report(result_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+@router.post("/result/{result_id}/report", dependencies=[Depends(require_client(["admin", "app"]))])
+def generate_report(result_id: int, user: User = Depends(require_client(["admin", "app"])), db: Session = Depends(get_db)):
     try:
         report = AssessmentService.get_report(db, result_id, user)
         db.commit()
@@ -584,8 +584,8 @@ def generate_report(result_id: int, user: User = Depends(get_current_user), db: 
         _raise_business_error(exc)
 
 
-@router.post("/result/{result_id}/link-training", dependencies=[Depends(get_current_user)])
-def link_training(result_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+@router.post("/result/{result_id}/link-training", dependencies=[Depends(require_client(["admin", "app"]))])
+def link_training(result_id: int, user: User = Depends(require_client(["admin", "app"])), db: Session = Depends(get_db)):
     try:
         link = AssessmentService.link_training(db, result_id, user)
         db.commit()
@@ -595,8 +595,8 @@ def link_training(result_id: int, user: User = Depends(get_current_user), db: Se
         _raise_business_error(exc)
 
 
-@router.get("/result/{result_id}/training-link", dependencies=[Depends(get_current_user)])
-def get_training_link(result_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+@router.get("/result/{result_id}/training-link", dependencies=[Depends(require_client(["admin", "app"]))])
+def get_training_link(result_id: int, user: User = Depends(require_client(["admin", "app"])), db: Session = Depends(get_db)):
     try:
         link = AssessmentService.get_training_link(db, result_id, user)
         return ok(TrainingLinkOut.model_validate(link))
@@ -604,8 +604,8 @@ def get_training_link(result_id: int, user: User = Depends(get_current_user), db
         _raise_business_error(exc)
 
 
-@router.post("/result/{result_id}/training-link/retry", dependencies=[Depends(get_current_user)])
-def retry_training_link(result_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+@router.post("/result/{result_id}/training-link/retry", dependencies=[Depends(require_client(["admin", "app"]))])
+def retry_training_link(result_id: int, user: User = Depends(require_client(["admin", "app"])), db: Session = Depends(get_db)):
     try:
         link = AssessmentService.retry_training_link(db, result_id, user)
         db.commit()
