@@ -69,16 +69,25 @@ export function registerDynamicRoutes(menus) {
   }
   const leaf = menus.filter((m) => m.type === 2 && m.path && m.status !== 0).sort((a, b) => (a.sort - b.sort) || (a.id - b.id))
   const folders = menus.filter((m) => m.type === 1)           // 目录
+  // 菜单 component 指向实际视图文件（如 system/Dict -> system/dict.vue）。
+  // 命中失败（页面未实现/未合入/文件名不一致）时兜底占位页而非 404——
+  // 保留菜单布局、提示"功能开发中"，避免误报成"无访问权限"的裸 404。
+  const fallback = () => import('@/views/placeholder.vue')
   for (const m of leaf) {
     const fullPath = m.path.startsWith('/') ? m.path : `/${m.path}`
+    const resolved = resolveComponent(m.component)
+    if (!resolved) {
+      console.warn('[router] 菜单 component 未命中视图文件: id=%s title=%s path=%s component=%s',
+        m.id, m.title, m.path, m.component)
+    }
     const child = {
       path: fullPath.replace(/^\//, ''),
       name: `dynamic-${m.id}`,
-      component: resolveComponent(m.component) || (() => import('@/views/not-found.vue')),
+      component: resolved || fallback,
       meta: { title: m.title }
     }
     if (router.hasRoute(child.name)) router.removeRoute(child.name)
-    // 用根路由的 name（'root'）作为父路由名；component 为 null 会导致后续跳转崩，兜底为 404 组件
+    // 用根路由的 name（'root'）作为父路由名
     router.addRoute('root', child)
   }
   return folders.length > 0
@@ -101,8 +110,10 @@ router.beforeEach(async (to) => {
   }
   // 关键：token 在但 menus 为空（刷新后）→ 先恢复菜单+动态路由，避免刷新到动态页 404
   if (user.token && user.menus.length === 0) {
+    let restored = false
     try {
       await user.restore()
+      restored = true
     } catch (e) {
       console.warn('[router] restore failed:', e?.message)
       // 会话恢复失败（典型：后端重启未就绪/连接被拒/token 失效）时，
@@ -115,6 +126,14 @@ router.beforeEach(async (to) => {
       sessionStorage.removeItem('token')
       sessionStorage.removeItem('refresh_token')
       return { path: '/login', query: { redirect: to.fullPath } }
+    }
+    if (restored && to.name === 'not-found') {
+      // vue-router 在守卫执行前就完成了路由匹配：动态路由是 restore() 里才
+      // addRoute 的，当前导航的 to 仍是旧匹配（落到了 not-found 兜底）。
+      // 必须 replace 重导一次，让路由表重新匹配到刚注册的动态页；
+      // 若目标确实是乱输的不存在路径，二次进入时 menus 已非空不会再重导，
+      // 会正常渲染 404 页（无死循环）。
+      return { path: to.fullPath, replace: true }
     }
   }
   if (to.meta.title) document.title = `${to.meta.title} · AI 人才平台`
