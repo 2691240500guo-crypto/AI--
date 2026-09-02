@@ -7,6 +7,8 @@
     { "path": "pages/ai/ai", "style": { "navigationBarTitleText": "AI 助手" } },
     { "path": "pages/profile/profile", "style": { "navigationBarTitleText": "我的档案" } },
     { "path": "pages/assessment/assessment", "style": { "navigationBarTitleText": "在线测评" } },
+    { "path": "pages/assessment/quiz", "style": { "navigationBarTitleText": "在线答题" } },
+    { "path": "pages/assessment/result", "style": { "navigationBarTitleText": "测评报告" } },
     { "path": "pages/study/study", "style": { "navigationBarTitleText": "在线学习" } },
     { "path": "pages/matching/agent", "style": { "navigationBarTitleText": "Agent 智能匹配" } }
   ],
