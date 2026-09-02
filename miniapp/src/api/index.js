@@ -5,6 +5,9 @@ function req(options) {
   return request(options)
 }
 
+const API_HOST_MP = 'http://127.0.0.1:8000'
+const API_BASE_URL = process.env.UNI_PLATFORM === 'mp-weixin' ? `${API_HOST_MP}/api/v1` : '/api/v1'
+
 // 当前学生身份（demo 用 talent_id=11 王五，已有测评数据）
 export const STUDENT_TALENT_ID = 11
 export const currentTalentId = () => {
@@ -56,6 +59,27 @@ export const updateLearningProgress = (planId, payload) => req({
     learned_minutes: Math.max(0, Number(payload.learned_minutes) || 0)
   }
 })
+
+// 在线学习视频课程
+export const listOnlineCourses = (query = {}) => req({
+  url: '/course/courses',
+  data: { ...query }
+})
+export const reportOnlineCourseProgress = (payload) => req({
+  url: '/course/progress',
+  method: 'POST',
+  data: {
+    course_id: Number(payload.course_id),
+    position: Math.max(0, Math.floor(Number(payload.position) || 0)),
+    duration: Math.max(0, Math.floor(Number(payload.duration) || 0))
+  }
+})
+export const getCourseVideoStreamUrl = (videoId) => {
+  if (!videoId) return ''
+  const token = uni.getStorageSync('token') || ''
+  const query = token ? `?token=${encodeURIComponent(token)}` : ''
+  return `${API_BASE_URL}/course/videos/${videoId}/stream${query}`
+}
 
 // NL2SQL 问数
 export const askNL2SQL = (question) => req({ url: `/analytics/nl2sql`, method: 'POST', data: { question } })
