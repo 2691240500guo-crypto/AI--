@@ -1,4 +1,5 @@
 """初始化：建表 + 种子数据（超管、根部门、基础菜单/字典）。"""
+from sqlalchemy import insert
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
@@ -149,11 +150,12 @@ def seed(db: Session) -> None:
         db.flush()
         db.add(UserRole(user_id=admin.id, role_id=role.id))
 
-    # 给 super admin 角色挂所有菜单
+    # 给 super admin 角色挂所有菜单（INSERT IGNORE 幂等：多进程并发启动也不会重复主键报错）
     for m in db.query(Menu).all():
         from app.models.role import RoleMenu
-        if not db.query(RoleMenu).filter_by(role_id=role.id, menu_id=m.id).first():
-            db.add(RoleMenu(role_id=role.id, menu_id=m.id))
+        db.execute(
+            insert(RoleMenu).prefix_with("IGNORE").values(role_id=role.id, menu_id=m.id)
+        )
 
     db.commit()
 
