@@ -6,6 +6,7 @@
 """
 from app.dao.training import CourseDAO, PlanDAO
 from app.utils.llm import get_llm
+from app.utils.logger import logger
 
 
 class TrainingAgentService:
@@ -55,10 +56,14 @@ class TrainingAgentService:
             db, talent_id=talent_id, title=title, course_ids=rec["course_ids"],
             deadline=deadline, generated_by="agent", weakness_tags=shortage_tags,
         )
-        # 推送消息（调用消息域 MessageService，不修改其代码）
-        MessageService.send(
-            db, type_code="train", title=title,
-            content=f"已为你生成个性化培训计划（含 {len(rec['course_ids'])} 门课程）",
-            receiver_ids=[talent_id], biz_type="training", biz_id=plan.id,
-        )
+        # 消息契约统一使用 sys_user.id；培训计划本身仍使用 tal_talent.id。
+        receiver_id = MessageService.user_id_for_talent(db, talent_id)
+        if receiver_id is None:
+            logger.warning("[training] 找不到人才档案 %s 对应的员工用户，跳过培训通知", talent_id)
+        else:
+            MessageService.send(
+                db, type_code="train", title=title,
+                content=f"已为你生成个性化培训计划（含 {len(rec['course_ids'])} 门课程）",
+                receiver_ids=[receiver_id], biz_type="training", biz_id=plan.id,
+            )
         return {"plan_id": plan.id, "course_ids": rec["course_ids"], "reason": rec["reason"]}

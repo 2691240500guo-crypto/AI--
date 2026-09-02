@@ -45,7 +45,7 @@ def send(body: MessageSend, user: User = Depends(get_current_user), db: Session 
 @router.post("/{mid}/read", summary="标记消息已读", dependencies=[Depends(get_current_user)])
 def mark_read(mid: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """把指定消息标记为当前用户已读。"""
-    m = MessageDAO.get(db, mid)  # 按 id 查询消息
+    m = MessageService.get_detail(db, mid, user.id)  # 只允许当前用户可见的消息被标记已读
     if not m:  # 消息不存在时
         raise HTTPException(404, "消息不存在")  # 返回 404
     MessageService.mark_read(db, m, user.id)  # 调用业务层标记已读
@@ -56,9 +56,7 @@ def mark_read(mid: int, user: User = Depends(get_current_user), db: Session = De
 @router.get("/unread-count", summary="查询未读消息数", dependencies=[Depends(get_current_user)])
 def unread_count(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """查询当前用户未读消息数量。"""
-    rows, _ = MessageService.for_user(db, user.id, 1, 200)  # 取最近 200 条消息
-    unread = sum(1 for m in rows if str(user.id) not in [s for s in (m.read_ids or "").split(",") if s])  # 统计未读数
-    return ok({"unread": unread})  # 返回未读数
+    return ok({"unread": MessageService.unread_count(db, user.id)})  # 统计全部可见消息
 
 
 @router.post("/read-all", summary="全部消息标记已读", dependencies=[Depends(get_current_user)])

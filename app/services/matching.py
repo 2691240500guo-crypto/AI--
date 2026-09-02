@@ -314,17 +314,20 @@ class MatchingService:
                      msg_title: str, msg_content: str) -> dict[str, Any]:
         """写一条预警：msg_center 消息 + match_push_log。"""
         from app.services.message_service import MessageService
-        msg = MessageService.send(
-            db, type_code="system", title=msg_title, content=msg_content,
-            biz_type="matching", biz_id=rec.position_id,
-        )
+        hr_user_ids = MessageService.hr_user_ids(db)
+        msg = None
+        if hr_user_ids:
+            msg = MessageService.send(
+                db, type_code="system", title=msg_title, content=msg_content,
+                receiver_ids=hr_user_ids, biz_type="matching", biz_id=rec.position_id,
+            )
         log = MatchPushLogDAO.create(
             db, match_id=rec.id, type=alert_type, target_user=str(rec.talent_id),
-            message_id=msg.id,
+            message_id=msg.id if msg else None,
         )
         db.flush()
         return {
             "alert_id": log.id, "match_id": rec.id, "type": alert_type,
             "position_id": rec.position_id, "talent_id": rec.talent_id,
-            "score": float(rec.score), "message_id": msg.id,
+            "score": float(rec.score), "message_id": msg.id if msg else None,
         }

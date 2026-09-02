@@ -1,9 +1,20 @@
 """消息 DAO（H01-H04）：负责消息表的数据访问。"""
-from sqlalchemy import select  # 导入查询构造器
+from sqlalchemy import or_, select  # 导入查询构造器与 OR 条件
 from sqlalchemy.orm import Session  # 导入数据库会话类型
 
 from app.dao.base import BaseDAO  # 导入通用 DAO 基类
 from app.models.message import Message  # 导入消息 ORM 模型
+
+
+def csv_contains(column, value: int | str):
+    """匹配逗号分隔字段中的完整值，避免 contains() 的子串误匹配。"""
+    value = str(value)
+    return or_(
+        column == value,
+        column.like(f"{value},%"),
+        column.like(f"%,{value},%"),
+        column.like(f"%,{value}"),
+    )
 
 
 class MessageDAO(BaseDAO[Message]):
@@ -16,6 +27,6 @@ class MessageDAO(BaseDAO[Message]):
         uid = str(user_id)  # 把当前用户 id 转成字符串
         stmt = select(Message).where(  # 构造按可见范围过滤的查询
             Message.id == message_id,  # 限定消息 id
-            (Message.receiver_ids == "0") | (Message.receiver_ids.contains(uid)),  # 全员消息或包含当前用户
+            or_(Message.receiver_ids == "0", csv_contains(Message.receiver_ids, uid)),  # 全员消息或完整匹配当前用户
         )
         return db.scalars(stmt).first()  # 返回第一条结果，没有则返回 None
