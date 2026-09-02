@@ -6,9 +6,12 @@
       <div class="chat-list" ref="chatListRef">
         <!-- 空状态 -->
         <div v-if="!messages.length" class="chat-empty">
-          <div class="hero-icon">
-            <el-icon :size="56" color="#fff"><MagicStick /></el-icon>
+          <div class="hero-badge">
+            <div class="hero-badge-inner">
+              <el-icon :size="34" color="#fff"><MagicStick /></el-icon>
+            </div>
           </div>
+          <div class="hero-tag">AI Agent</div>
           <h1 class="hero-title">岗位人才匹配Agent</h1>
           <p class="hero-subtitle">岗位需求解析 · 双向智能匹配 · 适配度打分 · 原因解释 · 可视化展示</p>
 
@@ -478,17 +481,60 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resizeAll); dispose
 }
 
 /* ===== 空状态 ===== */
-.chat-empty { text-align: center; padding: 60px 0 40px; }
-.hero-icon {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 84px; height: 84px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-radius: 24px;
-  box-shadow: 0 8px 24px rgba(102, 126, 234, 0.3);
+.chat-empty { text-align: center; padding: 56px 0 40px; }
+
+/* ===== 顶部徽章：清爽蓝球（与 Element Plus 整体匹配） ===== */
+.hero-badge {
+  position: relative;
+  width: 88px; height: 88px;
+  margin: 0 auto 20px;
+  display: flex; align-items: center; justify-content: center;
+}
+/* 柔和外晕（蓝色氛围光） */
+.hero-badge::before {
+  content: '';
+  position: absolute;
+  width: 140px; height: 140px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(64, 158, 255, 0.22) 0%, rgba(64, 158, 255, 0.07) 45%, transparent 70%);
+  z-index: 0;
+  pointer-events: none;
+}
+.hero-badge-inner {
+  position: relative; z-index: 1;
+  width: 72px; height: 72px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 32% 26%, rgba(255,255,255,0.65) 0%, rgba(255,255,255,0) 45%),
+    linear-gradient(150deg, #66b1ff 0%, #409eff 60%, #337ecc 100%);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow:
+    0 8px 20px rgba(64, 158, 255, 0.28),
+    inset 0 1px 2px rgba(255, 255, 255, 0.5),
+    inset 0 -5px 10px rgba(51, 126, 204, 0.3);
+}
+
+/* AI Agent 标签：浅蓝胶囊 */
+.hero-tag {
+  display: inline-block;
+  padding: 5px 14px; border-radius: 999px;
+  background: #ecf5ff;
+  border: 1px solid #d9ecff;
+  color: #409eff;
+  font-size: 11px; font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
   margin-bottom: 16px;
 }
-.hero-title { font-size: 26px; font-weight: 700; color: #1f2328; margin: 0 0 6px; }
-.hero-subtitle { font-size: 13px; color: #6e7681; margin: 0 0 24px; line-height: 1.6; }
+
+/* 标题：深色正文 + 大留白 */
+.hero-title {
+  font-size: 27px; font-weight: 600;
+  margin: 0 0 10px;
+  color: #303133;
+  letter-spacing: 1px;
+}
+.hero-subtitle { font-size: 13px; color: #909399; margin: 0 0 32px; line-height: 1.7; letter-spacing: 0.3px; }
 .hint-block { margin-top: 28px; text-align: left; }
 .hint-label { font-size: 12px; font-weight: 600; color: #6e7681; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
 .cap-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }

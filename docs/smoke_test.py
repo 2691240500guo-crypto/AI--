@@ -96,8 +96,8 @@ call("多维筛选", "GET", "/analytics/dim-filter", token)
 # ========== 8. 消息/审计 ==========
 print("\n== 消息/审计 ==")
 call("消息列表", "GET", "/messages", token)
-call("审计日志", "GET", "/audit/logs", token)
-call("登录日志", "GET", "/audit/login-logs", token)
+call("审计日志", "GET", "/audit/operations", token)
+call("登录日志", "GET", "/audit/logins", token)
 
 # ========== 9. 知识库/AI ==========
 print("\n== 知识库/AI ==")
