@@ -357,6 +357,9 @@ class AssessmentService:
         paper = AssessmentService.get_paper(db, paper_id)
         if paper.results:
             raise ValueError("试卷已有测评记录，不能删除；请先停用试卷")
+        # 先清空题目关联：PaperQuestion.paper_id 为复合主键，直接删 paper 时 ORM
+        # 会尝试把 paper_id 置 NULL 触发 AssertionError（500），需先手动删除关联行
+        db.query(PaperQuestion).filter(PaperQuestion.paper_id == paper_id).delete(synchronize_session=False)
         AssessmentPaperDAO.delete(db, paper)
 
     @staticmethod
