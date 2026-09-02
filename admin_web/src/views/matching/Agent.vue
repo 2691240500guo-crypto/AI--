@@ -6,8 +6,16 @@
       <div class="chat-list" ref="chatListRef">
         <!-- 空状态 -->
         <div v-if="!messages.length" class="chat-empty">
-          <div class="hero-icon">
-            <el-icon :size="56" color="#fff"><MagicStick /></el-icon>
+          <div class="hero-badge">
+            <div class="hero-badge-ring"></div>
+            <div class="hero-badge-orb"></div>
+            <div class="hero-badge-inner">
+              <el-icon :size="46" color="#fff"><MagicStick /></el-icon>
+            </div>
+          </div>
+          <div class="hero-tag">
+            <span class="hero-tag-dot"></span>
+            AI Agent · 智能匹配引擎
           </div>
           <h1 class="hero-title">岗位人才匹配Agent</h1>
           <p class="hero-subtitle">岗位需求解析 · 双向智能匹配 · 适配度打分 · 原因解释 · 可视化展示</p>
@@ -478,16 +486,74 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resizeAll); dispose
 }
 
 /* ===== 空状态 ===== */
-.chat-empty { text-align: center; padding: 60px 0 40px; }
-.hero-icon {
-  display: inline-flex; align-items: center; justify-content: center;
-  width: 84px; height: 84px;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-radius: 24px;
-  box-shadow: 0 8px 24px rgba(102, 126, 234, 0.3);
-  margin-bottom: 16px;
+.chat-empty { text-align: center; padding: 56px 0 40px; }
+
+/* 顶部徽章：圆形渐变 + 光晕 + 内圆 + 图标 */
+.hero-badge {
+  position: relative;
+  width: 120px; height: 120px;
+  margin: 0 auto 22px;
+  display: flex; align-items: center; justify-content: center;
 }
-.hero-title { font-size: 26px; font-weight: 700; color: #1f2328; margin: 0 0 6px; }
+.hero-badge-ring {
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  background: conic-gradient(from 180deg, #534ab7, #378add, #7f77dd, #534ab7);
+  filter: blur(14px);
+  opacity: 0.55;
+  animation: hero-rotate 8s linear infinite;
+}
+.hero-badge-orb {
+  position: absolute; inset: 6px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.35), transparent 60%),
+              linear-gradient(135deg, #534ab7 0%, #378add 100%);
+  box-shadow: inset 0 -6px 14px rgba(0,0,0,0.18);
+}
+.hero-badge-inner {
+  position: relative; z-index: 1;
+  width: 84px; height: 84px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #534ab7 0%, #378add 100%);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 8px 24px rgba(83, 74, 183, 0.35), inset 0 2px 4px rgba(255,255,255,0.25);
+}
+@keyframes hero-rotate {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* AI Agent 标签 */
+.hero-tag {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 6px 14px; border-radius: 999px;
+  background: linear-gradient(90deg, #ecf5ff 0%, #f0eaff 100%);
+  border: 1px solid #d6e4ff;
+  color: #534ab7;
+  font-size: 12px; font-weight: 600;
+  letter-spacing: 0.4px;
+  margin-bottom: 14px;
+}
+.hero-tag-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  background: #534ab7;
+  box-shadow: 0 0 0 0 rgba(83, 74, 183, 0.6);
+  animation: hero-pulse 2s ease-out infinite;
+}
+@keyframes hero-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(83, 74, 183, 0.6); }
+  100% { box-shadow: 0 0 0 8px rgba(83, 74, 183, 0); }
+}
+
+.hero-title {
+  font-size: 28px; font-weight: 700;
+  margin: 0 0 8px;
+  background: linear-gradient(135deg, #1f2328 0%, #534ab7 50%, #378add 100%);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  letter-spacing: 0.5px;
+}
 .hero-subtitle { font-size: 13px; color: #6e7681; margin: 0 0 24px; line-height: 1.6; }
 .hint-block { margin-top: 28px; text-align: left; }
 .hint-label { font-size: 12px; font-weight: 600; color: #6e7681; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
