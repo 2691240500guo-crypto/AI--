@@ -36,9 +36,12 @@ http.interceptors.response.use(
       if (ok) return http(err.config)
       const user = useUserStore()
       user.logout()
-    } else {
+    } else if (err.response) {
+      // 有 HTTP 响应：正常弹后端 message
       ElMessage.error(err.response?.data?.message || err.message)
     }
+    // 无 err.response = 网络层失败（连接被拒/超时/后端未启动），不弹 toast：
+    // 该场景集中在后端重启窗口的会话恢复，交由路由守卫统一清凭证并跳登录，避免并发请求刷屏。
     return Promise.reject(err)
   }
 )

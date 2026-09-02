@@ -94,14 +94,27 @@ router.beforeEach(async (to) => {
     user.token = storedToken
   }
   if (to.path !== '/login' && !user.token) return '/login'
-  if (to.path === '/login' && user.token) return '/'
+  if (to.path === '/login' && user.token) {
+    // 已登录状态访问登录页：回跳原目标（redirect 仅在登录成功后使用，守卫带 token 进来时同样放行回跳）
+    const r = to.query.redirect
+    return (typeof r === 'string' && r.startsWith('/') && !r.startsWith('//')) ? r : '/'
+  }
   // 关键：token 在但 menus 为空（刷新后）→ 先恢复菜单+动态路由，避免刷新到动态页 404
   if (user.token && user.menus.length === 0) {
     try {
       await user.restore()
     } catch (e) {
       console.warn('[router] restore failed:', e?.message)
-      if (to.name === 'not-found') return to.fullPath
+      // 会话恢复失败（典型：后端重启未就绪/连接被拒/token 失效）时，
+      // 动态路由尚未注册，URL 已被解析为 not-found 兜底页——放行会永久卡 404。
+      // 统一清空本地凭证并回登录页，登录成功后按 redirect 回跳原目标。
+      user.token = ''
+      user.user = null
+      user.menus = []
+      user.perms = []
+      sessionStorage.removeItem('token')
+      sessionStorage.removeItem('refresh_token')
+      return { path: '/login', query: { redirect: to.fullPath } }
     }
   }
   if (to.meta.title) document.title = `${to.meta.title} · AI 人才平台`

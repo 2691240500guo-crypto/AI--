@@ -1,10 +1,11 @@
 <script setup>
 import { reactive, ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { useUserStore } from '@/stores/user'
 
 const router = useRouter()
+const route = useRoute()
 const user = useUserStore()
 const formRef = ref()
 const form = reactive({ username: '', password: '' })
@@ -14,13 +15,19 @@ const rules = {
   password: [{ required: true, message: '请输入密码', trigger: 'blur' }]
 }
 
+// 站内路径才允许登录后回跳（防开放重定向）；默认回首页
+function safeRedirect() {
+  const r = route.query.redirect
+  return typeof r === 'string' && r.startsWith('/') && !r.startsWith('//') ? r : '/'
+}
+
 async function onSubmit() {
   await formRef.value.validate()
   loading.value = true
   try {
     await user.login(form)
     ElMessage.success('登录成功')
-    router.push('/')
+    router.push(safeRedirect())
   } catch (e) {
     // 任何阶段失败都明确提示，避免"点了没反应"（之前 try 无 catch，错误被吞）
     console.error('[login] failed:', e)
