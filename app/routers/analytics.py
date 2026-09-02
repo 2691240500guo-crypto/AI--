@@ -78,22 +78,32 @@ def download_report(object_name: str,
 # 同样用 ApiResp 包装，避免 response_model 与 ok() 包装冲突导致的 500
 @router.post("/nl2sql", response_model=ApiResp[NL2SQLOut])
 async def nl2sql(req: NL2SQLRequest,
-                 _=Depends(require_permission("analytics:nl2sql"))):
+                 user=Depends(require_permission("analytics:nl2sql"))):
     """Agent⑤ 问数入口（D2：真实调用引擎，返回 SQL+数据+图表）。"""
     from app.ai.agents.query_agent import get_query_agent
+    from app.services.agent_log_service import log_agent_task, log_conversation
     result = await get_query_agent().run({
         "question": req.question,
         "chart_type": req.chart_type or "bar",
     })
     # 契约出参：sql/columns/rows/chart_json/status
-    return ok({
+    out = {
         "question": req.question,
         "sql": result.get("sql"),
         "columns": result.get("columns", []),
         "rows": result.get("rows", []),
         "chart_json": result.get("chart_json"),
         "status": result.get("status", "failed"),
-    })
+    }
+    # Agent⑤ 落库：ai_agent_task + ai_conversation（失败不阻塞回复）
+    try:
+        log_agent_task("nl2sql", req.question, result, req.chart_type or "bar")
+        answer = "查询结果" if result.get("status") == "done" else f"问数未完成：{result.get('error_msg') or '未知错误'}"
+        log_conversation(user.id, "nl2sql", req.question, answer, result.get("chart_json"))
+    except Exception as exc:  # noqa: BLE001  落库失败不影响主链路
+        import logging
+        logging.getLogger("agent_log").warning("nl2sql 落库失败: %s", exc)
+    return ok(out)
 
 # 同样用 ApiResp 包装，避免 response_model 与 ok() 包装冲突导致的 500
 @router.get("/dim-filter", response_model=ApiResp[DimFilterOut])

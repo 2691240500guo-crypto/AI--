@@ -43,6 +43,11 @@ async def chat(body: ChatRequest, user=Depends(get_current_user)):
         # ---- 问数：Agent⑤ NL2SQL ----
         from app.ai.agents import query_agent
         out = await query_agent.run({"question": message, "chart_type": body.chart_type})
+        try:
+            from app.services.agent_log_service import log_agent_task
+            log_agent_task("nl2sql", message, out, body.chart_type)
+        except Exception:  # noqa: BLE001  落库失败不阻塞回复
+            pass
         if out.get("status") != "done":
             result = {"type": "nl2sql", "answer": f"问数未完成：{out.get('error_msg') or '请换个问法'}", "chart_json": None}
         else:
@@ -64,15 +69,8 @@ async def chat(body: ChatRequest, user=Depends(get_current_user)):
 
     # 写入对话记录（ai_conversation）
     try:
-        import json
-        with SessionLocal() as db:
-            db.execute(
-                "INSERT INTO ai_conversation (user_id, type, question, answer, chart_json, created_at)"
-                " VALUES (%s, %s, %s, %s, %s, NOW())",
-                (user.id, result["type"], message, result["answer"],
-                 json.dumps(result.get("chart_json"), ensure_ascii=False) if result.get("chart_json") else None),
-            )
-            db.commit()
+        from app.services.agent_log_service import log_conversation
+        log_conversation(user.id, result["type"], message, result["answer"], result.get("chart_json"))
     except Exception:  # noqa: BLE001  记录失败不阻塞回复
         pass
 

@@ -10,6 +10,7 @@ const http = axios.create({ baseURL: apiBase, timeout: 90000 })
 http.interceptors.request.use((config) => {
   const token = sessionStorage.getItem('token')
   if (token) config.headers.Authorization = `Bearer ${token}`
+  config.headers['X-Client-Type'] = 'admin'
   return config
 })
 

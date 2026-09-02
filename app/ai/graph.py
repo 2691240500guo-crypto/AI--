@@ -196,6 +196,69 @@ def route_retest(state: AgentState) -> str:
 
 
 # ---------------------------------------------------------------------------
+# 3. 节点任务落库包装器（编排层统一维护 ai_agent_task）
+#    契约第 4 节：Agent 内部只返回 done/failed，任务记录由编排层落库。
+#    agent_code = 节点名；input_json = 关键入参；output_json = 节点产物；
+#    state_json = 全局状态快照；status = running → done | failed。
+# ---------------------------------------------------------------------------
+def _json_safe(obj):
+    """把 state/output 里非 JSON 可序列化的值降级为字符串，避免落库失败。"""
+    import json
+    try:
+        json.dumps(obj)
+        return obj
+    except (TypeError, ValueError):
+        return {k: (str(v) if not isinstance(v, (list, dict)) else _json_safe(v)) for k, v in obj.items()} if isinstance(obj, dict) else str(obj)
+
+
+def _wrap_task(name: str, fn):
+    """节点包装器：执行前建任务（running），执行后更新（done/failed）。落库失败不阻塞图执行。"""
+    async def wrapped(state: AgentState) -> dict:
+        from app.dao.agent import AgentTaskDAO
+        from app.db.session import SessionLocal
+        task = None
+        with SessionLocal() as db:
+            try:
+                task = AgentTaskDAO.create(
+                    db,
+                    agent_code=name,
+                    input_json=_json_safe({k: state.get(k) for k in (
+                        "talent_id", "result_id", "question", "position_ids",
+                        "file_url", "shortcomings") if state.get(k) is not None}),
+                    status="running",
+                    current_node=name,
+                    state_json=_json_safe(state),
+                )
+                db.commit()
+            except Exception:  # noqa: BLE001  落库失败不阻塞
+                task = None
+        try:
+            out = await fn(state)
+        except Exception as exc:  # noqa: BLE001
+            if task is not None:
+                with SessionLocal() as db:
+                    t = AgentTaskDAO.get(db, task.id)
+                    if t:
+                        t.status = "failed"
+                        t.error_msg = str(exc)[:1000]
+                        t.current_node = "failed"
+                        db.commit()
+            return {"agent_code": name, "error": str(exc)}
+        if task is not None:
+            with SessionLocal() as db:
+                t = AgentTaskDAO.get(db, task.id)
+                if t:
+                    ok = out.get("error") is None
+                    t.status = "done" if ok else "failed"
+                    t.current_node = "done" if ok else "failed"
+                    t.output_json = _json_safe(out)
+                    t.error_msg = out.get("error") if not ok else None
+                    db.commit()
+        return out
+    return wrapped
+
+
+# ---------------------------------------------------------------------------
 # 4. 建图 + 编译（支持测试时覆盖节点）
 # ---------------------------------------------------------------------------
 _DEFAULT_NODES = {
@@ -217,7 +280,7 @@ def build_graph(overrides: dict | None = None):
 
     g = StateGraph(AgentState)
     for name, fn in nodes.items():
-        g.add_node(name, fn)
+        g.add_node(name, _wrap_task(name, fn))
 
     # 入口分流：问数⑤ / 人岗①→③ / 成长②→④
     g.set_entry_point("parse")

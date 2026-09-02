@@ -19,7 +19,7 @@ async function login() {
   }
   loading.value = true
   try {
-    const res = await request({ url: '/auth/login', method: 'POST', data: form })
+    const res = await request({ url: '/auth/employee-login', method: 'POST', data: form })
     uni.setStorageSync('token', res.data.access_token)
     uni.setStorageSync('refresh_token', res.data.refresh_token)
     uni.setStorageSync('user', res.data.user)

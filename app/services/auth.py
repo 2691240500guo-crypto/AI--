@@ -14,7 +14,8 @@ from app.utils.response import BusinessError
 
 class AuthService:
     @staticmethod
-    def authenticate(db: Session, username: str, password: str, ip: str | None = None) -> User:
+    def authenticate(db: Session, username: str, password: str, ip: str | None = None,
+                     require_user_type: str | None = None) -> User:
         user = UserDAO.get_by(db, username=username.strip())
         if not user or not verify_password(password, user.password):
             AuthService._login_log(db, username, 0, "账号或密码错误", ip)
@@ -22,6 +23,10 @@ class AuthService:
         if user.status != 1:
             AuthService._login_log(db, username, 0, "账号被禁用", ip)
             raise BusinessError(403, "账号已被禁用")
+        # 登录入口分流：管理端只收 admin，小程序只收 employee
+        if require_user_type and (user.user_type or "admin") != require_user_type:
+            AuthService._login_log(db, username, 0, f"非{require_user_type}端账号", ip)
+            raise BusinessError(403, "该账号不允许在此端登录")
         user.last_login_at = datetime.now()
         db.flush()
         AuthService._login_log(db, username, 1, "登录成功", ip)
@@ -29,9 +34,23 @@ class AuthService:
 
     @staticmethod
     def login(db: Session, username: str, password: str, ip: str | None = None) -> tuple[User, str, str]:
-        user = AuthService.authenticate(db, username, password, ip)
-        at = create_access_token(str(user.id))
-        rt = create_refresh_token(str(user.id))
+        user = AuthService.authenticate(db, username, password, ip, require_user_type="admin")
+        at = create_access_token(str(user.id), client_type="admin")
+        rt = create_refresh_token(str(user.id), client_type="admin")
+        return user, at, rt
+
+    @staticmethod
+    def employee_login(db: Session, username: str, password: str, ip: str | None = None) -> tuple[User, str, str]:
+        """员工小程序登录：user_type=employee + 角色=employee，签发 app 端 token。"""
+        user = AuthService.authenticate(db, username, password, ip, require_user_type="employee")
+        # 角色校验：必须持有 employee 角色（超管除外）
+        if not user.is_super:
+            codes = {r.code for r in user.roles}
+            if "employee" not in codes:
+                AuthService._login_log(db, username, 0, "非员工角色", ip)
+                raise BusinessError(403, "该账号无员工权限，请联系管理员")
+        at = create_access_token(str(user.id), client_type="app")
+        rt = create_refresh_token(str(user.id), client_type="app")
         return user, at, rt
 
     @staticmethod
@@ -43,7 +62,9 @@ class AuthService:
         user = UserDAO.get(db, int(payload["sub"]))
         if not user or user.status != 1:
             raise BusinessError(401, "用户不存在或已禁用")
-        return create_access_token(str(user.id)), create_refresh_token(str(user.id))
+        client_type = payload.get("client_type") or "admin"
+        return (create_access_token(str(user.id), client_type=client_type),
+                create_refresh_token(str(user.id), client_type=client_type))
 
     @staticmethod
     def wechat_login(db: Session, openid: str) -> User:

@@ -32,6 +32,14 @@ def login(body: LoginRequest, db: Session = Depends(get_db), request: Request = 
     return ok({"access_token": at, "refresh_token": rt, "user": _self_out(user)})
 
 
+@router.post("/employee-login", response_model=None)
+def employee_login(body: LoginRequest, db: Session = Depends(get_db), request: Request = None):
+    """员工小程序登录（A01 分流）：仅 user_type=employee + 角色=employee 可登录，签发 app 端 token。"""
+    user, at, rt = AuthService.employee_login(db, body.username, body.password, ip=client_ip(request))
+    db.commit()
+    return ok({"access_token": at, "refresh_token": rt, "user": _self_out(user)})
+
+
 @router.post("/refresh")
 def refresh(body: dict, db: Session = Depends(get_db)):
     at, rt = AuthService.refresh(db, body["refresh_token"])

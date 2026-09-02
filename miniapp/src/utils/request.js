@@ -16,7 +16,7 @@ export function request(options) {
       url: BASE_URL + options.url,
       method: options.method || 'GET',
       data: options.data || {},
-      header: { Authorization: token ? `Bearer ${token}` : '', ...(options.header || {}) },
+      header: { Authorization: token ? `Bearer ${token}` : '', 'X-Client-Type': 'app', ...(options.header || {}) },
       success: async (res) => {
         const body = res.data
         if (res.statusCode === 401 || (body && body.code === 401)) {

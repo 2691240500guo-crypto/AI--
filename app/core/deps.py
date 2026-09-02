@@ -46,5 +46,29 @@ def require_permission(perm: str):
     return checker
 
 
+def _token_client_type(token: str | None) -> str:
+    """从 access token 中读端标识；缺省按 admin（兼容旧 token）。"""
+    if not token:
+        return "admin"
+    payload = decode_token(token)
+    return (payload or {}).get("client_type") or "admin"
+
+
+def require_client(types: str | list[str]):
+    """端隔离校验器：要求 token 的 client_type ∈ types（如 admin / app）。
+
+    用法：
+        _=Depends(require_client("app"))            # 仅小程序
+        _=Depends(require_client(["admin", "app"])) # 两端都行
+    """
+    allowed = {types} if isinstance(types, str) else set(types)
+    def checker(request: Request, token: str | None = Depends(oauth2_scheme),
+                user: User = Depends(get_current_user)) -> User:
+        if _token_client_type(token) not in allowed:
+            raise HTTPException(403, "跨端调用被拒绝：token 端标识不匹配")
+        return user
+    return checker
+
+
 # 便捷引用
 get_current_superuser = require_permission("")  # 占位，实际鸭子类型在函数内判断

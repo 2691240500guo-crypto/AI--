@@ -439,7 +439,31 @@ class MatchAgent:
             })
 
         results.sort(key=lambda r: r["score"], reverse=True)
-        return [r for r in results if r["score"] >= min_score][:top_k]
+        results = [r for r in results if r["score"] >= min_score][:top_k]
+
+        # 落库 match_result（幂等，与 run_match 一致；已推荐/录用结论不覆盖）
+        saved: list[dict[str, Any]] = []
+        for rank, m in enumerate(results, start=1):
+            rec = MatchResultDAO.get_by_pair(db, talent_id, m["position_id"])
+            if rec and rec.status != 0:
+                continue  # 已推荐/录用结论保留
+            if rec:
+                rec.score = m["score"]
+                rec.dimension_json = m["dimension_json"]
+                rec.rank = rank
+                rec.status = 0
+            else:
+                rec = MatchResultDAO.create(
+                    db, talent_id=talent_id, position_id=m["position_id"],
+                    score=m["score"], dimension_json=m["dimension_json"],
+                    rank=rank, status=0,
+                )
+            db.flush()
+            item = {**m, "match_id": rec.id, "rank": rank, "status": rec.status,
+                    "talent_id": talent_id}
+            saved.append(item)
+        db.commit()
+        return saved
 
     # ==================== 自然语言操作（NL → 意图 → 执行 → 回复） ====================
 
