@@ -25,7 +25,7 @@
 
 <script setup>
 import { ref } from 'vue'
-import request from '@/utils/request'
+import { askAiAssistant } from '@/api'
 
 const q = ref('')
 const loading = ref(false)
@@ -47,7 +47,7 @@ async function ask(text) {
   push('me', msg)
   loading.value = true
   try {
-    const res = await request({ url: '/ai/chat', method: 'POST', data: { message: msg } })
+    const res = await askAiAssistant(msg)
     const d = res.data || {}
     const answer = (d.answer || '抱歉，暂时没想好怎么回答。').replace(/\n/g, '\n')
     push('bot', answer, { chart: !!d.chart_json, type: d.type })

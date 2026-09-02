@@ -1,9 +1,10 @@
 """C 智能测评数据访问层。业务规则由 assessment service 负责。"""
 
+from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import and_, case, func, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import and_, case, func, or_, select
+from sqlalchemy.orm import Session, noload, selectinload
 
 from app.dao.base import BaseDAO
 from app.models.assessment import (
@@ -37,7 +38,10 @@ class QuestionBankDAO(BaseDAO[QuestionBank]):
             condition = cls.__model__.status == status
             stmt = stmt.where(condition)
             count_stmt = count_stmt.where(condition)
-        rows = list(db.scalars(stmt.order_by(cls.__model__.id.desc()).offset((page - 1) * page_size).limit(page_size)).all())
+        rows = list(db.scalars(
+            stmt.options(noload(cls.__model__.questions)).order_by(cls.__model__.id.desc())
+            .offset((page - 1) * page_size).limit(page_size)
+        ).all())
         return rows, db.scalar(count_stmt) or 0
 
 
@@ -64,7 +68,10 @@ class AssessmentQuestionDAO(BaseDAO[AssessmentQuestion]):
         if conditions:
             stmt = stmt.where(*conditions)
             count_stmt = count_stmt.where(*conditions)
-        rows = list(db.scalars(stmt.order_by(cls.__model__.id.desc()).offset((page - 1) * page_size).limit(page_size)).all())
+        rows = list(db.scalars(
+            stmt.options(noload(cls.__model__.paper_links)).order_by(cls.__model__.id.desc())
+            .offset((page - 1) * page_size).limit(page_size)
+        ).all())
         return rows, db.scalar(count_stmt) or 0
 
     @classmethod
@@ -91,7 +98,10 @@ class AssessmentPaperDAO(BaseDAO[AssessmentPaper]):
             condition = cls.__model__.status == status
             stmt = stmt.where(condition)
             count_stmt = count_stmt.where(condition)
-        rows = list(db.scalars(stmt.order_by(cls.__model__.id.desc()).offset((page - 1) * page_size).limit(page_size)).all())
+        rows = list(db.scalars(
+            stmt.options(noload(cls.__model__.question_links)).order_by(cls.__model__.id.desc())
+            .offset((page - 1) * page_size).limit(page_size)
+        ).all())
         return rows, db.scalar(count_stmt) or 0
 
 
@@ -213,6 +223,11 @@ class AssessmentResultDAO(BaseDAO[AssessmentResult]):
             conditions.append(cls.__model__.status == status)
         if pending_only:
             conditions.append(cls.__model__.status.in_([0, 1]))
+            # 学生端只展示仍可作答的任务；过期记录保留给管理端历史查询。
+            conditions.append(or_(
+                cls.__model__.deadline_at.is_(None),
+                cls.__model__.deadline_at > datetime.now(),
+            ))
         if conditions:
             stmt = stmt.where(*conditions)
             count_stmt = count_stmt.where(*conditions)
@@ -257,7 +272,8 @@ class AssessmentResultDAO(BaseDAO[AssessmentResult]):
             stmt = stmt.where(*conditions)
             count_stmt = count_stmt.where(*conditions)
         rows = list(db.execute(
-            stmt.order_by(cls.__model__.id.desc()).offset((page - 1) * page_size).limit(page_size)
+            stmt.options(selectinload(cls.__model__.paper).selectinload(AssessmentPaper.question_links))
+            .order_by(cls.__model__.id.desc()).offset((page - 1) * page_size).limit(page_size)
         ).all())
         return rows, db.scalar(count_stmt) or 0
 

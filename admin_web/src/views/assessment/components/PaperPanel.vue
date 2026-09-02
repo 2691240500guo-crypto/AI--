@@ -13,6 +13,8 @@ const banks = ref([])
 const capabilityModels = ref([])
 const positions = ref([])
 const loading = ref(false)
+const optionsLoading = ref(false)
+const optionsLoaded = ref(false)
 const dialog = reactive({ visible: false, editing: false, preview: false, models: false, modelForm: false })
 const form = reactive({ id: null, title: '', description: '', duration: 60, mode: 'manual', question_ids: [], count: 3, bank_ids: [], types: [], dimensions: '', capability_model_id: null })
 const modelForm = reactive({ id: null, name: '', description: '', position_id: null, position_level: null, rules: [] })
@@ -23,14 +25,26 @@ const typeLabels = { single: '单选', multi: '多选', judge: '判断' }
 async function load() {
   loading.value = true
   try {
-    const [paperRes, questionRes] = await Promise.all([
-      listPapers({ page: 1, page_size: 200 }),
-      listQuestions({ page: 1, page_size: 200, status: 1 })
-    ])
-    papers.value = paperRes.data.items
-    questions.value = questionRes.data.items
-    await loadModels()
+    const paperRes = await listPapers({ page: 1, page_size: 200 })
+    papers.value = paperRes.data.items || []
   } finally { loading.value = false }
+}
+async function loadEditorOptions() {
+  if (optionsLoaded.value || optionsLoading.value) return
+  optionsLoading.value = true
+  try {
+    const [questionRes, modelRes, positionRes, bankRes] = await Promise.all([
+      listQuestions({ page: 1, page_size: 200, status: 1 }),
+      listCapabilityModels({ page: 1, page_size: 200 }),
+      listAssessmentPositions(),
+      listBanks({ page: 1, page_size: 200, status: 1 }),
+    ])
+    questions.value = questionRes.data.items || []
+    capabilityModels.value = modelRes.data.items || []
+    positions.value = positionRes.data || []
+    banks.value = bankRes.data.items || []
+    optionsLoaded.value = true
+  } finally { optionsLoading.value = false }
 }
 async function loadModels() {
   const [modelRes, positionRes, bankRes] = await Promise.all([
@@ -41,11 +55,13 @@ async function loadModels() {
   capabilityModels.value = modelRes.data.items || []
   positions.value = positionRes.data || []
   banks.value = bankRes.data.items || []
+  optionsLoaded.value = true
 }
 function openCreate() {
   Object.assign(form, { id: null, title: '', description: '', duration: 60, mode: 'manual', question_ids: [], count: 3, bank_ids: [], types: [], dimensions: '', capability_model_id: null })
   dialog.editing = false
   dialog.visible = true
+  loadEditorOptions()
 }
 function openEdit(row) {
   Object.assign(form, { id: row.id, title: row.title, description: row.description, duration: row.duration, mode: 'manual', question_ids: [], count: 3, bank_ids: [], types: [], dimensions: '', capability_model_id: null })
@@ -99,7 +115,7 @@ function openModel(model = null) {
   modelEditing.value = Boolean(model)
   dialog.modelForm = true
 }
-function openModelManager() { dialog.models = true }
+function openModelManager() { dialog.models = true; loadEditorOptions() }
 function addRule() { modelForm.rules.push(emptyRule()) }
 function removeRule(index) {
   if (modelForm.rules.length <= 1) return ElMessage.warning('至少保留一条能力维度规则')
@@ -131,7 +147,7 @@ onMounted(load)
 
 <template>
   <div class="toolbar"><el-button type="primary" @click="openCreate">新建试卷</el-button><el-button @click="openModelManager">能力模型</el-button><span class="tip">试卷题目在创建时固化快照，后续修改题库不影响历史结果</span></div>
-  <el-table :data="papers" v-loading="loading" stripe>
+  <el-table :data="papers" v-loading="loading || optionsLoading" stripe>
     <el-table-column prop="id" label="ID" width="70" /><el-table-column prop="title" label="试卷名称" min-width="180" /><el-table-column label="组卷方式" width="100"><template #default="{ row }"><el-tag size="small">{{ { manual: '手动', random: '随机', capability: '能力模型' }[row.generation_mode] || row.generation_mode }}</el-tag></template></el-table-column><el-table-column prop="duration" label="时长（分钟）" width="110" /><el-table-column prop="total_score" label="总分" width="80" /><el-table-column prop="created_at" label="创建时间" width="180" /><el-table-column label="状态" width="80"><template #default="{ row }"><el-tag size="small" :type="row.status ? 'success' : 'info'">{{ row.status ? '启用' : '停用' }}</el-tag></template></el-table-column>
     <el-table-column label="操作" width="230" fixed="right"><template #default="{ row }"><el-button link type="primary" @click="showPreview(row)">预览</el-button><el-button link type="primary" @click="openEdit(row)">编辑</el-button><el-button link @click="toggle(row)">{{ row.status ? '停用' : '启用' }}</el-button><el-button link type="danger" @click="remove(row)">删除</el-button></template></el-table-column>
   </el-table>

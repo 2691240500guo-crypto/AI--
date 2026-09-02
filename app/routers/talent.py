@@ -7,7 +7,7 @@
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_user, require_permission
+from app.core.deps import get_current_user, require_client, require_permission
 from app.db.session import get_db
 from app.schemas.talent import (
     TalentCreate, TalentUpdate, TalentOut, TalentQuery,
@@ -413,6 +413,22 @@ async def import_word(file: UploadFile = File(...), db: Session = Depends(get_db
     content = await file.read()
     return ok(svc.import_word_talents(db, content, filename=file.filename or "talents.docx",
                                        operator_id=current.id))
+
+
+# ---------------- 员工端（小程序）：本人档案（数据隔离锚点）----------------
+# 注意：静态路径必须注册在 /{tid} 动态路由之前，否则被当作 tid 解析
+@router.get("/me", summary="我的档案（员工端，仅本人）")
+def my_talent(db: Session = Depends(get_db),
+              user=Depends(require_client("app"))):
+    """员工小程序查看本人档案：从 token 关联的 talent_id 读取，强制本人，不接受前端传参。"""
+    from app.services.talent_service import _to_out
+    from app.models.talent import Talent
+    if not user.talent_id:
+        raise HTTPException(400, "当前账号未关联人才档案，请联系管理员")
+    t = db.get(Talent, user.talent_id)
+    if not t:
+        raise HTTPException(404, "人才档案不存在")
+    return ok(_to_out(t))
 
 
 # ---------------- 技能证书管理（需求① 技能证书核心信息）----------------

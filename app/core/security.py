@@ -18,21 +18,28 @@ def verify_password(plain: str, hashed: str) -> bool:
     return pwd_context.verify(plain, hashed)
 
 
-def create_token(subject: str, token_type: str, expires_delta: timedelta) -> str:
+def create_token(subject: str, token_type: str, expires_delta: timedelta,
+                 client_type: str = "admin") -> str:
     settings = get_settings()
     now = datetime.now(timezone.utc)
-    payload = {"sub": subject, "type": token_type, "exp": now + expires_delta, "iat": now}
+    payload = {
+        "sub": subject, "type": token_type,
+        "exp": now + expires_delta, "iat": now,
+        "client_type": client_type,  # 端标识：admin(管理端) / app(小程序)
+    }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
 
 
-def create_access_token(subject: str) -> str:
+def create_access_token(subject: str, client_type: str = "admin") -> str:
     s = get_settings()
-    return create_token(subject, "access", timedelta(minutes=s.ACCESS_TOKEN_EXPIRE_MINUTES))
+    return create_token(subject, "access", timedelta(minutes=s.ACCESS_TOKEN_EXPIRE_MINUTES),
+                        client_type=client_type)
 
 
-def create_refresh_token(subject: str) -> str:
+def create_refresh_token(subject: str, client_type: str = "admin") -> str:
     s = get_settings()
-    return create_token(subject, "refresh", timedelta(days=s.REFRESH_TOKEN_EXPIRE_DAYS))
+    return create_token(subject, "refresh", timedelta(days=s.REFRESH_TOKEN_EXPIRE_DAYS),
+                        client_type=client_type)
 
 
 def decode_token(token: str) -> dict[str, Any] | None:

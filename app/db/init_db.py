@@ -1,5 +1,4 @@
 """初始化：建表 + 种子数据（超管、根部门、基础菜单/字典）。"""
-from sqlalchemy import insert
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
@@ -8,8 +7,7 @@ from app.db.session import SessionLocal, engine
 from app.models.dept import Dept
 from app.models.dict_item import DictType
 from app.models.menu import Menu
-from app.models.role import Role
-from app.models.user import User, UserRole
+from app.models.user import User
 from app.db.seed_assessment import seed_assessment
 
 
@@ -135,27 +133,13 @@ def seed(db: Session) -> None:
         db.add(DictType(code="user_status", name="用户状态"))
         db.add(DictType(code="msg_type", name="消息类型"))
 
-    # 超管角色
-    role = db.query(Role).filter_by(code="admin").first()
-    if not role:
-        role = Role(code="admin", name="超级管理员")
-        db.add(role)
-        db.flush()
-
-    # 超管账号 admin/admin123
+    # 超管账号 admin/admin123：身份由 is_super=1 唯一决定（require_permission 短路、
+    # /menus/mine 全量下发），不需要、也不应挂任何"admin 角色"——角色表里没有超管角色，
+    # 避免超管角色被误分配/误编辑。仅首次建号；老库已有账号直接跳过。
     if not db.query(User).filter_by(username="admin").first():
         admin = User(username="admin", password=hash_password("admin123"),
                      nickname="超级管理员", is_super=1, dept_id=1, status=1)
         db.add(admin)
-        db.flush()
-        db.add(UserRole(user_id=admin.id, role_id=role.id))
-
-    # 给 super admin 角色挂所有菜单（INSERT IGNORE 幂等：多进程并发启动也不会重复主键报错）
-    for m in db.query(Menu).all():
-        from app.models.role import RoleMenu
-        db.execute(
-            insert(RoleMenu).prefix_with("IGNORE").values(role_id=role.id, menu_id=m.id)
-        )
 
     db.commit()
 

@@ -25,9 +25,20 @@ async def run(input_data: dict[str, Any]) -> dict[str, Any]:
         from app.services.training_agent import TrainingAgentService
 
         with SessionLocal() as db:
+            # 先预览选课（内部处理短板 + 岗位需求 → course_ids/position_tags/names）
+            preview = TrainingAgentService.preview(
+                db, talent_id=talent_id,
+                shortage_tags=shortcomings,
+                position_ids=position_ids,
+            )
+            # 再用预览结果落库生成计划 + 推送
             result = TrainingAgentService.generate_plan(
-                db, talent_id=talent_id, shortage_tags=shortcomings,
-                position_ids=position_ids)
+                db, talent_id=talent_id,
+                course_ids=preview["course_ids"],
+                shortage_tags=preview.get("shortage_tags") or None,
+                position_tags=preview.get("position_tags") or None,
+                position_names=[p["name"] for p in preview.get("positions", [])],
+            )
             db.commit()
             return {
                 "plan_id": result["plan_id"],

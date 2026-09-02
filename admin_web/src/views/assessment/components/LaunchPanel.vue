@@ -30,7 +30,7 @@ async function submit() {
   const started = form.started_at || new Date().toISOString().slice(0, 19)
   const deadline = form.deadline_at || new Date(Date.now() + paper.duration * 60000).toISOString().slice(0, 19)
   if (new Date(deadline) <= new Date(started)) return ElMessage.warning('截止时间必须晚于开始时间')
-  await launchAssessment({ paper_id: form.paper_id, talent_ids: form.talent_ids, started_at: started, deadline_at: deadline })
+  await launchAssessment({ paper_id: form.paper_id, talent_ids: form.talent_ids, batch_name: form.batch_name.trim() || null, started_at: started, deadline_at: deadline })
   ElMessage.success('测评已发起')
   Object.assign(form, { paper_id: null, talent_ids: [], batch_name: '', started_at: '', deadline_at: '' })
   await load()

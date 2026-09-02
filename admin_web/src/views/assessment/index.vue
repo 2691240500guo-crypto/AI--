@@ -45,10 +45,10 @@ onMounted(loadOverview)
 
     <el-card class="workspace" shadow="never">
       <el-tabs v-model="activeTab" class="assessment-tabs">
-        <el-tab-pane label="题库管理" name="banks"><QuestionBankPanel :key="`banks-${refreshKey}`" /></el-tab-pane>
-        <el-tab-pane label="组卷管理" name="papers"><PaperPanel :key="`papers-${refreshKey}`" /></el-tab-pane>
-        <el-tab-pane label="发起测评" name="launch"><LaunchPanel :key="`launch-${refreshKey}`" /></el-tab-pane>
-        <el-tab-pane label="成绩统计" name="results"><ResultsPanel :key="`results-${refreshKey}`" /></el-tab-pane>
+        <el-tab-pane label="题库管理" name="banks" lazy><QuestionBankPanel :key="`banks-${refreshKey}`" /></el-tab-pane>
+        <el-tab-pane label="组卷管理" name="papers" lazy><PaperPanel :key="`papers-${refreshKey}`" /></el-tab-pane>
+        <el-tab-pane label="发起测评" name="launch" lazy><LaunchPanel :key="`launch-${refreshKey}`" /></el-tab-pane>
+        <el-tab-pane label="成绩统计" name="results" lazy><ResultsPanel :key="`results-${refreshKey}`" /></el-tab-pane>
       </el-tabs>
     </el-card>
   </div>

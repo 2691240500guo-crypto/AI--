@@ -45,7 +45,7 @@ from app.schemas.assessment import (
     TrainingLinkOut,
 )
 from app.schemas.agent import AgentTaskOut
-from app.core.deps import get_current_user
+from app.core.deps import get_current_user, require_client
 from app.services.assessment_import_service import AssessmentImportService
 from app.services.assessment_service import AssessmentService
 from app.utils.pagination import paged_result
@@ -62,6 +62,25 @@ def _raise_business_error(exc: Exception) -> None:
     if isinstance(exc, PermissionError):
         raise HTTPException(403, str(exc))
     raise exc
+
+
+def _result_detail_outputs(result, details):
+    """把固化在试卷中的标准答案带到交卷结果，供学生复盘。"""
+    links = {link.question_id: link for link in result.paper.question_links}
+    return [ResultDetailOut(
+        id=item.id,
+        result_id=item.result_id,
+        question_id=item.question_id,
+        user_answer=item.user_answer,
+        is_correct=item.is_correct,
+        score=item.score,
+        correct_answer=links[item.question_id].answer_snapshot if item.question_id in links else None,
+        question_content=links[item.question_id].content_snapshot if item.question_id in links else None,
+        question_type=links[item.question_id].type_snapshot if item.question_id in links else None,
+        options=links[item.question_id].options_snapshot if item.question_id in links else None,
+        dimension=links[item.question_id].dimension_snapshot if item.question_id in links else None,
+        question_score=links[item.question_id].score_snapshot if item.question_id in links else None,
+    ) for item in details]
 
 
 @router.get("/banks", dependencies=[Depends(require_permission("assessment:list"))])
@@ -359,34 +378,74 @@ def launch_assessment(body: LaunchRequest, user: User = Depends(get_current_user
         _raise_business_error(exc)
 
 
-@router.get("/todo", dependencies=[Depends(get_current_user)])
-def list_todo(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+@router.get("/todo", dependencies=[Depends(require_client("app"))])
+def list_todo(user: User = Depends(require_client("app")), db: Session = Depends(get_db)):
     rows = AssessmentService.list_todo(db, user)
     return ok([AssessmentResultListOut(
         **AssessmentResultOut.model_validate(result).model_dump(),
         talent_name=user.nickname,
         paper_title=result.paper.title,
+        paper_total_score=result.paper.total_score,
+        question_count=len(result.paper.question_links),
     ) for result in rows])
 
 
-@router.get("/papers/{paper_id}/answer", dependencies=[Depends(get_current_user)])
-def answer_by_paper(paper_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+@router.get("/papers/{paper_id}/answer", dependencies=[Depends(require_client("app"))])
+def answer_by_paper(paper_id: int, user: User = Depends(require_client("app")), db: Session = Depends(get_db)):
     try:
         return ok(AnswerSnapshotOut.model_validate(AssessmentService.get_answer_by_paper(db, paper_id, user)))
     except Exception as exc:
         _raise_business_error(exc)
 
 
-@router.get("/result/{result_id}/answer", dependencies=[Depends(get_current_user)])
-def get_answer(result_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+@router.get("/my-results", dependencies=[Depends(get_current_user)])
+def list_my_results(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """用户端只读取自己的历史测评，避免暴露管理端成绩查询权限。"""
+    rows, _ = AssessmentService.list_results(
+        db, talent_id=user.id, paper_id=None, batch_id=None,
+        status=None, page=1, page_size=200,
+    )
+    return ok([AssessmentResultListOut(
+        **AssessmentResultOut.model_validate(result).model_dump(),
+        talent_name=talent_name,
+        paper_title=paper_title,
+        paper_total_score=result.paper.total_score,
+        question_count=len(result.paper.question_links),
+        batch_no=batch_no,
+        batch_name=batch_name,
+    ) for result, talent_name, paper_title, batch_no, batch_name in rows])
+
+
+@router.get("/my-result/{result_id}", dependencies=[Depends(get_current_user)])
+def get_my_result(result_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """用户端读取自己的成绩明细，供交卷后查看结果页。"""
+    try:
+        detail = AssessmentService.get_result_detail(db, result_id, user)
+        result = AssessmentResultListOut(
+            **AssessmentResultOut.model_validate(detail["result"]).model_dump(),
+            talent_name=detail["talent_name"],
+            paper_title=detail["paper_title"],
+            paper_total_score=detail["result"].paper.total_score,
+            question_count=len(detail["result"].paper.question_links),
+        )
+        return ok({
+            "result": result,
+            "details": _result_detail_outputs(detail["result"], detail["details"]),
+        })
+    except Exception as exc:
+        _raise_business_error(exc)
+
+
+@router.get("/result/{result_id}/answer", dependencies=[Depends(require_client("app"))])
+def get_answer(result_id: int, user: User = Depends(require_client("app")), db: Session = Depends(get_db)):
     try:
         return ok(AnswerSnapshotOut.model_validate(AssessmentService.get_answer_snapshot(db, result_id, user)))
     except Exception as exc:
         _raise_business_error(exc)
 
 
-@router.post("/result/{result_id}/answer", dependencies=[Depends(get_current_user)])
-def save_answer(result_id: int, body: AnswerSaveRequest, user: User = Depends(get_current_user),
+@router.post("/result/{result_id}/answer", dependencies=[Depends(require_client("app"))])
+def save_answer(result_id: int, body: AnswerSaveRequest, user: User = Depends(require_client("app")),
                 db: Session = Depends(get_db)):
     try:
         snapshot = AssessmentService.save_answers(db, result_id, body.answers, user)
@@ -397,8 +456,8 @@ def save_answer(result_id: int, body: AnswerSaveRequest, user: User = Depends(ge
         _raise_business_error(exc)
 
 
-@router.post("/result/{result_id}/events", dependencies=[Depends(get_current_user)])
-def record_event(result_id: int, body: AnswerEventCreate, user: User = Depends(get_current_user),
+@router.post("/result/{result_id}/events", dependencies=[Depends(require_client("app"))])
+def record_event(result_id: int, body: AnswerEventCreate, user: User = Depends(require_client("app")),
                  db: Session = Depends(get_db)):
     try:
         event = AssessmentService.record_answer_event(
@@ -411,9 +470,9 @@ def record_event(result_id: int, body: AnswerEventCreate, user: User = Depends(g
         _raise_business_error(exc)
 
 
-@router.post("/result/{result_id}/submit", dependencies=[Depends(get_current_user)])
+@router.post("/result/{result_id}/submit", dependencies=[Depends(require_client("app"))])
 def submit_result(result_id: int, body: AnswerSaveRequest | None = Body(default=None),
-                  user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+                  user: User = Depends(require_client("app")), db: Session = Depends(get_db)):
     try:
         result, details = AssessmentService.submit(
             db, result_id, body.answers if body else None, user
@@ -421,7 +480,7 @@ def submit_result(result_id: int, body: AnswerSaveRequest | None = Body(default=
         db.commit()
         return ok(SubmitOut(
             result=AssessmentResultOut.model_validate(result),
-            details=[ResultDetailOut.model_validate(detail) for detail in details],
+            details=_result_detail_outputs(result, details),
         ))
     except Exception as exc:
         db.rollback()
@@ -532,7 +591,7 @@ def get_result(result_id: int, db: Session = Depends(get_db)):
         )
         return ok({
             "result": result,
-            "details": [ResultDetailOut.model_validate(item) for item in detail["details"]],
+            "details": _result_detail_outputs(detail["result"], detail["details"]),
             "events": [AnswerEventOut.model_validate(item) for item in detail["events"]],
         })
     except Exception as exc:
@@ -562,8 +621,8 @@ def get_agent_task(task_id: int, user: User = Depends(get_current_user), db: Ses
         _raise_business_error(exc)
 
 
-@router.get("/result/{result_id}/report", dependencies=[Depends(get_current_user)])
-def get_report(result_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+@router.get("/result/{result_id}/report", dependencies=[Depends(require_client(["admin", "app"]))])
+def get_report(result_id: int, user: User = Depends(require_client(["admin", "app"])), db: Session = Depends(get_db)):
     try:
         report = AssessmentService.get_report(db, result_id, user)
         db.commit()
@@ -573,8 +632,8 @@ def get_report(result_id: int, user: User = Depends(get_current_user), db: Sessi
         _raise_business_error(exc)
 
 
-@router.post("/result/{result_id}/report", dependencies=[Depends(get_current_user)])
-def generate_report(result_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+@router.post("/result/{result_id}/report", dependencies=[Depends(require_client(["admin", "app"]))])
+def generate_report(result_id: int, user: User = Depends(require_client(["admin", "app"])), db: Session = Depends(get_db)):
     try:
         report = AssessmentService.get_report(db, result_id, user)
         db.commit()
@@ -584,8 +643,8 @@ def generate_report(result_id: int, user: User = Depends(get_current_user), db: 
         _raise_business_error(exc)
 
 
-@router.post("/result/{result_id}/link-training", dependencies=[Depends(get_current_user)])
-def link_training(result_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+@router.post("/result/{result_id}/link-training", dependencies=[Depends(require_client(["admin", "app"]))])
+def link_training(result_id: int, user: User = Depends(require_client(["admin", "app"])), db: Session = Depends(get_db)):
     try:
         link = AssessmentService.link_training(db, result_id, user)
         db.commit()
@@ -595,8 +654,8 @@ def link_training(result_id: int, user: User = Depends(get_current_user), db: Se
         _raise_business_error(exc)
 
 
-@router.get("/result/{result_id}/training-link", dependencies=[Depends(get_current_user)])
-def get_training_link(result_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+@router.get("/result/{result_id}/training-link", dependencies=[Depends(require_client(["admin", "app"]))])
+def get_training_link(result_id: int, user: User = Depends(require_client(["admin", "app"])), db: Session = Depends(get_db)):
     try:
         link = AssessmentService.get_training_link(db, result_id, user)
         return ok(TrainingLinkOut.model_validate(link))
@@ -604,8 +663,8 @@ def get_training_link(result_id: int, user: User = Depends(get_current_user), db
         _raise_business_error(exc)
 
 
-@router.post("/result/{result_id}/training-link/retry", dependencies=[Depends(get_current_user)])
-def retry_training_link(result_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+@router.post("/result/{result_id}/training-link/retry", dependencies=[Depends(require_client(["admin", "app"]))])
+def retry_training_link(result_id: int, user: User = Depends(require_client(["admin", "app"])), db: Session = Depends(get_db)):
     try:
         link = AssessmentService.retry_training_link(db, result_id, user)
         db.commit()
