@@ -73,7 +73,7 @@ class MatchAgent:
         if not parsed:
             parsed = cls._rule_based_parse(p)  # LLM 失败 → 规则化兜底
 
-        return {
+        result = {
             "position_id": p.id,
             "title": p.name,
             "code": p.code,
@@ -84,6 +84,13 @@ class MatchAgent:
             "quality_dimensions": parsed.get("quality_dimensions", []),
             "tags": parsed.get("tags", []),
         }
+        # 需求1：标签体系落库持久化，支持重查与追溯
+        try:
+            p.parsed_json = json.dumps(result, ensure_ascii=False)
+        except Exception:  # noqa: BLE001
+            p.parsed_json = None
+        db.commit()
+        return result
 
     @staticmethod
     def _extract_json(raw: str) -> dict[str, Any] | None:
@@ -173,26 +180,39 @@ class MatchAgent:
 
     @classmethod
     def _years_score(cls, talent_years: int, require_years: int) -> float:
-        """经验维度：达标 90，超出加分（封顶 100），不足按差额扣分，未知/无要求 75。"""
+        """经验维度：达标 90，超出加分（封顶 100），不足按差额 15/年 递减（最低 20）。
+
+        精度优化 2026-09-02：扣分斜率 10→15、下限 30→20，把"差一年"的人才明显刷低，
+        避免仅凭年限优势挤进前排。
+        """
         if not require_years:
             return 75.0
         if talent_years <= 0:
             return 65.0
         if talent_years >= require_years:
             return min(100.0, 90.0 + (talent_years - require_years) * 5)
-        return max(30.0, 90.0 - (require_years - talent_years) * 10)
+        return max(20.0, 90.0 - (require_years - talent_years) * 15)
 
     @classmethod
     def _skill_score(cls, talent_skills: list[str], skill_standards: list[str],
                      similarity: float) -> float:
-        """技能维度：向量相似度 ×0.6 + 技能标准命中率 ×0.4 → 0-100。"""
+        """技能维度：向量相似度×0.3 + 技能标准命中率×0.7 → 0-100。
+
+        精度优化 2026-09-02：
+        - 关键词命中权重提到 0.7，语义相似降到 0.3（压制"语义像但技能对不上"的假阳性）
+        - 零命中不再吃 30 分兜底，只保留 0.3×sim（≤30），与有命中明显拉开差距
+        """
         sim_score = min(100.0, similarity * 100)
         if not skill_standards:
             return round(sim_score, 2)
         low = [s.lower() for s in talent_skills]
-        hit = sum(1 for s in skill_standards if any(s.lower() in t or t in s.lower() for t in low))
-        hit_score = min(100.0, hit / len(skill_standards) * 100 + 40) if hit else 30.0
-        return round(sim_score * 0.6 + hit_score * 0.4, 2)
+        covered = [s for s in skill_standards if any(s.lower() in t or t in s.lower() for t in low)]
+        if not covered:
+            # 零命中：保留少量语义分即可，避免假阳性挤进 top_k
+            return round(sim_score * 0.3, 2)
+        coverage = len(covered) / len(skill_standards)
+        hit_score = min(100.0, 40.0 + coverage * 60.0)
+        return round(sim_score * 0.3 + hit_score * 0.7, 2)
 
     @classmethod
     def _quality_score(cls, similarity: float, talent_text: str) -> float:
@@ -284,6 +304,9 @@ class MatchAgent:
             talent_text = h.get("text", "")
             similarity = float(h.get("score", 0.0))
             meta = cls._parse_talent_meta(talent_text)
+            if meta["talent_id"] <= 0:
+                # 历史脏向量缺少【人才id】标记，无法关联人才 → 跳过（勿用 Milvus id 冒充人才 id）
+                continue
             ok_flag, reason = cls._hard_filter(meta, req)
             if not ok_flag:
                 continue
@@ -331,11 +354,15 @@ class MatchAgent:
                 m["years"] = m.get("years") or (info.get("years_experience") or 0)
 
         # 6. 落库 match_result（幂等，已推荐/录用不覆盖）
-        saved: list[dict[str, Any]] = []
-        for rank, m in enumerate(results, start=1):
+        # 先按 status!=0 过滤，再对可见列表连续编号 1..N，避免跳过造成的 rank=2/3 与"第一名"不一致
+        visible: list[dict[str, Any]] = []
+        for m in results:
             rec = MatchResultDAO.get_by_pair(db, m["talent_id"], m["position_id"])
             if rec and rec.status != 0:
                 continue  # 已推荐/录用结论保留
+            visible.append((m, rec))
+        saved: list[dict[str, Any]] = []
+        for rank, (m, rec) in enumerate(visible, start=1):
             if rec:
                 rec.score = m["score"]
                 rec.dimension_json = m["dimension_json"]
@@ -442,11 +469,15 @@ class MatchAgent:
         results = [r for r in results if r["score"] >= min_score][:top_k]
 
         # 落库 match_result（幂等，与 run_match 一致；已推荐/录用结论不覆盖）
-        saved: list[dict[str, Any]] = []
-        for rank, m in enumerate(results, start=1):
+        # 先过滤 status!=0，再连续编号 1..N（与 run_match 同修复，避免 rank 与显示不一致）
+        visible: list[tuple[dict[str, Any], Any]] = []
+        for m in results:
             rec = MatchResultDAO.get_by_pair(db, talent_id, m["position_id"])
             if rec and rec.status != 0:
-                continue  # 已推荐/录用结论保留
+                continue
+            visible.append((m, rec))
+        saved: list[dict[str, Any]] = []
+        for rank, (m, rec) in enumerate(visible, start=1):
             if rec:
                 rec.score = m["score"]
                 rec.dimension_json = m["dimension_json"]
@@ -464,6 +495,207 @@ class MatchAgent:
             saved.append(item)
         db.commit()
         return saved
+
+    # ==================== 自由文本需求 → 解析 + 匹配（小程序 Agent 契约） ====================
+
+    @classmethod
+    def _parse_query_text(cls, text: str) -> dict[str, Any]:
+        """解析自由文本招聘/匹配需求 → 需求标签（LLM 拆解 + 规则兜底）。
+
+        返回结构对齐小程序 Agent 页期望（miniapp agent.vue）：
+            {core_duties[], required_skills[], bonus_skills[], min_education, min_years, soft_quality[]}
+        """
+        prompt = (
+            "你是岗位分析师。请把用户的招聘/匹配需求文本拆解成结构化 JSON（纯 JSON，不要代码块）：\n"
+            '{"core_duties":["核心职责/定位，1-3条"],"required_skills":["必备技能"],'
+            '"bonus_skills":["加分技能"],"min_education":"本科|硕士|博士|大专|不限",'
+            '"min_years":经验年限数字,"soft_quality":["软性素质/综合要求"]}\n'
+            "信息不足的字段填空值：技能/职责/素质填空数组，学历填 不限，年限填 0。\n"
+            f"需求文本：{text}"
+        )
+        parsed: dict[str, Any] | None = None
+        try:
+            from app.utils.llm import get_llm
+
+            raw = get_llm().chat(prompt, system="只输出合法 JSON，不要解释文字。")
+            parsed = cls._extract_json(raw)
+        except Exception:  # noqa: BLE001
+            parsed = None
+
+        if not parsed:
+            parsed = cls._rule_parse_query_text(text)  # LLM 失败 → 规则兜底
+
+        min_education = parsed.get("min_education") or ""
+        if min_education in ("不限", "未知", "无"):
+            min_education = ""  # 空串=无学历门槛：过滤时放行、前端不显示"不限学历"
+
+        return {
+            "core_duties": parsed.get("core_duties") or [],
+            "required_skills": parsed.get("required_skills") or [],
+            "bonus_skills": parsed.get("bonus_skills") or [],
+            "min_education": min_education,
+            "min_years": int(parsed.get("min_years") or 0),
+            "soft_quality": parsed.get("soft_quality") or [],
+        }
+
+    @staticmethod
+    def _rule_parse_query_text(text: str) -> dict[str, Any]:
+        """规则化兜底：从需求文本抽取 学历/年限/技能 关键词。"""
+        msg = text or ""
+        years = 0
+        m = re.search(r"(\d+)\s*年", msg)
+        if m:
+            years = int(m.group(1))
+        degree = "不限"
+        for d in ("博士", "硕士", "本科", "大专"):
+            if d in msg:
+                degree = d
+                break
+        stop = {"一个", "招聘", "招一个", "找一个", "找", "以及", "或者", "优先", "经验", "学历",
+                "以上", "以下", "左右", "要求", "精通", "熟悉", "了解", "掌握", "会", "负责", "的",
+                "人才", "人员", "岗位", "职位", "类型", "不限", "年以上", "年左右", "以下经验",
+                "本科", "硕士", "博士", "大专", "年", "年经验"}
+        words = re.findall(r"[a-zA-Z][a-zA-Z0-9+#.-]{1,}|[\u4e00-\u9fa5]{2,6}", msg)
+        skills: list[str] = []
+        for w in words:
+            w = w.strip()
+            if w in stop or len(w) <= 1:
+                continue
+            # 去尾巴噪音：如 "后端经验" -> 后端、"算法工程师" 整词保留、去掉截断的残缺词
+            for suf in ("经验", "学历", "的人才", "年以上", "年左右", "工程师以上"):
+                if w.endswith(suf) and len(w) > len(suf):
+                    w = w[: -len(suf)]
+                    break
+            # "高级前端工程" 这类 findall 截断词（以"工程"结尾但原意是"工程师"）→ 保留"工程师"前缀部分
+            if w.endswith("工程") and len(w) >= 3:
+                w = w[:-2]
+            # 去掉“会/找/招/有/及/或/与”等介词残留
+            for pre in ("会", "招", "找", "及", "与"):
+                if w.startswith(pre) and len(w) > 1:
+                    w = w[len(pre):]
+                    break
+            if w and w not in stop and w not in skills:
+                skills.append(w)
+        return {
+            "core_duties": [msg[:60]] if msg.strip() else [],
+            "required_skills": skills[:10],
+            "bonus_skills": [],
+            "min_education": degree,
+            "min_years": years,
+            "soft_quality": [],
+        }
+
+    @classmethod
+    def query_match(cls, db: Session, query_text: str, *, top_k: int = 10,
+                    min_score: float = 0.0) -> dict[str, Any]:
+        """自由文本需求 → 需求标签 + 人才匹配（小程序 Agent 页调用）。
+
+        流程：query_text 解析为需求标签 → 需求文本向量检索 talent_vec →
+        硬过滤（学历/年限/技能）→ 软加权打分（skill/degree/years/quality）→ 排序返回（不落库）。
+        返回结构与 miniapp agent.vue 契约一致：
+            {query_requirement: {...标签}, results: [{talent_id, rank, score, dims, explain, ...}]}
+        """
+        text = (query_text or "").strip()
+        if not text:
+            raise BusinessError(400, "请输入招聘/匹配需求描述")
+
+        req = cls._parse_query_text(text)  # 需求标签（LLM 拆解 + 规则兜底）
+
+        from app.utils.llm import get_llm
+        from app.utils.vector_store import get_vector_store
+
+        try:
+            llm, vec = get_llm(), get_vector_store()
+        except Exception as e:  # noqa: BLE001
+            raise BusinessError(500, f"AI 底座不可用：{e}") from e
+        if not vec.has_collection(TALENT_VEC_COLLECTION):
+            raise BusinessError(400, "人才向量集合 talent_vec 未就绪，请先运行 scripts/vectorize_talents.py")
+
+        # 需求文本向量 → 检索人才
+        qvec = llm.embed(text)
+        hits = vec.search(TALENT_VEC_COLLECTION, qvec, top_k=top_k * 3)
+
+        # 组装硬过滤条件（与 run_match 相同的 req 结构）
+        filter_req = {
+            "degree_threshold": req["min_education"] or "不限",
+            "experience_threshold": {"years": req["min_years"], "text": f"{req['min_years']}年以上" if req["min_years"] else "不限"},
+            "skill_standards": req["required_skills"],
+            "mandatory_skills": None,
+        }
+
+        results: list[dict[str, Any]] = []
+        for h in hits:
+            talent_text = h.get("text", "")
+            similarity = float(h.get("score", 0.0))
+            meta = cls._parse_talent_meta(talent_text)
+            if meta["talent_id"] <= 0:
+                # 历史脏向量缺少【人才id】标记，无法关联人才 → 跳过
+                continue
+            ok_flag, _reason = cls._hard_filter(meta, filter_req)
+            if not ok_flag:
+                continue
+            skill = cls._skill_score(meta["skills"], req["required_skills"], similarity)
+            degree = cls._degree_score(meta.get("degree", ""), req["min_education"])
+            years = cls._years_score(meta.get("years", 0), req["min_years"])
+            quality = cls._quality_score(similarity, talent_text)
+            dims = {"skill": skill, "degree": degree, "years": years, "quality": quality}
+            total = round(min(100.0, sum(dims[k] * DEFAULT_RULE.get(k, 0) for k in dims)), 2)
+            results.append({
+                "talent_id": meta["talent_id"],
+                "score": total,
+                "dimension_json": json.dumps(dims, ensure_ascii=False),
+                "talent_text": talent_text,
+                "degree": meta.get("degree", ""),
+                "years": meta.get("years", 0),
+                "skills": meta.get("skills", []),
+            })
+
+        results.sort(key=lambda r: r["score"], reverse=True)
+        results = [r for r in results if r["score"] >= min_score][:top_k]
+
+        # 附加人才基础信息（T 域 tal_talent 只读复用）
+        if results:
+            tids = [r["talent_id"] for r in results]
+            from sqlalchemy import text as sa_text
+
+            rows = db.execute(
+                sa_text("SELECT id,name,avatar,current_title,current_company FROM tal_talent WHERE id IN :ids"),
+                {"ids": tuple(tids)},
+            ).mappings().all()
+            tinfo = {r["id"]: dict(r) for r in rows}
+            for m in results:
+                info = tinfo.get(m["talent_id"], {})
+                m["talent_name"] = info.get("name") or f"人才{m['talent_id']}"
+                m["avatar"] = info.get("avatar")
+                m["current_title"] = info.get("current_title")
+                m["current_company"] = info.get("current_company")
+            # dims 对象化（小程序模板直接遍历）
+            for m in results:
+                dims = json.loads(m.pop("dimension_json") or "{}")
+                m["dims"] = {k: float(dims.get(k, 0)) for k in dims}
+                m.pop("talent_text", None)
+                m["explain"] = cls._rule_explain(dims)  # 规则化解释（不调 LLM，保证小程序快速返回）
+
+        # 排序名次
+        for rank, m in enumerate(results, start=1):
+            m["rank"] = rank
+
+        return {"query_requirement": req, "total": len(results), "results": results}
+
+    @staticmethod
+    def _rule_explain(dims: dict) -> str:
+        """按四维得分生成简短的规则化匹配解释（优势/短板）。"""
+        labels = {"skill": "技能", "degree": "学历", "years": "经验", "quality": "综合素质"}
+        items = [(labels.get(k, k), float(v)) for k, v in (dims or {}).items()]
+        if not items:
+            return ""
+        items.sort(key=lambda kv: kv[1], reverse=True)
+        best = items[0]
+        worst = items[-1] if len(items) > 1 else None
+        parts = [f"{best[0]}匹配最佳（{best[1]:.0f} 分）"]
+        if worst and worst[1] < 70 and worst is not best:
+            parts.append(f"{worst[0]}稍弱（{worst[1]:.0f} 分）")
+        return "，".join(parts) + "。"
 
     # ==================== 自然语言操作（NL → 意图 → 执行 → 回复） ====================
 
@@ -609,7 +841,6 @@ class MatchAgent:
             pass
         return cls._rule_based_nlp(message)
 
-    @classmethod
     @classmethod
     def _rule_based_nlp(cls, message: str) -> dict[str, Any]:
         """规则化兜底意图判断（LLM 不可用时）。"""

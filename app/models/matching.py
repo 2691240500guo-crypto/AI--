@@ -44,6 +44,9 @@ class PosPosition(Base):
     description: Mapped[str | None] = mapped_column(
         Text, default=None
     )  # 岗位说明书（画像化输入源）
+    parsed_json: Mapped[str | None] = mapped_column(
+        Text, default=None
+    )  # 岗位智能解析结果 JSON（需求1 标签体系持久化）
     created_at: Mapped[datetime] = mapped_column(default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(
         default=datetime.now, onupdate=datetime.now
@@ -84,6 +87,10 @@ class MatchResult(Base):
     )  # 解释依据（Agent③ 生成）
     rank: Mapped[int | None] = mapped_column(default=None)  # 排序名次
     status: Mapped[int] = mapped_column(default=0)  # 0候选 1推荐 2录用
+    warm_level: Mapped[int] = mapped_column(default=0)  # 储备保温等级 0无 1低 2中 3高（需求4）
+    last_follow_up: Mapped[datetime | None] = mapped_column(
+        default=None
+    )  # 最近跟进时间（保温管理，需求4）
     created_at: Mapped[datetime] = mapped_column(default=datetime.now)
 
 

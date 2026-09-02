@@ -40,6 +40,7 @@ class PositionOut(ORMModel):
     filled: int
     status: int
     description: str | None
+    parsed_json: str | None
     created_at: datetime
     updated_at: datetime
 
@@ -81,6 +82,8 @@ class MatchResultOut(ORMModel):
     explain: str | None
     rank: int | None
     status: int
+    warm_level: int
+    last_follow_up: datetime | None
     created_at: datetime
 
 
@@ -131,6 +134,37 @@ class AgentChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=500, description="自然语言指令")
 
 
+class AgentMatchRequest(BaseModel):
+    """（小程序/移动端）自由文本岗位需求 → AI 拆解 + 人才匹配。
+
+    小程序 Agent 页契约：输入招聘/匹配需求描述（如"找一个 3 年以上 Python 后端经验、本科的人才"），
+    后端拆解为 query_requirement 标签，并对人才向量库做召回、硬过滤、软加权打分。
+    """
+    query_text: str = Field(..., min_length=1, max_length=500, description="自然语言招聘/匹配需求描述")
+    top_k: int = Field(10, ge=1, le=100, description="返回候选人才数")
+    min_score: float = Field(0.0, ge=0, le=100, description="最低匹配分过滤")
+
+
 class ResultStatusRequest(BaseModel):
     """匹配结果状态更新（0候选 1推荐 2录用）。"""
     status: int = Field(..., ge=0, le=2, description="0候选 1推荐 2录用")
+
+
+class WarmRequest(BaseModel):
+    """储备人才保温更新（需求4）。"""
+    warm_level: int = Field(..., ge=0, le=3, description="保温等级 0无 1低 2中 3高")
+
+
+class WarmBatchRequest(BaseModel):
+    """批量保温（需求4）：一次把多条匹配结果统一设为指定保温等级。"""
+    match_ids: list[int] = Field(..., min_length=1, max_length=200, description="匹配结果ID列表")
+    warm_level: int = Field(..., ge=0, le=3, description="保温等级 0无 1低 2中 3高")
+
+
+class EvalRequest(BaseModel):
+    """匹配精度评估请求（需求2）。"""
+    position_id: int | None = Field(None, description="限定岗位；为空评估全部")
+    top_k: int = Field(3, ge=1, le=50, description="每岗作为「推」的 TopK 候选（与 HR 实际选人范围一致）")
+    reference: list[dict[str, Any]] | None = Field(
+        None, description="人工标注真值 [{position_id, talent_id, is_match}]；缺省用 top1 命中自检"
+    )

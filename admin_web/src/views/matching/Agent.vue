@@ -89,27 +89,53 @@
               </el-card>
 
               <el-card v-if="m.results && m.results.length && !m.chartType" shadow="never" class="section-card">
-                <template #header><span>🏆 候选人才（按匹配度排序）</span></template>
-                <div v-for="r in m.results" :key="r.talent_id" class="cand-row">
-                  <div class="cand-left">
-                    <el-tag :type="r.rank <= 3 ? 'danger' : 'info'" effect="dark" round size="small" class="cand-rank">{{ r.rank }}</el-tag>
-                    <el-avatar :size="34" :src="r.avatar || ''" class="cand-avatar">{{ (r.talent_name || '人').slice(0, 1) }}</el-avatar>
-                    <div class="cand-id">
-                      <div class="cand-name">{{ r.talent_name || `人才${r.talent_id}` }}<span class="cand-tag">#{{ r.talent_id }}</span></div>
-                      <div class="cand-meta">{{ r.current_title || '暂无职位' }} · {{ r.degree || '学历未知' }} · {{ r.years || 0 }}年经验</div>
+                <template #header><span>🏆 候选人才（按匹配度排序，点击「匹配依据」看为什么）</span></template>
+                <div v-for="r in m.results" :key="r.talent_id" class="cand-wrap">
+                  <div class="cand-row">
+                    <div class="cand-left" @click="toggleDetail(m, r)">
+                      <el-tag :type="r.rank <= 3 ? 'danger' : 'info'" effect="dark" round size="small" class="cand-rank">{{ r.rank }}</el-tag>
+                      <el-avatar :size="34" :src="r.avatar || ''" class="cand-avatar">{{ (r.talent_name || '人').slice(0, 1) }}</el-avatar>
+                      <div class="cand-id">
+                        <div class="cand-name">{{ r.talent_name || `人才${r.talent_id}` }}<span class="cand-tag">#{{ r.talent_id }}</span></div>
+                        <div class="cand-meta">{{ r.current_title || '暂无职位' }} · {{ r.degree || '学历未知' }} · {{ r.years || 0 }}年经验</div>
+                      </div>
+                    </div>
+                    <div class="cand-right">
+                      <div class="cand-score">
+                        <el-progress :percentage="Number(r.score)" :color="scoreColor(r.score)" :stroke-width="9" class="cand-bar" />
+                        <b class="cand-num">{{ r.score }}</b>
+                      </div>
+                      <div class="cand-opts">
+                        <el-button link type="primary" size="small" @click.stop="toggleDetail(m, r)">
+                          {{ isActiveDetail(m, r) ? '收起依据 ▲' : '匹配依据 ▼' }}
+                        </el-button>
+                        <el-button v-if="r.match_id && !isActiveDetail(m, r)" link type="info" size="small" @click.stop="loadExplain(m, r)">
+                          💬 生成解释
+                        </el-button>
+                      </div>
                     </div>
                   </div>
-                  <div class="cand-right">
-                    <div class="cand-score">
-                      <el-progress :percentage="Number(r.score)" :color="scoreColor(r.score)" :stroke-width="9" class="cand-bar" />
-                      <b class="cand-num">{{ r.score }}</b>
+
+                  <!-- 匹配依据详情：雷达图 + 四维得分条 + LLM 自然语言解释 -->
+                  <div v-if="isActiveDetail(m, r)" class="cand-detail">
+                    <div class="detail-grid">
+                      <div :data-radar-key="detailKey(m, r)" class="radar-box" />
+                      <div class="detail-dims">
+                        <div v-for="(v, k) in parseDims(r.dimension_json)" :key="k" class="detail-bar">
+                          <span class="detail-dl">{{ DIM_LABEL[k] || k }}</span>
+                          <el-progress :percentage="Number(v)" :stroke-width="10" :color="barColor(Number(v))" class="detail-prog" />
+                          <b class="detail-dv">{{ v }}</b>
+                        </div>
+                      </div>
                     </div>
-                    <div class="cand-dims">
-                      <span v-for="(v, k) in parseDims(r.dimension_json)" :key="k" class="dim-chip">
-                        {{ DIM_LABEL[k] }}<b>{{ v }}</b>
-                      </span>
+                    <div class="detail-explain">
+                      <div class="detail-ex-head">
+                        <b>💬 匹配原因（LLM 生成）</b>
+                        <el-button v-if="r.match_id && !detailLoading" link type="primary" size="small" @click="loadExplain(m, r, true)">重新生成</el-button>
+                      </div>
+                      <div v-if="detailLoading" class="detail-ex-loading">AI 正在分析匹配原因…</div>
+                      <div v-else class="detail-ex-text">{{ detailExplain || r.explain || '暂无解释，可点击「重新生成」让 AI 分析。' }}</div>
                     </div>
-                    <div v-if="r.explain" class="cand-explain">💬 {{ r.explain }}</div>
                   </div>
                 </div>
               </el-card>
@@ -130,6 +156,11 @@
                           {{ DIM_LABEL[k] }}<b>{{ v }}</b>
                         </span>
                       </div>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="匹配依据" width="120" fixed="right">
+                    <template #default="{ row }">
+                      <el-button link type="primary" @click="openReverseReason(row)">查看</el-button>
                     </template>
                   </el-table-column>
                 </el-table>
@@ -181,6 +212,37 @@
         </div>
       </div>
     </main>
+
+    <!-- 反向匹配：岗位匹配依据弹窗（雷达 + 维度得分 + LLM 解释） -->
+    <el-dialog v-model="reverseReason.visible" title="岗位匹配依据" width="560px" @opened="renderReverseReason" @closed="disposeReverseRadar">
+      <div v-if="reverseReason.row">
+        <div class="rr-top">
+          <span class="rr-title">{{ reverseReason.row.position_name }}</span>
+          <el-tag :type="Number(reverseReason.row.score) >= 80 ? 'success' : Number(reverseReason.row.score) >= 60 ? 'warning' : 'danger'">
+            匹配度 {{ reverseReason.row.score }} 分
+          </el-tag>
+        </div>
+        <div class="rr-grid">
+          <div ref="reverseRadarEl" class="radar-box" />
+          <div class="detail-dims">
+            <div v-for="(v, k) in parseDims(reverseReason.row.dimension_json)" :key="k" class="detail-bar">
+              <span class="detail-dl">{{ DIM_LABEL[k] || k }}</span>
+              <el-progress :percentage="Number(v)" :stroke-width="10" :color="barColor(Number(v))" class="detail-prog" />
+              <b class="detail-dv">{{ v }}</b>
+            </div>
+          </div>
+        </div>
+        <div class="detail-explain">
+          <div class="detail-ex-head">
+            <b>💬 匹配原因（LLM 生成）</b>
+            <el-button v-if="reverseReason.row.match_id" link type="primary" size="small"
+              :loading="reverseReason.loading" @click="loadReverseReasonExplain(true)">重新生成</el-button>
+          </div>
+          <div v-if="reverseReason.loading" class="detail-ex-loading">AI 正在分析匹配原因…</div>
+          <div v-else class="detail-ex-text">{{ reverseReason.explain || reverseReason.row.explain || '暂无解释，可点击「重新生成」让 AI 分析。' }}</div>
+        </div>
+      </div>
+    </el-dialog>
   </div>
 </template>
 
@@ -191,7 +253,7 @@ import {
   Aim, ChatLineRound, Document, MagicStick, Promotion, TrendCharts,
 } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
-import { agentChat } from '@/api/matching'
+import { agentChat, getExplain } from '@/api/matching'
 
 const DIM_LABEL = { skill: '技能', degree: '学历', years: '经验', quality: '综合素质' }
 const CHART_LABEL = { bar: '柱状图', line: '折线图', pie: '饼图' }
@@ -287,6 +349,7 @@ function persistCurrentConv() {
 
 function openConv(id) {
   if (activeConvId.value) persistCurrentConv()
+  clearDetail()
   const c = conversations.value.find((x) => x.id === id)
   if (!c) return
   activeConvId.value = id
@@ -333,6 +396,7 @@ function fillNlp(text) {
 async function handleChat() {
   const msg = nlpInput.value.trim()
   if (!msg) return ElMessage.warning('请输入指令')
+  clearDetail()   // 发送新指令前收起旧的展开详情/弹窗
 
   if (!activeConvId.value) {
     const id = `c_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
@@ -397,6 +461,161 @@ function scoreColor(s) {
   if (n >= 60) return '#e6a23c'
   return '#f56c6c'
 }
+function barColor(s) {
+  const n = Number(s)
+  return n >= 80 ? '#3b6d11' : n >= 60 ? '#ba7517' : '#a32d2d'
+}
+
+// ===== 匹配依据详情（为什么 86 分：雷达图 + 四维得分条 + LLM 解释） =====
+const activeDetailKey = ref('')       // `${msgId}:${talentId}` 当前展开的候选
+const detailExplain = ref('')         // 当前展开候选的解释（独立于 r.explain 便于按需生成）
+const detailLoading = ref(false)
+let radarInstances = new Map()
+
+function detailKey(m, r) { return `${m.id}:${r.talent_id}` }
+function isActiveDetail(m, r) { return activeDetailKey.value === detailKey(m, r) }
+
+async function toggleDetail(m, r) {
+  const key = detailKey(m, r)
+  if (activeDetailKey.value === key) {           // 再次点击收起
+    activeDetailKey.value = ''
+    disposeRadar(key)
+    return
+  }
+  activeDetailKey.value = key
+  detailExplain.value = r.explain || ''
+  await nextTick()
+  renderRadar(m, r)
+  // 已有解释直接展示；没有则自动生成一次（match_id 存在时）
+  if (!detailExplain.value && r.match_id && !detailLoading.value) {
+    loadExplain(m, r)
+  }
+}
+
+function renderRadar(m, r) {
+  const key = detailKey(m, r)
+  const el = document.querySelector(`[data-radar-key="${key}"]`)
+  if (!el) return
+  disposeRadar(key)
+  const dims = parseDims(r.dimension_json) || {}
+  const chart = echarts.init(el)
+  radarInstances.set(key, chart)
+  chart.setOption({
+    tooltip: {},
+    legend: { show: false },
+    radar: {
+      indicator: [
+        { name: '技能', max: 100 }, { name: '学历', max: 100 },
+        { name: '经验', max: 100 }, { name: '综合素质', max: 100 },
+      ],
+      radius: '70%',
+      splitArea: { areaStyle: { color: ['rgba(64,158,255,0.03)', 'rgba(64,158,255,0.06)'] } },
+    },
+    series: [{
+      type: 'radar',
+      symbolSize: 5,
+      data: [{
+        value: [Number(dims.skill || 0), Number(dims.degree || 0), Number(dims.years || 0), Number(dims.quality || 0)],
+        name: '匹配维度',
+        areaStyle: { color: 'rgba(64,158,255,0.25)' },
+        lineStyle: { color: '#409eff', width: 2 },
+        itemStyle: { color: '#409eff' },
+      }],
+    }],
+  }, true)
+  chart.resize()
+}
+
+function disposeRadar(key) {
+  const chart = radarInstances.get(key)
+  if (chart) { try { chart.dispose() } catch { /* noop */ } radarInstances.delete(key) }
+}
+
+async function loadExplain(m, r, force) {
+  if (!r.match_id) {
+    ElMessage.warning('该候选暂无可生成的匹配记录')
+    return
+  }
+  detailLoading.value = true
+  try {
+    const res = await getExplain(r.match_id, force)
+    const explain = res.data?.explain || ''
+    detailExplain.value = explain
+    r.explain = explain          // 回写，避免重复请求
+  } catch { /* 拦截器已提示 */ } finally {
+    detailLoading.value = false
+  }
+}
+
+// 切换消息/收起时清空详情面板
+function clearDetail() {
+  radarInstances.forEach((_, key) => disposeRadar(key))
+  activeDetailKey.value = ''
+  detailExplain.value = ''
+  if (reverseReason.value?.visible) reverseReason.value.visible = false
+  disposeReverseRadar()
+}
+
+// ===== 反向匹配（人才→岗位）：匹配依据弹窗 =====
+const reverseReason = ref({ visible: false, row: null, explain: '', loading: false })
+const reverseRadarEl = ref(null)
+let reverseRadarChart = null
+
+function openReverseReason(row) {
+  reverseReason.value = { visible: true, row, explain: row.explain || '', loading: false }
+}
+
+async function renderReverseReason() {
+  disposeReverseRadar()
+  const row = reverseReason.value.row
+  if (!row || !reverseRadarEl.value) return
+  const dims = parseDims(row.dimension_json) || {}
+  reverseRadarChart = echarts.init(reverseRadarEl.value)
+  reverseRadarChart.setOption({
+    tooltip: {},
+    radar: {
+      indicator: [
+        { name: '技能', max: 100 }, { name: '学历', max: 100 },
+        { name: '经验', max: 100 }, { name: '综合素质', max: 100 },
+      ],
+      radius: '70%',
+      splitArea: { areaStyle: { color: ['rgba(64,158,255,0.03)', 'rgba(64,158,255,0.06)'] } },
+    },
+    series: [{
+      type: 'radar',
+      symbolSize: 5,
+      data: [{
+        value: [Number(dims.skill || 0), Number(dims.degree || 0), Number(dims.years || 0), Number(dims.quality || 0)],
+        name: '匹配维度',
+        areaStyle: { color: 'rgba(64,158,255,0.25)' },
+        lineStyle: { color: '#409eff', width: 2 },
+        itemStyle: { color: '#409eff' },
+      }],
+    }],
+  }, true)
+  reverseRadarChart.resize()
+}
+
+function disposeReverseRadar() {
+  if (reverseRadarChart) { try { reverseRadarChart.dispose() } catch { /* noop */ } reverseRadarChart = null }
+}
+
+async function loadReverseReasonExplain(force) {
+  const row = reverseReason.value.row
+  if (!row?.match_id) {
+    ElMessage.warning('该记录暂无可生成的匹配解释')
+    return
+  }
+  reverseReason.value.loading = true
+  try {
+    const res = await getExplain(row.match_id, force)
+    const explain = res.data?.explain || ''
+    reverseReason.value.explain = explain
+    row.explain = explain
+  } catch { /* 拦截器已提示 */ } finally {
+    reverseReason.value.loading = false
+  }
+}
 
 // ===== 图表渲染 =====
 function renderChart(m) {
@@ -444,8 +663,8 @@ function setPieOption(chart, list) {
   }, true)
 }
 
-function resizeAll() { chartInstances.forEach((c) => c.resize()) }
-function disposeCharts() { chartInstances.forEach((c) => { try { c.dispose() } catch { /* noop */ } }); chartInstances.clear() }
+function resizeAll() { chartInstances.forEach((c) => c.resize()); radarInstances.forEach((c) => c.resize()) }
+function disposeCharts() { chartInstances.forEach((c) => { try { c.dispose() } catch { /* noop */ } }); chartInstances.clear(); clearDetail() }
 onMounted(() => window.addEventListener('resize', resizeAll))
 onBeforeUnmount(() => { window.removeEventListener('resize', resizeAll); disposeCharts() })
 </script>
@@ -603,10 +822,11 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resizeAll); dispose
 .tag { margin: 0 4px 4px 0; }
 
 /* ===== 候选列表 ===== */
-.cand-row { display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-bottom: 1px solid #f0f2f5; }
-.cand-row:last-child { border-bottom: none; }
+.cand-wrap { border-bottom: 1px solid #f0f2f5; }
+.cand-wrap:last-child { border-bottom: none; }
+.cand-row { display: flex; align-items: center; gap: 12px; padding: 10px 4px; }
 .cand-row:hover { background: #fafbfc; border-radius: 8px; }
-.cand-left { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+.cand-left { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; cursor: pointer; }
 .cand-rank { flex-shrink: 0; }
 .cand-avatar { background: #409eff; color: #fff; font-weight: 600; flex-shrink: 0; }
 .cand-name { font-weight: 600; color: #1f2328; }
@@ -616,6 +836,7 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resizeAll); dispose
 .cand-score { display: flex; align-items: center; gap: 8px; }
 .cand-bar { flex: 1; }
 .cand-num { font-size: 15px; font-weight: 700; color: #409eff; }
+.cand-opts { display: flex; align-items: center; justify-content: flex-end; gap: 2px; margin-top: 4px; }
 .cand-dims { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
 .dim-chip {
   font-size: 11px; color: #606266; background: #f5f7fa;
@@ -628,6 +849,28 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resizeAll); dispose
   padding: 8px 10px; line-height: 1.6;
 }
 .dims { display: flex; gap: 6px; flex-wrap: wrap; }
+
+/* ===== 匹配依据详情（为什么 86 分） ===== */
+.cand-detail {
+  margin: 2px 6px 12px;
+  background: #fafbfc; border: 1px solid #eef1f5; border-radius: 10px;
+  padding: 12px 14px;
+}
+.detail-grid { display: flex; gap: 18px; align-items: center; }
+.radar-box { width: 220px; height: 200px; flex-shrink: 0; }
+.detail-dims { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 10px; }
+.detail-bar { display: flex; align-items: center; gap: 8px; }
+.detail-dl { width: 70px; flex-shrink: 0; color: #606266; font-size: 12px; text-align: right; }
+.detail-prog { flex: 1; }
+.detail-dv { width: 34px; text-align: right; color: #1f2328; font-size: 13px; font-weight: 500; }
+.detail-explain { margin-top: 12px; border-top: 1px dashed #e0e4ea; padding-top: 10px; }
+.detail-ex-head { display: flex; align-items: center; justify-content: space-between; font-size: 12px; color: #303133; margin-bottom: 6px; }
+.detail-ex-text {
+  font-size: 13px; line-height: 1.7; color: #303133; background: #fff;
+  border: 1px solid #eef1f5; border-radius: 8px; padding: 10px 12px;
+  white-space: pre-wrap;
+}
+.detail-ex-loading { font-size: 13px; color: #8b949e; font-style: italic; padding: 8px 2px; }
 
 /* ===== 图表 ===== */
 .charts-card { background: #fafbfc; }
