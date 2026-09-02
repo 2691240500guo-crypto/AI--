@@ -23,6 +23,18 @@ export const getReport = (rid) => req({ url: `/assessment/result/${rid}/report` 
 
 // 人才档案
 export const getTalent = (id) => req({ url: `/talent/${id}` })
+export const getMyTalentProfile = () => req({ url: '/talent/me' })
+export const getCurrentUser = () => req({ url: '/auth/me' })
+
+// 消息中心（J06，对接 P1 msg_center，不接审计日志）
+export const listMessages = (query = {}) => req({
+  url: '/messages',
+  data: { page: 1, page_size: 20, ...query }
+})
+export const getUnreadCount = () => req({ url: '/messages/unread-count' })
+export const markMessageRead = (id) => req({ url: `/messages/${id}/read`, method: 'POST' })
+export const markAllMessagesRead = () => req({ url: '/messages/read-all', method: 'POST' })
+export const getMessageDetail = (id) => req({ url: `/messages/${id}` })
 
 // 学习计划
 export const listMyPlans = (talentId = currentTalentId()) => req({
@@ -47,3 +59,12 @@ export const updateLearningProgress = (planId, payload) => req({
 
 // NL2SQL 问数
 export const askNL2SQL = (question) => req({ url: `/analytics/nl2sql`, method: 'POST', data: { question } })
+export const askAiAssistant = (message, chartType = 'bar') => req({
+  url: '/ai/chat',
+  method: 'POST',
+  data: { message, chart_type: chartType }
+})
+export const listAiConversations = (query = {}) => req({
+  url: '/ai/conversations',
+  data: { page: 1, page_size: 20, ...query }
+})
