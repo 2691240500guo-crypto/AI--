@@ -7,16 +7,11 @@
         <!-- 空状态 -->
         <div v-if="!messages.length" class="chat-empty">
           <div class="hero-badge">
-            <div class="hero-badge-ring"></div>
-            <div class="hero-badge-orb"></div>
             <div class="hero-badge-inner">
-              <el-icon :size="46" color="#fff"><MagicStick /></el-icon>
+              <el-icon :size="34" color="#fff"><MagicStick /></el-icon>
             </div>
           </div>
-          <div class="hero-tag">
-            <span class="hero-tag-dot"></span>
-            AI Agent · 智能匹配引擎
-          </div>
+          <div class="hero-tag">AI Agent</div>
           <h1 class="hero-title">岗位人才匹配Agent</h1>
           <p class="hero-subtitle">岗位需求解析 · 双向智能匹配 · 适配度打分 · 原因解释 · 可视化展示</p>
 
@@ -488,72 +483,59 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resizeAll); dispose
 /* ===== 空状态 ===== */
 .chat-empty { text-align: center; padding: 56px 0 40px; }
 
-/* 顶部徽章：蓝色球体 + 多层柔和光晕（参考图为纯净蓝球） */
+/* ===== 顶部徽章：深空质感球（高端简洁风） ===== */
 .hero-badge {
   position: relative;
-  width: 110px; height: 110px;
-  margin: 0 auto 22px;
+  width: 88px; height: 88px;
+  margin: 0 auto 20px;
   display: flex; align-items: center; justify-content: center;
 }
-/* 外层柔和光晕（向四周扩散） */
+/* 极淡外晕（克制的氛围光） */
 .hero-badge::before {
   content: '';
   position: absolute;
-  width: 220px; height: 220px;
+  width: 150px; height: 150px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(59, 130, 246, 0.35) 0%, rgba(59, 130, 246, 0.12) 40%, transparent 70%);
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.16) 0%, rgba(59, 130, 246, 0.05) 45%, transparent 70%);
   z-index: 0;
   pointer-events: none;
 }
 .hero-badge-inner {
   position: relative; z-index: 1;
-  width: 96px; height: 96px;
+  width: 72px; height: 72px;
   border-radius: 50%;
   background:
-    radial-gradient(circle at 32% 28%, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0) 45%),
-    radial-gradient(circle at 65% 75%, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0) 50%),
-    linear-gradient(160deg, #60a5fa 0%, #3b82f6 55%, #2563eb 100%);
+    radial-gradient(circle at 32% 26%, rgba(255,255,255,0.32) 0%, rgba(255,255,255,0) 42%),
+    linear-gradient(150deg, #3b4a63 0%, #1c2536 55%, #0f1626 100%);
   display: flex; align-items: center; justify-content: center;
   box-shadow:
-    0 12px 28px rgba(37, 99, 235, 0.35),
-    0 0 50px rgba(59, 130, 246, 0.45),
-    inset 0 -8px 18px rgba(29, 78, 216, 0.4),
-    inset 0 3px 6px rgba(255, 255, 255, 0.35);
+    0 10px 24px rgba(15, 23, 42, 0.28),
+    inset 0 1px 2px rgba(255, 255, 255, 0.18),
+    inset 0 -6px 12px rgba(0, 0, 0, 0.35);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
-/* AI Agent 标签（蓝色调统一） */
+/* AI Agent 标签：极简细边框 */
 .hero-tag {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 6px 14px; border-radius: 999px;
-  background: linear-gradient(90deg, #eff6ff 0%, #e0e7ff 100%);
-  border: 1px solid #c7d2fe;
-  color: #2563eb;
-  font-size: 12px; font-weight: 600;
-  letter-spacing: 0.4px;
-  margin-bottom: 14px;
-}
-.hero-tag-dot {
-  width: 6px; height: 6px; border-radius: 50%;
-  background: #3b82f6;
-  box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.6);
-  animation: hero-pulse 2s ease-out infinite;
-}
-@keyframes hero-pulse {
-  0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.6); }
-  100% { box-shadow: 0 0 0 8px rgba(59, 130, 246, 0); }
+  display: inline-block;
+  padding: 5px 12px; border-radius: 999px;
+  background: transparent;
+  border: 1px solid #d9dee5;
+  color: #5f6b7a;
+  font-size: 11px; font-weight: 500;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  margin-bottom: 16px;
 }
 
-/* 标题渐变：纯净蓝紫过渡（去黑色，更纯净） */
+/* 标题：深色 + 大留白（高端简洁核心） */
 .hero-title {
-  font-size: 28px; font-weight: 700;
-  margin: 0 0 8px;
-  background: linear-gradient(135deg, #1e40af 0%, #3b82f6 50%, #6366f1 100%);
-  -webkit-background-clip: text;
-  background-clip: text;
-  -webkit-text-fill-color: transparent;
-  letter-spacing: 0.5px;
+  font-size: 27px; font-weight: 600;
+  margin: 0 0 10px;
+  color: #101828;
+  letter-spacing: 1px;
 }
-.hero-subtitle { font-size: 13px; color: #6e7681; margin: 0 0 24px; line-height: 1.6; }
+.hero-subtitle { font-size: 13px; color: #98a2b3; margin: 0 0 32px; line-height: 1.7; letter-spacing: 0.3px; }
 .hint-block { margin-top: 28px; text-align: left; }
 .hint-label { font-size: 12px; font-weight: 600; color: #6e7681; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
 .cap-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
