@@ -16,11 +16,7 @@ const routes = [
       { path: 'system', redirect: '/system/user' },
       { path: 'assessment', redirect: '/assessment/overview' },
       { path: 'training', redirect: '/training/plan' },
-      // 岗位匹配域（M 域）静态路由：sys_menu 未种子 matching 菜单项前，用静态路由保证页面可直接访问
-      // meta.static=true 保护：registerDynamicRoutes 清理旧动态路由时跳过，避免登录后被 removeRoute 导致 404
-      { path: 'matching/position', name: 'matching-position', component: () => import('@/views/matching/Position.vue'), meta: { title: '岗位管理', static: true } },
-      { path: 'matching/result', name: 'matching-result', component: () => import('@/views/matching/Result.vue'), meta: { title: '匹配结果', static: true } },
-      { path: 'matching/agent', name: 'matching-agent', component: () => import('@/views/matching/Agent.vue'), meta: { title: '岗位人才匹配Agent', static: true } },
+      // 岗位匹配域（M 域）：菜单已种子到 sys_menu（2026-09-02），由 registerDynamicRoutes 按权限动态注册，不再硬编码
       // 人才档案域（T 域，hy 分支合并）：详情/新增/编辑/简历解析/治理/RAG 静态路由
       { path: 'talent/detail/:id', name: 'talent-detail', component: () => import('@/views/talent/detail.vue'), meta: { title: '人才档案详情', static: true } },
       { path: 'talent/new', name: 'talent-new', component: () => import('@/views/talent/edit.vue'), meta: { title: '新增人才档案', static: true } },
