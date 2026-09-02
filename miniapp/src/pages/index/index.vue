@@ -37,14 +37,14 @@ onMounted(async () => {
 
 async function loadStats() {
   try {
-    const [pos, res, alert] = await Promise.all([
-      request({ url: '/matching/positions', method: 'GET', data: { page: 1, page_size: 1 } }),
-      request({ url: '/matching/results', method: 'GET', data: { page: 1, page_size: 1 } }),
-      request({ url: '/matching/alerts', method: 'GET', data: {} }),
+    const [msg, todo, plans] = await Promise.all([
+      request({ url: '/messages/unread-count' }),
+      request({ url: '/assessment/todo', data: { talent_id: currentTalentId() } }),
+      request({ url: '/training/plans', data: { talent_id: currentTalentId() } }),
     ])
-    stats.value[0].value = pos.data?.meta?.total ?? 0
-    stats.value[1].value = res.data?.meta?.total ?? 0
-    stats.value[2].value = Array.isArray(alert.data) ? alert.data.length : 0
+    stats.value[0].value = msg.data?.unread ?? 0
+    stats.value[1].value = Array.isArray(todo.data) ? todo.data.length : (todo.data?.items?.length ?? 0)
+    stats.value[2].value = Array.isArray(plans.data) ? plans.data.length : (plans.data?.items?.length ?? 0)
   } catch (e) { /* 接口异常不阻塞页面 */ }
 }
 

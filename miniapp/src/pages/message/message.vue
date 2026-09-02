@@ -236,12 +236,16 @@ function formatTime(value) {
           <view class="close" @click="closeDetail">关闭</view>
         </view>
         <view class="detail-tag" :class="typeClass(selected.type_code)">
+      <view v-if="selected.type_code === 'train' || selected.type_code === 'training'" class="detail-action" @click="go('/pages/study/study')">去学习</view>
           {{ typeText(selected.type_code) }}
         </view>
         <view class="detail-content">{{ selected.content || '暂无消息内容' }}</view>
       </view>
     </view>
   </view>
+  <script>
+  function go(url) { uni.navigateTo({ url }) }
+  </script>
 </template>
 
 <style lang="scss" scoped>
