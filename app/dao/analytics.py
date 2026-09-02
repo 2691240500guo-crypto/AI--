@@ -295,6 +295,74 @@ def talent_rows(db: Session, filters: dict | None = None,
         logger.warning("talent_rows 降级: %s", exc)
         return []
 
+def assess_rows(db: Session, filters: dict | None = None, limit: int = 50_000) -> list[list]:
+    """测评结果导出取数（A 域 asm_result，负责人 P4）。"""
+    try:
+        from app.models.assessment import AssessmentResult
+    except Exception as exc:
+        logger.warning("asm_result 未就绪，assess_rows 返回空: %s", exc)
+        return []
+    try:
+        f = filters or {}
+        conds = []
+        if f.get("talent_id"):
+            conds.append(AssessmentResult.talent_id == f["talent_id"])
+        rows = db.execute(
+            select(AssessmentResult.id, AssessmentResult.talent_id,
+                   AssessmentResult.status, AssessmentResult.score)
+            .where(*conds).limit(limit)
+        ).all()
+        return [[r[0], r[1], r[2], float(r[3]) if r[3] is not None else None] for r in rows]
+    except Exception as exc:
+        logger.warning("assess_rows 降级: %s", exc)
+        return []
+
+def match_rows(db: Session, filters: dict | None = None, limit: int = 50_000) -> list[list]:
+    """匹配结果导出取数（M 域 match_result，负责人 P6）。"""
+    try:
+        from app.models.matching import MatchResult
+    except Exception as exc:
+        logger.warning("match_result 未就绪，match_rows 返回空: %s", exc)
+        return []
+    try:
+        f = filters or {}
+        conds = []
+        if f.get("talent_id"):
+            conds.append(MatchResult.talent_id == f["talent_id"])
+        rows = db.execute(
+            select(MatchResult.id, MatchResult.talent_id,
+                   MatchResult.position_id, MatchResult.score)
+            .where(*conds).limit(limit)
+        ).all()
+        return [[r[0], r[1], r[2], float(r[3]) if r[3] is not None else None] for r in rows]
+    except Exception as exc:
+        logger.warning("match_rows 降级: %s", exc)
+        return []
+
+def training_rows(db: Session, filters: dict | None = None, limit: int = 50_000) -> list[list]:
+    """培训计划导出取数（TR 域 trn_training_plan，负责人 P8）。"""
+    try:
+        from app.models.training import TrainingPlan
+    except Exception as exc:
+        logger.warning("trn_training_plan 未就绪，training_rows 返回空: %s", exc)
+        return []
+    try:
+        f = filters or {}
+        conds = []
+        if f.get("talent_id"):
+            conds.append(TrainingPlan.talent_id == f["talent_id"])
+        rows = db.execute(
+            select(TrainingPlan.id, TrainingPlan.talent_id,
+                   TrainingPlan.title, TrainingPlan.status)
+            .where(*conds).limit(limit)
+        ).all()
+        # status: 0未开始 1进行中 2已完成（替代 REPORT_DEFS 里的"进度"列）
+        _ST = {0: "未开始", 1: "进行中", 2: "已完成"}
+        return [[r[0], r[1], r[2], _ST.get(r[3], str(r[3]))] for r in rows]
+    except Exception as exc:
+        logger.warning("training_rows 降级: %s", exc)
+        return []
+
 def talent_by_level(db: Session) -> dict[str, int]:
     """等级结构分布（T 域 tal_talent，负责人 P2）：group by level（S/A/B/C，需求文档字段）。
 
