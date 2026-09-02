@@ -13,13 +13,14 @@ const loading = ref(false)
 const failed = ref(false)
 const activeTab = ref('all')
 const messages = ref([])
+const total = ref(0)
 const unread = ref(0)
 const selected = ref(null)
 const readingId = ref(0)
 const readingAll = ref(false)
 
 const tabs = computed(() => [
-  { key: 'all', text: '全部', count: messages.value.length },
+  { key: 'all', text: '全部', count: total.value },
   { key: 'unread', text: '未读', count: unread.value }
 ])
 const hasUnread = computed(() => unread.value > 0)
@@ -46,12 +47,17 @@ async function load() {
     ])
     if (listResult.status === 'rejected') throw listResult.reason
     messages.value = (listResult.value.data?.items || []).map(normalizeMessage)
+    // unread_only=true 时 meta.total 是未读总数，不能覆盖“全部”标签的总数。
+    if (activeTab.value === 'all') {
+      total.value = Number(listResult.value.data?.meta?.total ?? messages.value.length)
+    }
     unread.value = countResult.status === 'fulfilled'
       ? Number(countResult.value.data?.unread || 0)
       : messages.value.filter((item) => !item.is_read).length
   } catch (error) {
     failed.value = true
     messages.value = []
+    if (activeTab.value === 'all') total.value = 0
   } finally {
     loading.value = false
   }
@@ -434,14 +440,19 @@ function formatTime(value) {
   bottom: 0;
   z-index: 20;
   display: flex;
-  align-items: flex-end;
+  align-items: center;
+  justify-content: center;
+  padding: 32rpx;
   background: rgba(17, 24, 39, 0.38);
+  box-sizing: border-box;
 }
 .detail {
   width: 100%;
-  max-height: 70vh;
-  padding: 32rpx 30rpx 48rpx;
-  border-radius: 28rpx 28rpx 0 0;
+  max-width: 680rpx;
+  max-height: 72vh;
+  padding: 32rpx 30rpx;
+  border-radius: 24rpx;
+  overflow-y: auto;
   background: #fff;
   box-sizing: border-box;
 }
