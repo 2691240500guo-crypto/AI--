@@ -209,7 +209,7 @@ function buildCourseCard(course, plan, record) {
 
   return {
     ...course,
-    key: `${plan?.id || 'course'}-${course.id}`,
+    key: String(course.id),
     plan_id: plan?.id || null,
     plan_title: plan?.title || '课程库',
     plan_status: plan?.status ?? null,
