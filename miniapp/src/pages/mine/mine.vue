@@ -29,7 +29,7 @@ const menus = computed(() => [
   { title: '消息通知', desc: unread.value ? `${unread.value} 条未读` : '查看平台通知', url: '/pages/message/message', type: 'tab' },
   { title: '我的档案', desc: profile.value ? '查看个人画像' : '等待档案关联', url: '/pages/profile/profile' },
   { title: 'AI 助手', desc: '问数与人才问答', url: '/pages/ai/ai' },
-  { title: 'Agent 智能匹配', desc: '查看岗位适配建议', url: '/pages/matching/agent' }
+  { title: '在线学习', desc: '查看学习计划与课程', url: '/pages/study/study', type: 'tab' }
 ])
 
 onMounted(load)

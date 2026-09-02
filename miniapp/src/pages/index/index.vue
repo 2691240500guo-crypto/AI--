@@ -117,14 +117,6 @@ function logout() {
       </view>
     </view>
 
-    <!-- Agent 智能匹配横幅（岗位匹配域 P6 林叔宝） -->
-    <view class="agent-banner" @click="go('/pages/matching/agent')">
-      <view class="agent-left">
-        <text class="agent-title">🤖 Agent 智能匹配</text>
-        <text class="agent-sub">自然语言描述需求，AI 自动拆解匹配</text>
-      </view>
-      <view class="agent-arrow">›</view>
-    </view>
 
     <view class="footer">岗位智能匹配 · 数据基于岗位匹配域实时接口</view>
   </view>
