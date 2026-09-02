@@ -49,6 +49,17 @@ async function loadStats() {
 }
 
 function go(url) {
+  const tabPages = [
+    '/pages/index/index',
+    '/pages/assessment/assessment',
+    '/pages/study/study',
+    '/pages/message/message',
+    '/pages/mine/mine'
+  ]
+  if (tabPages.includes(url)) {
+    uni.switchTab({ url })
+    return
+  }
   uni.navigateTo({ url })
 }
 

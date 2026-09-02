@@ -8,9 +8,14 @@ const routes = [
     path: '/',
     name: 'root',   // 必须有 name，addRoute('root', child) 才能注册到根布局下
     component: () => import('@/layout/index.vue'),
-    redirect: '/dashboard',
+    redirect: '/home',
     children: [
+      { path: 'home', name: 'home', component: () => import('@/views/home.vue'), meta: { title: '首页' } },
       { path: 'dashboard', name: 'dashboard', component: () => import('@/views/dashboard.vue'), meta: { title: '数据看板' } },
+      // 一级 Layout 目录（type=1）路由：点开跳到第一个子菜单，避免 404
+      { path: 'system', redirect: '/system/user' },
+      { path: 'assessment', redirect: '/assessment/overview' },
+      { path: 'training', redirect: '/training/plan' },
       // 岗位匹配域（M 域）静态路由：sys_menu 未种子 matching 菜单项前，用静态路由保证页面可直接访问
       // meta.static=true 保护：registerDynamicRoutes 清理旧动态路由时跳过，避免登录后被 removeRoute 导致 404
       { path: 'matching/position', name: 'matching-position', component: () => import('@/views/matching/Position.vue'), meta: { title: '岗位管理', static: true } },
