@@ -9,6 +9,7 @@ from app.core.deps import get_current_user, require_any_perm, require_client
 from app.db.session import get_db
 from app.dao.training import CourseDAO, LessonDAO, PlanDAO, ExamDAO, ExamResultDAO, RecordDAO
 from app.models.talent import Talent
+from app.models.course_video import CourseVideo
 from app.models.training import Course, Lesson, ExamResult, LearningRecord, TrainingPlan
 from app.models.user import User
 from app.schemas.training import (AgentRecommend, CourseCreate, CourseOut,
@@ -51,7 +52,7 @@ def list_courses(keyword: str | None = None, category: str | None = None,
         out["lesson_count"] = len(lessons)
         out["updated_at"] = c.updated_at
         out["lessons"] = [{"id": l.id, "title": l.title, "duration": l.duration,
-                           "file_url": l.file_url} for l in lessons]
+                           "file_url": l.file_url, "video_id": l.video_id} for l in lessons]
         items.append(out)
     return ok(paged_result(items, page, page_size, total))
 
@@ -102,9 +103,21 @@ def list_lessons(cid: int, db: Session = Depends(get_db)):
 
 @router.post("/courses/{cid}/lessons", dependencies=[Depends(require_client("admin"))])
 def create_lesson(cid: int, body: LessonCreate, db: Session = Depends(get_db)):
+    """新增课节；body.video_id 挂接视频素材（培训必有视频：课节=视频）。"""
     if not CourseDAO.get(db, cid):
         raise BusinessError(404, "课程不存在")
-    l = LessonDAO.create(db, course_id=cid, **body.model_dump())
+    fields = body.model_dump()
+    if body.video_id:
+        vid = db.get(CourseVideo, body.video_id)
+        if not vid or vid.status != 1:
+            raise BusinessError(400, "视频素材不存在或已失效")
+        fields["video_id"] = vid.id
+        # 未显式给时长/文件时自动从视频素材补（视频时长按秒 → 课节分钟）
+        if not fields.get("file_url"):
+            fields["file_url"] = vid.object_key
+        if not fields.get("duration"):
+            fields["duration"] = max(1, (vid.duration or 0) // 60)
+    l = LessonDAO.create(db, course_id=cid, **fields)
     db.commit()
     return ok(LessonOut.model_validate(l))
 

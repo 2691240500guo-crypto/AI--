@@ -16,10 +16,11 @@ import json
 import re
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import and_, exists, select
 from sqlalchemy.orm import Session
 
 from app.dao.training import CourseDAO
+from app.models.training import Lesson
 from app.dao.user import UserDAO
 from app.utils.llm import get_llm
 from app.utils.logger import logger
@@ -227,6 +228,17 @@ class TrainingAgentService:
     # ==================== 主流程 ====================
 
 
+
+
+    @staticmethod
+    def _catalog_has_video(db: Session) -> list:
+        """候选课程 = 状态上架 且 至少含一个 video_id 课节（培训必有视频）。"""
+        Course = CourseDAO.__model__
+        has_video = exists().where(and_(Lesson.course_id == Course.id,
+                                        Lesson.video_id.is_not(None)))
+        return list(db.scalars(
+            select(Course).where(Course.status == 1, has_video).limit(500)))
+
     @staticmethod
     def preview(db, *, talent_id: int, shortage_tags: list[str] | None = None,
                 position_ids: list[int] | None = None) -> dict:
@@ -251,7 +263,13 @@ class TrainingAgentService:
         position_tags = list(dict.fromkeys(position_tags))
 
         # 3. 选课
-        courses = CourseDAO.list(db, CourseDAO.__model__.status == 1, limit=500)
+        courses = TrainingAgentService._catalog_has_video(db)
+        if not courses:
+            return {"talent_id": talent_id, "course_ids": [], "courses": [],
+                    "reason": "暂无可推荐课程：课程库中尚无含视频课节的课程，请先在管理端给课程挂接视频",
+                    "shortage_tags": tags, "position_tags": position_tags,
+                    "positions": [{"position_id": p["position_id"], "name": p["name"]} for p in positions],
+                    "video_only": True}
         rec = TrainingAgentService.recommend(
             db, talent_id=talent_id, shortage_tags=tags,
             position_tags=position_tags, allow_courses=courses,
@@ -298,6 +316,18 @@ class TrainingAgentService:
         shortage_tags = shortage_tags or []
         position_tags = position_tags or []
         position_names = position_names or []
+
+        # 培训必有视频：剔除无视频课节的课程（防御 preview 外的直接调用）
+        if course_ids:
+            Course = CourseDAO.__model__
+            has_video = exists().where(and_(Lesson.course_id == Course.id,
+                                            Lesson.video_id.is_not(None)))
+            valid_ids = set(db.scalars(
+                select(Course.id).where(Course.id.in_(course_ids), has_video)).all())
+            dropped = [cid for cid in course_ids if cid not in valid_ids]
+            if dropped:
+                logger.warning("[train] 剔除无视频课节的课程(培训必有视频): %s", dropped)
+            course_ids = [cid for cid in course_ids if cid in valid_ids]
 
         # 建计划（weakness_tags 存短板 + 岗位名 + 岗位需求标签）
         weakness_tags = list(dict.fromkeys(

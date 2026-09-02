@@ -189,7 +189,9 @@ function normalizeLessons(lessons = []) {
       id: Number(lesson.id),
       title: lesson.title || `课节 ${index + 1}`,
       content: lesson.content || '',
-      file_url: lesson.file_url || '',
+      // 培训课节已挂视频素材(video_id) → 播放视频流；否则回退 file_url(课件/外链)
+      file_url: lesson.video_id ? getCourseVideoStreamUrl(Number(lesson.video_id)) : (lesson.file_url || ''),
+      video_id: lesson.video_id ? Number(lesson.video_id) : null,
       duration: Number(lesson.duration) || 0,
       sort: Number(lesson.sort || index + 1)
     }))
