@@ -17,6 +17,8 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.dao.matching import MatchPushLogDAO, MatchResultDAO, MatchRuleDAO, PosPositionDAO
+from app.models.role import Role
+from app.models.user import User, UserRole
 from app.models.matching import MatchPushLog, MatchResult, MatchRule, PosPosition
 from app.utils.response import BusinessError
 
@@ -480,6 +482,21 @@ class MatchingService:
         db.commit()
         return alerts
 
+
+    @classmethod
+    def _hr_user_ids(cls, db: Session) -> list[int]:
+        """预警消息定向接收人 = HR 角色启用的用户（user_id）。
+
+        修复 2026-09-02：原 _write_alert 未传 receiver_ids，MessageService.send 空接收人
+        默认"0"=全员广播 → 员工端消息中心混入 HR 预警信号。预警是 HR 职能，只推给 HR。
+        """
+        return list(db.scalars(
+            select(User.id)
+            .join(UserRole, UserRole.user_id == User.id)
+            .join(Role, Role.id == UserRole.role_id)
+            .where(Role.code == "hr", User.status == 1)
+        ).all())
+
     @classmethod
     def _write_alert(cls, db: Session, rec: MatchResult, *, alert_type: str,
                      position_name: str | None = None,
@@ -496,13 +513,19 @@ class MatchingService:
                 f"当前 {float(rec.score):.1f} 分（match_id={rec.id}），数据与触发条件不一致。",
             )
         from app.services.message_service import MessageService
-        msg = MessageService.send(
-            db, type_code="system", title=msg_title, content=msg_content,
-            biz_type="matching", biz_id=rec.position_id,
-        )
+        hr_ids = cls._hr_user_ids(db)
+        msg = None
+        if hr_ids:
+            # 定向 HR（预警是 HR 职能信号，不再全员广播扰员工）
+            msg = MessageService.send(
+                db, type_code="system", title=msg_title, content=msg_content,
+                receiver_ids=hr_ids, biz_type="matching", biz_id=rec.position_id,
+            )
+        else:
+            logger.warning("[match] 无启用 HR 用户，预警仅落 match_push_log，不发消息")
         log = MatchPushLogDAO.create(
             db, match_id=rec.id, type=alert_type, target_user=str(rec.talent_id),
-            message_id=msg.id,
+            message_id=msg.id if msg else None,
         )
         db.flush()
         return {
