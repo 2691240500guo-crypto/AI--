@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends,  Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_user, require_permission
+from app.core.deps import get_current_user, require_any_perm
 from app.db.session import get_db
 from app.dao.training import CourseDAO, LessonDAO, PlanDAO, ExamDAO, ExamResultDAO, RecordDAO
 from app.models.talent import Talent
@@ -21,7 +21,7 @@ from app.services.training_service import (EffectService, ExamService, PlanServi
 from app.utils.pagination import paged_result
 from app.utils.response import ok,BusinessError
 
-router = APIRouter(dependencies=[Depends(require_permission("training:list"))])
+router = APIRouter(dependencies=[Depends(require_any_perm("training:course", "training:plan", "training:effect"))])
 
 
 # ---------- 课程 CRUD（E01）----------

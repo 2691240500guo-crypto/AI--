@@ -46,6 +46,22 @@ def require_permission(perm: str):
     return checker
 
 
+def require_any_perm(*perms: str):
+    """接口鉴权：持有任一 perm 即通过（超管放行）。
+
+    用于"模块入口"场景：菜单按钮 perm 细粒度（training:course/plan/effect），
+    但 router 级保护想用"任一细粒度 perm 即放行"，避免菜单 perm 与路由 perm 字面值不一致。
+    """
+    def checker(user: User = Depends(get_current_user)) -> User:
+        if user.is_super:
+            return user
+        user_perms = _user_perms(user)
+        if not any(p in user_perms for p in perms):
+            raise HTTPException(403, f"权限不足：需要 {'/'.join(perms)} 之一")
+        return user
+    return checker
+
+
 def _token_client_type(token: str | None) -> str:
     """从 access token 中读端标识；缺省按 admin（兼容旧 token）。"""
     if not token:
