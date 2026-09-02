@@ -28,22 +28,31 @@ const loadedLessonCourses = new Set()
 const planStatusText = { 0: '未开始', 1: '进行中', 2: '已完成', 3: '已逾期' }
 
 const courseCards = computed(() => {
+  // 合并三处来源：① 在线视频课（video_ready）；② 培训计划拆解的课程；③ 课程库兜底
+  // 修复: 原版"有 video_ready 就 early-return"会完全跳过 plan，导致培训计划课程永远不显示
   const onlineRows = onlineCourses.value.map(buildOnlineCourseCard).filter((course) => course.video_ready)
-  if (onlineRows.length) return onlineRows
-
   const courseMap = new Map(courses.value.map((course) => [course.id, course]))
-  const rows = []
-
+  const planRows = []
   plans.value.forEach((plan) => {
     splitIds(plan.course_ids).forEach((courseId) => {
       const course = courseMap.get(courseId)
       if (!course) return
       const record = (plan.records || []).find((item) => Number(item.course_id) === courseId)
-      rows.push(buildCourseCard(course, plan, record))
+      planRows.push(buildCourseCard(course, plan, record))
     })
   })
-
-  if (rows.length) return rows
+  // 按 video_id 去重（在线视频课核心标识），无 video_id 的计划拆解课程按 id 去重
+  // 彻底修复：同一视频/课程被多 plan 引用或 online 接口去重未到位时都不重复展示
+  const merged = [...planRows, ...onlineRows]
+  const seen = new Set()
+  const dedup = []
+  for (const c of merged) {
+    const key = c.video_id != null ? `v:${c.video_id}` : `c:${c.id}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    dedup.push(c)
+  }
+  if (dedup.length) return dedup
   return courses.value.map((course) => buildCourseCard(course, null, null))
 })
 
@@ -190,7 +199,9 @@ function normalizeLessons(lessons = []) {
       id: Number(lesson.id),
       title: lesson.title || `课节 ${index + 1}`,
       content: lesson.content || '',
-      file_url: lesson.file_url || '',
+      // 培训课节已挂视频素材(video_id) → 播放视频流；否则回退 file_url(课件/外链)
+      file_url: lesson.video_id ? getCourseVideoStreamUrl(Number(lesson.video_id)) : (lesson.file_url || ''),
+      video_id: lesson.video_id ? Number(lesson.video_id) : null,
       duration: Number(lesson.duration) || 0,
       sort: Number(lesson.sort || index + 1)
     }))
@@ -210,7 +221,7 @@ function buildCourseCard(course, plan, record) {
 
   return {
     ...course,
-    key: `${plan?.id || 'course'}-${course.id}`,
+    key: String(course.id),
     plan_id: plan?.id || null,
     plan_title: plan?.title || '课程库',
     plan_status: plan?.status ?? null,

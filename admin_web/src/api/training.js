@@ -53,7 +53,8 @@ function normalizeLessons(lessons) {
       id: lesson.id || null,
       title: lesson.title || '',
       duration: Number(lesson.duration) || 0,
-      file_url: lesson.file_url || ''
+      file_url: lesson.file_url || '',
+      video_id: lesson.video_id ? Number(lesson.video_id) : null
     }))
     .filter((lesson) => lesson.title)
 }
@@ -93,7 +94,8 @@ export async function listCourses(query = {}) {
         id: lesson.id,
         title: lesson.title,
         duration: lesson.duration,
-        file_url: lesson.file_url || ''
+        file_url: lesson.file_url || '',
+        video_id: lesson.video_id ? Number(lesson.video_id) : null
       }))
     }
   })

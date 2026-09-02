@@ -37,14 +37,14 @@ onMounted(async () => {
 
 async function loadStats() {
   try {
-    const [pos, res, alert] = await Promise.all([
-      request({ url: '/matching/positions', method: 'GET', data: { page: 1, page_size: 1 } }),
-      request({ url: '/matching/results', method: 'GET', data: { page: 1, page_size: 1 } }),
-      request({ url: '/matching/alerts', method: 'GET', data: {} }),
+    const [msg, todo, plans] = await Promise.all([
+      request({ url: '/messages/unread-count' }),
+      request({ url: '/assessment/todo', data: { talent_id: currentTalentId() } }),
+      request({ url: '/training/plans', data: { talent_id: currentTalentId() } }),
     ])
-    stats.value[0].value = pos.data?.meta?.total ?? 0
-    stats.value[1].value = res.data?.meta?.total ?? 0
-    stats.value[2].value = Array.isArray(alert.data) ? alert.data.length : 0
+    stats.value[0].value = msg.data?.unread ?? 0
+    stats.value[1].value = Array.isArray(todo.data) ? todo.data.length : (todo.data?.items?.length ?? 0)
+    stats.value[2].value = Array.isArray(plans.data) ? plans.data.length : (plans.data?.items?.length ?? 0)
   } catch (e) { /* 接口异常不阻塞页面 */ }
 }
 
@@ -117,14 +117,6 @@ function logout() {
       </view>
     </view>
 
-    <!-- Agent 智能匹配横幅（岗位匹配域 P6 林叔宝） -->
-    <view class="agent-banner" @click="go('/pages/matching/agent')">
-      <view class="agent-left">
-        <text class="agent-title">🤖 Agent 智能匹配</text>
-        <text class="agent-sub">自然语言描述需求，AI 自动拆解匹配</text>
-      </view>
-      <view class="agent-arrow">›</view>
-    </view>
 
     <view class="footer">岗位智能匹配 · 数据基于岗位匹配域实时接口</view>
   </view>

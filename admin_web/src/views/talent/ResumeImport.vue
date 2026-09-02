@@ -90,7 +90,7 @@ function onProgress(p) {
 async function loadRecent() {
   loadingRecent.value = true
   try {
-    const res = await listTalents({ source: 'import', page: 1, page_size: 10 })
+    const res = await listTalents({ page: 1, page_size: 10 })
     recent.value = res.data?.items || []
   } finally {
     loadingRecent.value = false
@@ -159,7 +159,7 @@ onMounted(loadRecent)
     <el-card class="recent-card">
       <template #header>
         <div class="head">
-          <span class="title">最近导入的人才（source=import）</span>
+          <span class="title">最近的人才档案</span>
           <el-button size="small" @click="loadRecent">刷新</el-button>
         </div>
       </template>

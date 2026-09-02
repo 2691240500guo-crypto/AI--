@@ -226,36 +226,86 @@ def expiring(days: int = Query(30, ge=1, le=365), db: Session = Depends(get_db))
 
 
 @router.get("/export", dependencies=[Depends(require_permission("talent:query"))])
-def export_talents(db: Session = Depends(get_db)):
-    """档案一键导出（.xlsx，含标签列，满足需求④ 导出/备份/打印）。"""
+def export_talents(keyword: str | None = None, tag: str | None = None,
+                   education: str | None = None, skill: str | None = None,
+                   years_min: int | None = None, level: str | None = None,
+                   status: int | None = None, source: str | None = None,
+                   db: Session = Depends(get_db)):
+    """档案一键导出（.xlsx，含标签列，支持多维筛选条件，满足需求④ 导出/备份/打印）。"""
     import io
+    import logging
     from datetime import datetime
     from fastapi.responses import StreamingResponse
     import openpyxl
 
-    rows = svc.TalentDAO.list_all_valid(db, limit=10000)
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "人才档案"
-    ws.append(["ID", "姓名", "性别", "手机号(脱敏)", "邮箱", "最高学历", "专业", "当前职位",
-               "从业年限", "薪资期望", "技能", "工作经历", "项目经验", "荣誉资质",
-               "标签", "数据质量", "入库来源", "建档时间"])
-    for t in rows:
-        ws.append([
-            t.id, t.name, t.gender or "", _mask_phone(t.phone), t.email or "",
-            t.highest_education or "", t.major or "", t.current_title or "",
-            t.years_experience, t.salary_expectation or "", t.skills or "",
-            t.work_experience or "", t.project_experience or "", t.honors or "",
-            "、".join(r.tag.name for r in t.tag_rels if r.tag) if t.tag_rels else "",
-            t.data_quality or "", t.resume_source or "", t.created_at.strftime("%Y-%m-%d %H:%M:%S"),
-        ])
-    buf = io.BytesIO()
-    wb.save(buf)
-    buf.seek(0)
-    fname = f"talent_export_{datetime.now():%Y%m%d_%H%M%S}.xlsx"
-    return StreamingResponse(
-        buf, media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        headers={"Content-Disposition": f"attachment; filename={fname}"})
+    logger = logging.getLogger(__name__)
+    try:
+        # 按筛选条件取数：有筛选条件走分页查询拉全量，否则走 list_all_valid
+        has_filter = any([keyword, tag, education, skill, years_min, level,
+                          status is not None, source])
+        if has_filter:
+            total = svc.TalentDAO.count(db, keyword=keyword, tag=tag, education=education,
+                                        skill=skill, years_min=years_min, level=level,
+                                        only_valid=(status != 0))
+            rows = []
+            page_size = 500
+            for p in range(1, (total // page_size) + 2):
+                batch = svc.TalentDAO.paged(db, keyword=keyword, tag=tag, education=education,
+                                            skill=skill, years_min=years_min, level=level,
+                                            page=p, page_size=page_size,
+                                            only_valid=(status != 0))
+                rows.extend(batch)
+                if len(batch) < page_size:
+                    break
+            # 内存过滤 status / source（DAO 暂不原生支持）
+            if status is not None:
+                rows = [r for r in rows if r.status == status]
+            if source:
+                rows = [r for r in rows if (r.resume_source or "") == source]
+        else:
+            rows = svc.TalentDAO.list_all_valid(db, limit=10000)
+
+        wb = openpyxl.Workbook()
+        ws = wb.active
+        ws.title = "人才档案"
+        ws.append(["ID", "姓名", "性别", "手机号(脱敏)", "邮箱", "最高学历", "专业", "当前职位",
+                   "从业年限", "薪资期望", "技能", "工作经历", "项目经验", "荣誉资质",
+                   "标签", "数据质量", "入库来源", "建档时间"])
+        # Excel 单单元格字符上限 32767，超长内容截断
+        MAX_CELL_LEN = 32000
+        def _trunc(s):
+            s = str(s) if s is not None else ""
+            return s[:MAX_CELL_LEN] if len(s) > MAX_CELL_LEN else s
+
+        for t in rows:
+            try:
+                tag_str = ""
+                if t.tag_rels:
+                    tag_str = "、".join(r.tag.name for r in t.tag_rels if r and r.tag)
+                ws.append([
+                    t.id, _trunc(t.name), _trunc(t.gender), _mask_phone(t.phone), _trunc(t.email),
+                    _trunc(t.highest_education), _trunc(t.major), _trunc(t.current_title),
+                    t.years_experience or 0, _trunc(t.salary_expectation), _trunc(t.skills),
+                    _trunc(t.work_experience), _trunc(t.project_experience), _trunc(t.honors),
+                    _trunc(tag_str),
+                    _trunc(t.data_quality), _trunc(t.resume_source),
+                    t.created_at.strftime("%Y-%m-%d %H:%M:%S") if t.created_at else "",
+                ])
+            except Exception as e:
+                logger.warning(f"导出时跳过人才 {t.id}: {e}")
+                continue
+
+        buf = io.BytesIO()
+        wb.save(buf)
+        buf.seek(0)
+        fname = f"talent_export_{datetime.now():%Y%m%d_%H%M%S}.xlsx"
+        return StreamingResponse(
+            buf,
+            media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            headers={"Content-Disposition": f"attachment; filename={fname}"})
+    except Exception as e:
+        logger.exception(f"导出人才档案失败: {e}")
+        raise HTTPException(status_code=500, detail=f"导出失败: {str(e)}")
 #袁文武新增2026-08-31 22:00:00结束
 
 
@@ -645,25 +695,84 @@ async def download_resume(
     inline: int = Query(0, description="1=内联预览 0=附件下载"),
     db: Session = Depends(get_db),
 ):
-    """从 MinIO 取原始简历文件字节（hq+ 附件简历下载/预览）。"""
-    from fastapi.responses import Response  # hq+ 局部导入
-    from app.utils.object_storage import get_object_storage  # hq+
+    """从 MinIO / 本地取原始简历文件字节（hq+ 附件简历下载/预览）。
+    - 修改人：袁文武  修改时间：2026-09-02
+    - 优化：补充 resume_id 字段检查、MinIO 失败时本地文件兜底、动态 content-type。"""
+    from fastapi.responses import Response
+    import os
+    import mimetypes
+    from pathlib import Path
+    from app.utils.object_storage import get_object_storage
 
     obj = svc.TalentDAO.get(db, tid)
     if not obj:
         raise HTTPException(404, "人才档案不存在")
-    key = obj.object_key or obj.resume_file
+
+    # 依次检查三个可能的 MinIO 键字段
+    key = obj.object_key or obj.resume_file or obj.resume_id
     if not key:
         raise HTTPException(404, "该档案没有附件简历")
+
+    # 从 key 提取文件名推断 content-type 和下载扩展名
+    raw_filename = (key or "").rsplit("/", 1)[-1] if "/" in (key or "") else (key or "resume")
+    ext = raw_filename.rsplit(".", 1)[-1].lower() if "." in raw_filename else "pdf"
+    mime_type, _ = mimetypes.guess_type(raw_filename)
+    if not mime_type:
+        _mime_map = {
+            "pdf": "application/pdf", "doc": "application/msword",
+            "docx": "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            "jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png",
+            "webp": "image/webp",
+        }
+        mime_type = _mime_map.get(ext, "application/octet-stream")
+
+    data: bytes | None = None
+    last_error: str | None = None
+
+    # 策略1：MinIO 读取
     try:
         data = get_object_storage().get_bytes(key)
     except Exception as e:
-        raise HTTPException(500, f"简历读取失败：{e}") from e
-    fname = "resume_%d.pdf" % tid
-    disposition = "inline" if inline else ("attachment; filename="" + fname + """)
-    return Response(content=data, media_type="application/pdf",
-                    headers={"Content-Disposition": disposition})
+        last_error = str(e)
 
+    # 策略2：MinIO 失败时，尝试本地文件兜底
+    if data is None:
+        local_dirs = [
+            Path("uploads/resumes"),
+            Path("uploads"),
+            Path("."),
+        ]
+        for base in local_dirs:
+            # 尝试文件名匹配
+            candidate = base / raw_filename
+            if candidate.is_file():
+                try:
+                    data = candidate.read_bytes()
+                    last_error = None
+                    break
+                except Exception:
+                    continue
+            # 尝试完整路径匹配
+            candidate2 = base / key
+            if candidate2.is_file():
+                try:
+                    data = candidate2.read_bytes()
+                    last_error = None
+                    break
+                except Exception:
+                    continue
+
+    if data is None:
+        detail = "简历读取失败"
+        if last_error:
+            detail += f"（MinIO: {last_error[:100]}）"
+        raise HTTPException(500, detail)
+
+    fname = f"resume_{tid}.{ext}"
+    disposition = "inline" if inline else f'attachment; filename="{fname}"'
+    return Response(content=data, media_type=mime_type,
+                    headers={"Content-Disposition": disposition,
+                             "Content-Length": str(len(data))})
 
 @router.get("/{tid}/vectors", summary="查看人才三维向量画像（text 预览）")
 def talent_vectors(tid: int, db: Session = Depends(get_db)):
@@ -724,6 +833,10 @@ def get_talent_report(tid: int, db: Session = Depends(get_db)):
         "shortcomings": _loads(report.shortcomings),
         "fit_positions": _loads(report.fit_positions),
         "potential": report.potential,
+        # 袁文武 2026-09-02：AI 解析新增三大板块
+        "ability_level": getattr(report, "ability_level", None),
+        "experience_summary": getattr(report, "experience_summary", None),
+        "composite_score": getattr(report, "composite_score", None),
         "parsed_json": report.parsed_json,
     })
 

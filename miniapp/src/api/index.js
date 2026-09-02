@@ -8,11 +8,11 @@ function req(options) {
 const API_HOST_MP = 'http://127.0.0.1:8000'
 const API_BASE_URL = process.env.UNI_PLATFORM === 'mp-weixin' ? `${API_HOST_MP}/api/v1` : '/api/v1'
 
-// 当前学生身份（demo 用 talent_id=11 王五，已有测评数据）
-export const STUDENT_TALENT_ID = 11
+// 当前学生身份：登录后从 storage.user 取（后端 UserOut 已含 talent_id/emp_no/user_type）；
+// 取不到则返回 null，调用方选择是否传 talent_id（推荐不传，让后端按 token 用户本人过滤）。
 export const currentTalentId = () => {
   const user = uni.getStorageSync('user') || {}
-  return user.talent_id || user.talentId || user.talent?.id || STUDENT_TALENT_ID
+  return user.talent_id ?? user.talentId ?? user.talent?.id ?? null
 }
 
 // 测评

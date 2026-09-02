@@ -48,6 +48,7 @@ EXTRACT_USER_TEMPLATE = """【简历原文】
 
 {{
   "name": "字符串，姓名；原文没有则空字符串",
+  "gender": "字符串，性别，男 / 女；无法判断则空字符串（根据姓名、称谓、先生/女士、他/她等线索推断）",
   "phone": "字符串，手机号；原文没有则空字符串",
   "email": "字符串，邮箱；原文没有则空字符串",
   "education": "字符串，本科/硕士/博士/大专等；无法判断则空字符串",
@@ -59,8 +60,15 @@ EXTRACT_USER_TEMPLATE = """【简历原文】
   "highlights": ["亮点 3~6 项"],
   "shortcomings": ["短板 1~3 项；若未明显看出则 []"],
   "fit_positions": ["最适合 2~4 个岗位类型"],
-  "potential": "P5 / P6 / P7 之一"
+  "potential": "P5 / P6 / P7 之一",
+  "ability_level": "能力等级，从 P5初级 / P6中级 / P7高级 / P8专家 中选一个，根据技术深度、项目复杂度、团队角色综合判断",
+  "experience_summary": "从业经验总结，2-3 句话，概括行业背景、核心经验领域、职业成长轨迹",
+  "composite_score": 0
 }}
+
+综合评分规则（0-100 整数）：
+- 技能匹配度 + 经验深度 + 教育背景 + 项目复杂度 + 潜力综合打分
+- 60 分以下：基础偏弱；60-70：合格；70-80：良好；80-90：优秀；90+：顶级
 
 规则：
 1. 严格按原文抽取，**绝不编造**。抽不到的字段填空字符串 / 0 / []。
@@ -147,11 +155,19 @@ class ResumeLLMService:
         for k in ("skills", "highlights", "shortcomings", "fit_positions"):
             data.setdefault(k, [])
         data.setdefault("potential", "")
+        data.setdefault("ability_level", "")
+        data.setdefault("experience_summary", "")
+        data.setdefault("composite_score", 0)
         # 类型强转
         try:
             data["years_of_exp"] = int(data["years_of_exp"] or 0)
         except (TypeError, ValueError):
             data["years_of_exp"] = 0
+        try:
+            score = int(data.get("composite_score") or 0)
+            data["composite_score"] = max(0, min(100, score))
+        except (TypeError, ValueError):
+            data["composite_score"] = 0
         return data
 
     @classmethod
@@ -213,6 +229,8 @@ class ResumeLLMService:
             v = (extracted.get("name") or "").strip()
             if v:
                 talent.name = v
+        if not (talent.gender or "").strip() and extracted.get("gender"):
+            talent.gender = extracted["gender"].strip()
         if not talent.phone and extracted.get("phone"):
             talent.phone = extracted["phone"].strip()
         if not talent.email and extracted.get("email"):
@@ -252,6 +270,10 @@ class ResumeLLMService:
             "shortcomings": json.dumps(extracted.get("shortcomings") or [], ensure_ascii=False),
             "fit_positions": json.dumps(extracted.get("fit_positions") or [], ensure_ascii=False),
             "potential": (extracted.get("potential") or "")[:16] or None,
+            # 袁文武 2026-09-02：AI 解析新增三大板块
+            "ability_level": (extracted.get("ability_level") or "")[:32] or None,
+            "experience_summary": extracted.get("experience_summary") or None,
+            "composite_score": extracted.get("composite_score") or None,
             "summary_report": summary_report or None,
         }
         report = TalentReportDAO.upsert(db, talent.id, fields)

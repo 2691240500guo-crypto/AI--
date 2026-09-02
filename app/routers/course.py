@@ -20,7 +20,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File, 
 from fastapi.responses import Response, StreamingResponse
 from sqlalchemy.orm import Session
 
-from app.core.deps import get_current_user, require_permission
+from app.core.deps import get_current_user, require_any_perm, require_permission
 from app.core.security import decode_token
 from app.dao.course import CourseDAO
 from app.dao.course_progress import CourseProgressDAO
@@ -125,8 +125,9 @@ async def upload_video(
 def list_videos(
     keyword: str | None = Query(None),
     db: Session = Depends(get_db),
-    user: User = Depends(require_permission("course:video")),
+    user: User = Depends(require_any_perm("course:video", "training:course")),
 ):
+    """视频素材列表：视频管理(course:video)与培训课程管理(training:course)均可读（挂课节用）。"""
     rows = CourseVideoDAO.list_enabled(db, keyword)
     items = []
     for v in rows:

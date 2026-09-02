@@ -19,6 +19,7 @@ from typing import Optional
 from sqlalchemy.orm import Session
 
 from app.dao.talent import TalentDAO, TagDAO, TalentTagRelDAO
+from app.dao.talent_report import TalentReportDAO  # 袁文武 2026-09-02：AI 报告三大字段
 #袁文武新增2026-09-01 10:55:00开始 - 修复缺少TalentTag/TalentCertificate导入导致NameError
 from app.models.talent import (
     Talent, TalentEducation, TalentWorkExperience, TalentProject, TalentTag,
@@ -327,6 +328,7 @@ def parse_resume_file(db: Session, filename: str, content: bytes,
             t.resume_file = None
         db.flush()
         build_profile(db, t, fast=True)  # 解析路径快速画像，完整 AI 画像由显式按钮触发
+        _ensure_ai_report_three_fields(db, t)  # 袁文武 2026-09-02：自动生成 AI 报告三大字段
         # 解析后即时查重，标记疑似重复
         dup = _identity_dup(db, t)
         if dup:
@@ -349,6 +351,161 @@ def parse_resume_file(db: Session, filename: str, content: bytes,
         log.message = str(e)[:500]
         db.commit()
         raise BusinessError(500, f"简历解析失败（请确认 Ollama/Milvus/解析依赖已就绪）：{e}")
+
+
+
+# ---------------- 袁文武 2026-09-02：AI 报告三大字段规则判定 ----------------
+def _calc_ability_level(t: Talent) -> str:
+    """基于年限 + 学历 + 职位关键词判定能力等级（P5初级 / P6中级 / P7高级 / P8专家）。"""
+    years = t.years_experience or 0
+    edu = (t.highest_education or "").lower()
+    title = (t.current_title or "").lower()
+
+    # 职位关键词加权
+    expert_keywords = ["专家", "架构师", "总监", "cto", "首席", "研究员"]
+    senior_keywords = ["高级", "资深", "主管", "经理", "leader", "lead", "负责人", "技术主管"]
+    mid_keywords = ["工程师", "开发", "专员", "顾问", "分析师"]
+
+    if any(k in title for k in expert_keywords) or years >= 10:
+        return "P8专家"
+    if any(k in title for k in senior_keywords) or years >= 6:
+        return "P7高级"
+    if any(k in title for k in mid_keywords) or years >= 2:
+        return "P6中级"
+    return "P5初级"
+
+
+def _calc_composite_score(t: Talent) -> int:
+    """基于多维度加权计算综合评分（0-100）。
+    维度：工作年限(30分) + 学历(15分) + 技能丰富度(25分) + 职位层级(20分) + 项目经验(10分)。
+    """
+    score = 0
+    years = t.years_experience or 0
+    edu = (t.highest_education or "").lower()
+    title = (t.current_title or "")
+    skills_text = t.skills or ""
+    work_exp = t.work_experience or ""
+    proj_exp = t.project_experience or ""
+
+    # 1. 工作年限（30分）：0-15年线性，15年以上满分
+    year_score = min(years / 15.0, 1.0) * 30
+    score += year_score
+
+    # 2. 学历（15分）
+    edu_score_map = {
+        "博士": 15, "博士后": 15, "phd": 15, "doctor": 15,
+        "硕士": 12, "研究生": 12, "master": 12, "mba": 12,
+        "本科": 9, "学士": 9, "bachelor": 9,
+        "大专": 6, "专科": 6, "college": 6, "associate": 6,
+        "高中": 3, "中专": 3,
+    }
+    edu_score = 0
+    for k, v in edu_score_map.items():
+        if k in edu:
+            edu_score = v
+            break
+    score += edu_score
+
+    # 3. 技能丰富度（25分）：按技能标签数量
+    skill_count = len([s for s in re.split(r"[;；,，、\s]+", skills_text) if s.strip()])
+    if skill_count >= 15:
+        score += 25
+    elif skill_count >= 10:
+        score += 20
+    elif skill_count >= 6:
+        score += 15
+    elif skill_count >= 3:
+        score += 10
+    elif skill_count >= 1:
+        score += 5
+
+    # 4. 职位层级（20分）
+    title_lower = title.lower()
+    if any(k in title_lower for k in ["专家", "架构师", "总监", "cto", "首席"]):
+        score += 20
+    elif any(k in title_lower for k in ["高级", "资深", "主管", "经理", "leader", "负责人"]):
+        score += 15
+    elif any(k in title_lower for k in ["工程师", "开发", "专员", "顾问", "分析师"]):
+        score += 10
+    else:
+        score += 5
+
+    # 5. 项目经验（10分）
+    if proj_exp and len(proj_exp) > 500:
+        score += 10
+    elif proj_exp and len(proj_exp) > 200:
+        score += 7
+    elif work_exp and len(work_exp) > 200:
+        score += 5
+    else:
+        score += 2
+
+    return max(0, min(100, int(round(score))))
+
+
+def _build_experience_summary(t: Talent) -> str:
+    """基于工作经验 + 年限 + 职位生成从业经验总结（2-3 句话）。"""
+    years = t.years_experience or 0
+    title = t.current_title or "从业者"
+    edu = t.highest_education or ""
+    skills_text = t.skills or ""
+    work_exp = t.work_experience or ""
+
+    # 提取核心技能前 3 个
+    skill_list = [s.strip() for s in re.split(r"[;；,，、\s]+", skills_text) if s.strip()]
+    core_skills = "、".join(skill_list[:3]) if skill_list else ""
+
+    parts = []
+    # 第一句：基本背景
+    if edu:
+        parts.append(f"{edu}学历，{years}年{title}从业经验。")
+    else:
+        parts.append(f"{years}年{title}从业经验。")
+
+    # 第二句：核心技能
+    if core_skills:
+        parts.append(f"核心技能方向：{core_skills}。")
+
+    # 第三句：经验亮点（取工作经验前 60 字）
+    if work_exp:
+        clean = re.sub(r"\s+", "", work_exp)[:60]
+        if clean:
+            parts.append(f"主要经历：{clean}...")
+
+    return "".join(parts) if parts else ""
+
+
+def _ensure_ai_report_three_fields(db: Session, t: Talent) -> None:
+    """解析后自动生成 AI 报告三大字段（能力等级 / 综合评分 / 从业经验）并写入报告表。
+    若报告记录已存在则只补空字段，不存在则新建。"""
+    import json
+    ability = _calc_ability_level(t)
+    score = _calc_composite_score(t)
+    exp_summary = _build_experience_summary(t)
+
+    # 技能列表也一并写入（从 skills 字段拆分）
+    skill_list = [s.strip() for s in re.split(r"[;；,，、\s]+", t.skills or "") if s.strip()]
+    # 潜力评级（沿用 build_profile 的规则）
+    potential = ("高潜力" if (t.years_experience or 0) >= 5
+                 else ("中高潜力" if (t.years_experience or 0) >= 3 else "培养型"))
+
+    fields = {
+        "ability_level": ability,
+        "composite_score": score,
+        "experience_summary": exp_summary,
+        "skills": json.dumps(skill_list, ensure_ascii=False) if skill_list else None,
+        "potential": potential,
+        "highlights": json.dumps([], ensure_ascii=False),
+        "shortcomings": json.dumps([], ensure_ascii=False),
+        "fit_positions": json.dumps([], ensure_ascii=False),
+    }
+    try:
+        TalentReportDAO.upsert(db, t.id, fields)
+    except Exception as e:
+        # 报告写入失败不影响主流程
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning("[袁文武] 解析后写入 AI 报告三大字段失败（不影响入库）：%s", e)
 
 
 # ---------------- 画像：标签 + 三维向量 + 潜力 ----------------
@@ -958,6 +1115,7 @@ def import_excel_talents(db: Session, content: bytes, filename: str = "talents.x
             _build_sub_records(db, t, payload)
             db.flush()
             build_profile(db, t, fast=True)  # Excel 批量导入同样走快速画像
+            _ensure_ai_report_three_fields(db, t)
             result.imported += 1
         except Exception as e:
             result.errors.append({"row": row_idx, "name": record.get("name"), "error": str(e)[:200]})

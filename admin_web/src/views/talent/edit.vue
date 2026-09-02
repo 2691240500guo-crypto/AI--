@@ -85,7 +85,7 @@ const groupedTags = computed(() => {
 
 // 已绑定的来源（用于 chip 展示）
 const boundSource = ref({})  // { dict_id: 'manual' | 'auto' | 'ai' }
-function sourceType(s) { return { manual: '', auto: 'success', ai: 'warning' }[s] || 'info' }
+function sourceType(s) { return { manual: 'info', auto: 'success', ai: 'warning' }[s] || 'info' }
 
 // hq+  批次B：三维向量画像（技能/经验/素质）
 const vectors = ref([])
@@ -123,6 +123,15 @@ const submitting = ref(false)
 // hq+  批次2.3b：AI 报告
 const report = ref(null)
 const reparseBusy = ref(false)
+// 袁文武 2026-09-02：综合评分颜色映射
+function scoreColor(score) {
+  if (score >= 90) return '#16a34a'
+  if (score >= 80) return '#22c55e'
+  if (score >= 70) return '#f59e0b'
+  if (score >= 60) return '#f97316'
+  return '#ef4444'
+}
+
 async function loadReport() {
   if (!talentId.value) { report.value = null; return }
   try {
@@ -149,7 +158,8 @@ async function loadDicts() {
   loadingDicts.value = true
   try {
     const res = await listTalentDicts({ only_enabled: true })
-    allDicts.value = res.data
+    // 接口返回 { items: [], total } 分页结构，取 items 数组
+    allDicts.value = res.data?.items || res.data || []
   } finally {
     loadingDicts.value = false
   }
@@ -238,7 +248,7 @@ async function save() {
   }
 }
 
-function back() { router.push('/talent/list') }
+function back() { router.push('/talent') }
 
 // 切标签选中
 function toggleTag(t) {
@@ -405,6 +415,35 @@ onMounted(async () => {
                 <li v-if="!report.shortcomings?.length" class="empty">—</li>
               </ul>
             </el-col>
+            <el-col :span="8" style="margin-top:14px">
+              <div class="report-title">能力等级</div>
+              <div v-if="report.ability_level" class="ability-box">
+                <el-tag type="warning" size="large" effect="dark">{{ report.ability_level }}</el-tag>
+              </div>
+              <span v-else class="empty">—</span>
+            </el-col>
+            <el-col :span="8" style="margin-top:14px">
+              <div class="report-title">综合评分</div>
+              <div v-if="report.composite_score != null" class="score-box">
+                <span class="score-num">{{ report.composite_score }}</span>
+                <span class="score-max">/100</span>
+                <el-progress
+                  :percentage="report.composite_score"
+                  :show-text="false"
+                  :stroke-width="8"
+                  :color="scoreColor(report.composite_score)"
+                  style="margin-top:6px"
+                />
+              </div>
+              <span v-else class="empty">—</span>
+            </el-col>
+            <el-col :span="8" style="margin-top:14px">
+              <div class="report-title">从业经验</div>
+              <div v-if="report.experience_summary" class="exp-text">
+                {{ report.experience_summary }}
+              </div>
+              <span v-else class="empty">—</span>
+            </el-col>
             <el-col :span="24" style="margin-top:14px" v-if="report.summary_report">
               <div class="report-title">评估总结</div>
               <pre class="summary">{{ report.summary_report }}</pre>
@@ -437,7 +476,7 @@ onMounted(async () => {
             <el-card shadow="never" class="vec-card">
               <template #header>
                 <div class="vec-head">
-                  <el-tag :type="DIM_COLOR[v.dim] || ''" size="small">{{ v.label }}</el-tag>
+                  <el-tag :type="DIM_COLOR[v.dim] || 'info'" size="small">{{ v.label }}</el-tag>
                   <span :class="v.has_vector ? 'vec-ok' : 'vec-no'">
                     {{ v.has_vector ? '已入库' : '未生成' }}
                   </span>
@@ -490,6 +529,18 @@ onMounted(async () => {
   line-height: 1.7;
   color: #5a4a00;
   margin: 0;
+}
+/* 袁文武 2026-09-02：三大板块样式 */
+.ability-box { display: flex; align-items: center; }
+.score-box { display: flex; flex-direction: column; }
+.score-num {
+  font-size: 28px; font-weight: 700; color: #111827;
+  line-height: 1;
+}
+.score-max { font-size: 14px; color: #9ca3af; margin-left: 2px; }
+.exp-text {
+  font-size: 13px; color: #374151; line-height: 1.7;
+  max-height: 80px; overflow: auto; word-break: break-word;
 }
 
 /* hq+  三维向量 */

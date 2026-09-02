@@ -2,6 +2,17 @@
 from datetime import datetime, timedelta, timezone
 from typing import Any
 
+# passlib[bcrypt]==1.7.* 依赖 bcrypt.__about__.__version__ 探测后端版本；
+# bcrypt>=4.1 移除了 __about__，会导致 passlib 每次初始化打印
+# "(trapped) error reading bcrypt version"（无害但脏日志）。此处按 passlib 官方
+# workaround 补齐该属性，保留 passlib 技术栈且日志干净。（2026-09-02 兼容修复）
+import bcrypt as _bcrypt
+if not hasattr(_bcrypt, "__about__"):
+    import types as _types
+    _about = _types.ModuleType("bcrypt.__about__")
+    _about.__version__ = getattr(_bcrypt, "__version__", "4.1.0")
+    _bcrypt.__about__ = _about
+
 from jose import JWTError, jwt
 from passlib.context import CryptContext
 

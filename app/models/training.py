@@ -36,7 +36,8 @@ class Lesson(Base):
     course_id: Mapped[int] = mapped_column(ForeignKey("trn_course.id"), index=True)
     title: Mapped[str] = mapped_column(String(128))
     content: Mapped[str] = mapped_column(Text, default="")
-    file_url: Mapped[str | None] = mapped_column(String(255), default=None)      # 视频/课件 MinIO 对象名
+    file_url: Mapped[str | None] = mapped_column(String(255), default=None)      # 课件/视频 MinIO 对象名（兼容旧数据）
+    video_id: Mapped[int | None] = mapped_column(ForeignKey("tal_course_video.id"), default=None)  # 挂接视频素材（培训必有视频）
     duration: Mapped[int] = mapped_column(default=0)                             # 时长(分钟)
     sort: Mapped[int] = mapped_column(default=0)
 

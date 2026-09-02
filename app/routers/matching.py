@@ -4,15 +4,17 @@
 - GET/POST/PUT/DELETE /matching/positions          岗位 CRUD（M-1）
 - POST /matching/positions/{id}/vector             岗位画像向量化（M-2）
 - POST /matching/match                             双向匹配（M-3）
-- GET  /matching/results                           匹配结果列表（M-3/M-4）
+- GET  /matching/results                           匹配结果列表（M-3/M-4，支持保温/待跟进筛选）
 - GET  /matching/result/{id}/explain               匹配解释依据（M-4）
-- GET  /matching/alerts                            储备/空缺预警（M-5）
+- PUT  /matching/result/{id}/warm ｜ POST /warm/batch  储备人才保温（需求4，单条/批量）
+- GET  /matching/alerts ｜ POST /alerts/generate   储备/空缺预警（M-5，读侧富化/24h 去重）
 - GET/POST/PUT/DELETE /matching/rules              匹配规则 CRUD（支撑 M-3）
 """
 import json
+import logging
 
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy import func, select
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.deps import require_any_perm
@@ -21,9 +23,11 @@ from app.db.session import get_db
 from app.models.matching import MatchResult, PosPosition, MatchRule, MatchPushLog
 from app.schemas.matching import (
     AgentChatRequest,
+    AgentMatchRequest,
     AgentParseRequest,
     AgentReverseRequest,
     AgentRunRequest,
+    EvalRequest,
     MatchRequest,
     MatchResultOut,
     MatchRuleCreate,
@@ -34,6 +38,8 @@ from app.schemas.matching import (
     PositionUpdate,
     ResultStatusRequest,
     VectorOut,
+    WarmBatchRequest,
+    WarmRequest,
 )
 from app.services.matching import MatchingService
 from app.ai.agents.match_agent import MatchAgent
@@ -45,6 +51,8 @@ from app.utils.response import ok
 router = APIRouter(dependencies=[Depends(require_any_perm(
     "matching:*", "matching:position", "matching:result", "matching:agent", "matching:alert",
 ))])
+
+logger = logging.getLogger("matching")
 
 
 # ==================== 岗位 CRUD（M-1） ====================
@@ -122,6 +130,35 @@ def vectorize_position(pid: int, db: Session = Depends(get_db)):
     return ok(VectorOut(**data))
 
 
+@router.post("/positions/{pid}/jd-import", summary="导入岗位说明书文件（PDF/DOCX/TXT/MD/图片），解析文本返回供确认")
+async def import_position_description(
+    pid: int,
+    file: UploadFile = File(..., description="岗位说明书文件 PDF/DOCX/TXT/MD/图片"),
+    db: Session = Depends(get_db),
+):
+    """上传岗位说明书文件，抽文本（复用 T 域 file_parser），**不直接落库**，仅返回解析文本。
+
+    前端把解析结果填入岗位 description 后在保存时一并提交，避免误覆盖已有说明书。
+    """
+    p = PosPositionDAO.get(db, pid)
+    if not p:
+        raise HTTPException(404, "岗位不存在")
+    if not file.filename:
+        raise HTTPException(400, "请选择文件")
+    content = await file.read()
+    if not content:
+        raise HTTPException(400, "上传的文件为空")
+    try:
+        from app.utils.file_parser import parse_bytes
+        suffix = ("." + file.filename.rsplit(".", 1)[-1].lower()) if "." in file.filename else ""
+        text = parse_bytes(content, suffix)
+    except (ValueError, RuntimeError, FileNotFoundError) as e:
+        raise HTTPException(400, f"文件解析失败：{e}") from e
+    if not text:
+        raise HTTPException(400, "未能从文件抽到任何文字，请检查文件内容或格式")
+    return ok({"position_id": p.id, "filename": file.filename, "length": len(text), "text": text})
+
+
 # ==================== 匹配规则 CRUD（支撑 M-3） ====================
 
 @router.get("/rules")
@@ -146,6 +183,15 @@ def run_match(body: MatchRequest, db: Session = Depends(get_db)):
         db, talent_ids=body.talent_ids, position_ids=body.position_ids,
         rule_id=body.rule_id, top_k=body.top_k,
     )
+    # ①事件自动触发：本次匹配涉及的空缺岗位有新可补位储备 → 自动推送（失败不影响主流程）
+    try:
+        pids = sorted({int(s["position_id"]) for s in saved if s.get("position_id")})
+        if pids:
+            auto = MatchingService.auto_push_vacancy(db, pids)
+            if auto:
+                logger.info("[alerts] 发起匹配后自动推送空缺补位预警 %d 条: %s", len(auto), [a.get("position_id") for a in auto])
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[alerts] 发起匹配后自动推送失败（忽略）: %s", e)
     return ok(MatchTaskOut(total=len(saved), results=saved))
 
 
@@ -154,6 +200,10 @@ def list_results(
     talent_id: int | None = None,
     position_id: int | None = None,
     min_score: float | None = None,
+    status: int | None = Query(None, ge=0, le=2, description="匹配状态 0候选 1推荐 2录用"),
+    warm_level: int | None = Query(None, ge=0, le=3, description="保温等级 0无 1低 2中 3高"),
+    need_follow_up_days: int | None = Query(None, ge=1, description="保温中且超过 N 天未跟进"),
+    sort_by: str | None = Query(None, description="排序：score|level|years|skill|degree|quality"),
     page: PageParams = Depends(PageParams),
     db: Session = Depends(get_db),
 ):
@@ -164,15 +214,73 @@ def list_results(
         where.append(MatchResult.position_id == position_id)
     if min_score is not None:
         where.append(MatchResult.score >= min_score)
+    if status is not None:
+        where.append(MatchResult.status == status)
+    if warm_level is not None:
+        where.append(MatchResult.warm_level == warm_level)
+    if need_follow_up_days is not None:
+        # 保温管理视角：已在保温(>0)但超过 N 天未跟进（含从未跟进）的储备人群
+        from datetime import datetime, timedelta
+        cutoff = datetime.now() - timedelta(days=need_follow_up_days)
+        where.append(MatchResult.warm_level > 0)
+        where.append(or_(MatchResult.last_follow_up.is_(None),
+                         MatchResult.last_follow_up < cutoff))
     total = count_rows(db, MatchResult, *where)
-    rows = MatchResultDAO.list(db, *where, offset=(page.page - 1) * page.page_size,
-                               limit=page.page_size, order_by=MatchResult.score.desc())
-    return ok(paged_result([MatchResultOut.model_validate(r) for r in rows], page.page, page.page_size, total))
+
+    # 排序在 SQL 层完成（避免"只排当前页"导致跨页序不准）：
+    # - score：默认匹配度降序
+    # - rank：名次升序，未排名(NULL)放最后
+    # - skill/degree/years/quality：读取 dimension_json 内维度分降序
+    #   注意：用 func.cast(..., Numeric) 让 MySQL 生成 DECIMAL、SQLite 生成 NUMERIC（MySQL 不接受 AS NUMERIC）
+    from sqlalchemy import text as sa_text
+    from sqlalchemy import func as sa_func
+    from sqlalchemy import Numeric as sa_Numeric
+
+    sort_key = (sort_by or "score").strip()
+    # 能力等级排序需要 LEFT JOIN tal_talent.level（DAO.list 不支持 join，这里 inline）
+    if sort_key == "level":
+        from sqlalchemy import select as sa_select
+        from app.models.talent import Talent
+        stmt = (sa_select(MatchResult)
+                .join(Talent, MatchResult.talent_id == Talent.id)
+                .where(*where)
+                .order_by(sa_text(
+                    "CASE WHEN tal_talent.level IS NULL OR tal_talent.level = '' "
+                    "THEN 1 ELSE 0 END, tal_talent.level DESC, "
+                    "match_result.score DESC, match_result.id DESC"
+                ))
+                .offset((page.page - 1) * page.page_size)
+                .limit(page.page_size))
+        row = [MatchResultOut.model_validate(r) for r in db.scalars(stmt).all()]
+    else:
+        if sort_key == "rank":
+            order_expr = sa_text("CASE WHEN match_result.rank IS NULL THEN 1 ELSE 0 END, match_result.rank ASC, match_result.id DESC")
+            row = [MatchResultOut.model_validate(r) for r in
+                   MatchResultDAO.list(db, *where, offset=(page.page - 1) * page.page_size,
+                                       limit=page.page_size, order_by=order_expr)]
+        elif sort_key in ("skill", "degree", "years", "quality"):
+            # 维度排序需要 CAST json_extract → Numeric（多列 order_by；DAO.list 只支持单表达式，这里 inline）
+            from sqlalchemy import select as sa_select
+            order_keys = sa_func.cast(
+                sa_func.json_extract(MatchResult.dimension_json, f"$.{sort_key}"),
+                sa_Numeric,
+            ).desc()
+            stmt = (sa_select(MatchResult).where(*where)
+                    .order_by(order_keys, MatchResult.score.desc(), MatchResult.id.desc())
+                    .offset((page.page - 1) * page.page_size)
+                    .limit(page.page_size))
+            row = [MatchResultOut.model_validate(r) for r in db.scalars(stmt).all()]
+        else:
+            row = [MatchResultOut.model_validate(r) for r in
+                   MatchResultDAO.list(db, *where, offset=(page.page - 1) * page.page_size,
+                                       limit=page.page_size, order_by=MatchResult.score.desc())]
+
+    return ok(paged_result(row, page.page, page.page_size, total))
 
 
 @router.get("/result/{mid}/explain")
-def get_explain(mid: int, db: Session = Depends(get_db)):
-    explanation = MatchingService.explain(db, mid)
+def get_explain(mid: int, force: bool = Query(False, description="force=1 时强制重新生成解释"), db: Session = Depends(get_db)):
+    explanation = MatchingService.explain(db, mid, force=force)
     return ok({"match_id": mid, "explain": explanation})
 
 
@@ -189,19 +297,48 @@ def update_result_status(mid: int, body: ResultStatusRequest, db: Session = Depe
     return ok({"match_id": rec.id, "status": rec.status})
 
 
+@router.put("/result/{mid}/warm")
+def update_warm(mid: int, body: WarmRequest, db: Session = Depends(get_db)):
+    """储备人才保温更新（需求4）：设置保温等级并刷新跟进时间。"""
+    from datetime import datetime
+    rec = MatchResultDAO.get(db, mid)
+    if not rec:
+        raise HTTPException(404, "匹配结果不存在")
+    rec.warm_level = body.warm_level
+    if body.warm_level > 0:
+        rec.last_follow_up = datetime.now()
+    else:
+        rec.last_follow_up = None
+    db.commit()
+    return ok({"match_id": rec.id, "warm_level": rec.warm_level, "last_follow_up": rec.last_follow_up})
+
+
+@router.post("/warm/batch", summary="批量设置保温等级（需求4）")
+def batch_warm(body: WarmBatchRequest, db: Session = Depends(get_db)):
+    """批量保温：对一批匹配结果统一设置保温等级（0无 1低 2中 3高），并刷新/清空跟进时间。"""
+    updated = MatchingService.batch_warm(db, match_ids=body.match_ids, warm_level=body.warm_level)
+    return ok({"updated": len(updated), "items": updated})
+
+
+@router.post("/eval", summary="匹配精度评估（需求2）")
+def evaluate_match(body: EvalRequest, db: Session = Depends(get_db)):
+    """匹配精度评估：
+    - 提供人工标注真值 reference=[{position_id, talent_id, is_match}] 时，按 (岗位,人才) 命中计算 precision/recall/F1；
+    - 缺省时用自检口径：对每个岗位取 top1，统计 dimension_json 里 skill 维度 >=60 视为"合理命中"。
+    """
+    from app.services.matching import MatchingService
+    return ok(MatchingService.evaluate(db, position_id=body.position_id, top_k=body.top_k, reference=body.reference or None))
+
+
 # ==================== 储备/空缺预警（M-5） ====================
 
 @router.get("/alerts")
-def list_alerts(position_id: int | None = None, db: Session = Depends(get_db)):
-    where = []
-    if position_id is not None:
-        where.append(MatchPushLog.match_id.in_(
-            select(MatchResult.id).where(MatchResult.position_id == position_id)
-        ))
-    rows = MatchPushLogDAO.list(db, *where, limit=200, order_by=MatchPushLog.id.desc())
-    return ok([{"id": r.id, "match_id": r.match_id, "type": r.type,
-                "target_user": r.target_user, "message_id": r.message_id,
-                "created_at": r.created_at} for r in rows])
+def list_alerts(position_id: int | None = None,
+                type: str | None = Query(None, description="预警类型 reserve储备/vacancy空缺"),
+                db: Session = Depends(get_db)):
+    """储备/空缺预警列表（富化：岗位名/人才ID/匹配分/消息标题内容/保温等级）。"""
+    rows = MatchingService.list_alerts(db, position_id=position_id, alert_type=type)
+    return ok(rows)
 
 
 @router.post("/alerts/generate")
@@ -232,6 +369,13 @@ def agent_run_match(body: AgentRunRequest, db: Session = Depends(get_db)):
         min_score=body.min_score, gen_explain=body.gen_explain,
         filters=filters,
     )
+    # ①事件自动触发：该岗位若存在缺口且有可补位储备 → 自动推送
+    try:
+        auto = MatchingService.auto_push_vacancy(db, [body.position_id])
+        if auto:
+            logger.info("[alerts] Agent 岗位匹配后自动推送空缺补位预警 %d 条", len(auto))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[alerts] Agent 岗位匹配后自动推送失败（忽略）: %s", e)
     return ok({"total": len(results), "results": results})
 
 
@@ -247,3 +391,13 @@ def agent_reverse_match(body: AgentReverseRequest, db: Session = Depends(get_db)
 def agent_chat(body: AgentChatRequest, db: Session = Depends(get_db)):
     """自然语言操作：意图识别 → 参数抽取 → 执行 → 自然语言回复。"""
     return ok(MatchAgent.chat(db, body.message))
+
+
+@router.post("/agent-match", summary="（小程序 Agent）自由文本需求 → AI拆解 + 匹配人才")
+def agent_query_match(body: AgentMatchRequest, db: Session = Depends(get_db)):
+    """小程序 Agent 智能匹配：输入招聘/匹配需求文本，AI 拆解为需求标签并对人才库匹配打分。
+
+    返回：query_requirement（核心职责/必备技能/加分技能/学历/年限/软性素质）+ results（人才列表）。
+    """
+    data = MatchAgent.query_match(db, body.query_text, top_k=body.top_k, min_score=body.min_score)
+    return ok(data)

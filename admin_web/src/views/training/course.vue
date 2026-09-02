@@ -8,6 +8,7 @@ import {
   listCourses,
   updateCourse
 } from '@/api/training'
+import { listCourseVideos } from '@/api/course'
 
 const rows = ref([])
 const total = ref(0)
@@ -24,6 +25,19 @@ const query = reactive({
 })
 
 const dialog = reactive({ visible: false, editing: false })
+const videoOptions = ref([])
+async function loadVideoOptions() {
+  try {
+    const res = await listCourseVideos({ page: 1, page_size: 100 })
+    videoOptions.value = res.data?.items || []
+  } catch (e) { /* 素材库不可用时不影响课程编辑 */ }
+}
+function onPickVideo(lesson) {
+  const v = videoOptions.value.find((x) => x.id === Number(lesson.video_id))
+  if (!v) return
+  if (!lesson.title) lesson.title = v.title
+  if (!lesson.duration && v.duration) lesson.duration = Math.max(1, Math.round(v.duration / 60))
+}
 const form = reactive(blankCourse())
 
 const rules = {
@@ -113,7 +127,7 @@ async function del(row) {
   load()
 }
 
-onMounted(load)
+onMounted(() => { load(); loadVideoOptions() })
 </script>
 
 <template>
@@ -218,9 +232,16 @@ onMounted(load)
       <el-form-item label="课件课节">
         <div class="lesson-list">
           <div v-for="(lesson, index) in form.lessons" :key="index" class="lesson-row">
-            <el-input v-model="lesson.title" placeholder="课节名称" />
+            <el-input v-model="lesson.title" placeholder="课节名称" style="width:190px" />
             <el-input-number v-model="lesson.duration" :min="0" :step="5" controls-position="right" />
-            <el-input v-model="lesson.file_url" placeholder="课件/视频地址" />
+            <el-select v-model="lesson.video_id" placeholder="挂接视频素材(课节=视频)" clearable filterable
+              style="width:200px" @change="onPickVideo(lesson)">
+              <el-option v-for="v in videoOptions" :key="v.id" :label="v.title" :value="v.id">
+                <span>{{ v.title }}</span>
+                <span class="opt-dur"> {{ v.duration ? Math.max(1, Math.round(v.duration / 60)) + ' 分钟' : '无时长' }}</span>
+              </el-option>
+            </el-select>
+            <el-input v-model="lesson.file_url" placeholder="课件/视频地址(可选,挂接素材自动填)" clearable />
             <el-button type="danger" plain @click="removeLesson(index)">移除</el-button>
           </div>
           <el-button type="primary" plain @click="addLesson">添加课件</el-button>
@@ -235,6 +256,7 @@ onMounted(load)
 </template>
 
 <style scoped>
+.opt-dur { color: #909399; font-size: 12px; }
 .toolbar {
   display: flex;
   flex-wrap: wrap;

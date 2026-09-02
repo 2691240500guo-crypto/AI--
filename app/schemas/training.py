@@ -43,6 +43,7 @@ class LessonCreate(BaseModel):
     title: str = Field(min_length=1, max_length=128)
     content: str = ""
     file_url: str | None = None
+    video_id: int | None = None          # 挂接 tal_course_video：培训课节=视频
     duration: int = 0
     sort: int = 0
 
@@ -53,6 +54,8 @@ class LessonOut(ORMModel):
     title: str
     content: str
     file_url: str | None
+    video_id: int | None = None          # 关联 tal_course_video，前端可播 /course/videos/{id}/stream
+    video_url: str | None = None         # 由 router 组装视频流地址
     duration: int
     sort: int
 

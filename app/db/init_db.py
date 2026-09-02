@@ -128,6 +128,66 @@ def seed(db: Session) -> None:
         answer_menu.status = 0
     db.flush()
 
+    # 岗位匹配模块菜单（M 域入口）：sys_menu 种入后管理端侧边栏可见，权限码随菜单下发
+    matching_root = db.query(Menu).filter_by(title="岗位匹配").first()
+    if not matching_root:
+        matching_root = Menu(
+            parent_id=0,
+            title="岗位匹配",
+            path="/matching",
+            component=None,
+            perm="matching:*",
+            type=1,
+            sort=4,
+            status=1,
+        )
+        db.add(matching_root)
+    else:
+        matching_root.parent_id = 0
+        matching_root.path = "/matching"
+        matching_root.component = None
+        matching_root.perm = "matching:*"
+        matching_root.type = 1
+        matching_root.sort = 4
+        matching_root.status = 1
+    db.flush()
+
+    matching_children = [
+        ("岗位管理", "/matching/position", "matching/Position", "matching:position", 1),
+        ("匹配结果", "/matching/result", "matching/Result", "matching:result", 2),
+        ("岗位人才匹配Agent", "/matching/agent", "matching/Agent", "matching:agent", 3),
+        ("储备/空缺预警", "/matching/alert", "matching/Alert", "matching:alert", 4),
+    ]
+    expected_keys = {(t, p) for t, p, *_ in matching_children}
+    for title, path, component, perm, sort in matching_children:
+        child = db.query(Menu).filter_by(title=title).first()
+        if not child:
+            child = Menu(parent_id=matching_root.id, title=title)
+            db.add(child)
+        child.parent_id = matching_root.id
+        child.path = path
+        child.component = component
+        child.perm = perm
+        child.type = 2
+        child.sort = sort
+        child.status = 1
+    db.flush()
+
+    # 去重清洗：删除 matching 根下标题或路径与新清单不一致的旧/残留菜单（避免侧边栏出现重复项）
+    # 注意：sys_role_menu 对 sys_menu.id 有外键约束，必须先删关联再删菜单本体
+    from app.models.role import RoleMenu
+
+    stale = (
+        db.query(Menu)
+        .filter(Menu.parent_id == matching_root.id)
+        .all()
+    )
+    for c in stale:
+        if (c.title, c.path) not in expected_keys:
+            db.query(RoleMenu).filter(RoleMenu.menu_id == c.id).delete(synchronize_session=False)
+            db.delete(c)
+    db.flush()
+
     # 数据字典类型
     if not db.query(DictType).first():
         db.add(DictType(code="user_status", name="用户状态"))
@@ -145,11 +205,24 @@ def seed(db: Session) -> None:
 
 
 def init_db() -> None:
-    create_tables()
+    """建表 + 播种数据。数据库不可用时打印警告，不阻塞服务启动。
+    - 修改人：袁文武  修改时间：2026-09-02
+    - 场景：远程 MySQL 网络波动/超时，不应导致整个后端起不来。
+    """
+    import logging
+    logger = logging.getLogger("init_db")
+    try:
+        create_tables()
+    except Exception as e:
+        logger.warning("建表失败（数据库可能不可用），跳过初始化：%s", e)
+        return
     db = SessionLocal()
     try:
         seed(db)
         seed_assessment(db)
+    except Exception as e:
+        logger.warning("播种数据失败：%s", e)
+        db.rollback()
     finally:
         db.close()
 

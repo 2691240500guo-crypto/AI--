@@ -46,4 +46,7 @@ class UserOut(ORMModel):
     status: int
     is_super: int
     last_login_at: datetime | None
+    talent_id: int | None = None   # 员工端 miniapp 拿当前 talent 身份（修复 fallback 11 隐患）
+    emp_no: str | None = None
+    user_type: str = "admin"
     roles: list[RoleOut] = []

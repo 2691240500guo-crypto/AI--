@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 
 from app.core.deps import require_permission
 from app.db.session import get_db
-from app.models.talent import TalentTag, TalentTalentTag
+from app.models.talent import Talent, TalentTag, TalentTalentTag
 from app.services import talent_service as svc
 from app.utils.response import ok
 
@@ -43,7 +43,8 @@ def _with_stats(db: Session, rows: list[TalentTag]) -> list[dict]:
     tag_ids = [t.id for t in rows]
     counts = dict(db.execute(
         select(TalentTalentTag.tag_id, func.count())
-        .where(TalentTalentTag.tag_id.in_(tag_ids))
+        .join(Talent, Talent.id == TalentTalentTag.talent_id)
+        .where(TalentTalentTag.tag_id.in_(tag_ids), Talent.status == 1)
         .group_by(TalentTalentTag.tag_id)
     ).all())
     items = []
