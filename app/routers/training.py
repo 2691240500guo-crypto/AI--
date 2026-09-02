@@ -211,13 +211,33 @@ def submit_exam(eid: int, body: ExamSubmit, talent_id: int = Query(...),
 
 
 # ---------- Agent④ 推荐（TR-3）----------
+@router.post("/agent/preview")
+def agent_preview(body: AgentRecommend, db: Session = Depends(get_db)):
+    """智能培训 Agent 预览：读短板 + 岗位需求 → 选课，返回课程清单（不落库、不发消息）。"""
+    res = TrainingAgentService.preview(
+        db, talent_id=body.talent_id,
+        shortage_tags=body.shortages or None,
+        position_ids=body.position_ids or None,
+    )
+    return ok(res)
+
+
 @router.post("/agent/recommend")
 def agent_recommend(body: AgentRecommend, db: Session = Depends(get_db)):
+    """确认生成计划：按前端选定课程建计划 + 可选推送（push=False 时只建不发消息）。
+
+    前端流程：先调 /agent/preview 选课 → 用户确认 → 调本端点（带 course_ids）落库。
+    """
     res = TrainingAgentService.generate_plan(
-        db, talent_id=body.talent_id, shortage_tags=body.shortages,
-        title=body.title, deadline=body.deadline)
+        db, talent_id=body.talent_id,
+        course_ids=body.course_ids,
+        shortage_tags=body.shortages or None,
+        title=body.title, deadline=body.deadline,
+        push=body.push,
+    )
     db.commit()
     return ok(res)
+
 
 
 # ---------- 效果分析（E05）----------
@@ -318,3 +338,23 @@ def sync_lessons(cid: int, body: LessonSyncIn, db: Session = Depends(get_db)):
     db.commit()
     rows = LessonDAO.list(db, Lesson.course_id == cid, order_by=Lesson.sort)
     return ok([LessonOut.model_validate(l) for l in rows])
+
+
+@router.post("/plans/{pid}/push")
+def push_plan(pid: int, db: Session = Depends(get_db)):
+    """对已生成的培训计划手动推送消息（不重建计划）。"""
+    from app.services.message_service import MessageService
+    from app.dao.training import PlanDAO
+
+    plan = PlanDAO.get(db, pid)
+    if not plan:
+        raise BusinessError(404, "学习计划不存在")
+    # 计划已推送过的话会重复发一条（消息域允许），不再做幂等；
+    # 如需去重可由前端按 plan.pushed 标记判断
+    MessageService.send(
+        db, type_code="train", title=plan.title,
+        content=f"已为你生成个性化培训计划，请点击查看并开始学习。",
+        receiver_ids=[plan.talent_id], biz_type="training", biz_id=plan.id,
+    )
+    db.commit()
+    return ok({"plan_id": plan.id, "pushed": True})

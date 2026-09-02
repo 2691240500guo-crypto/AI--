@@ -50,7 +50,41 @@
               </el-button>
               <el-button @click="onClear">清空</el-button>
             </el-form-item>
-          </el-form>
+            </el-form>
+        </el-card>
+
+        <!-- ★ 新增：智能培训计划（基于研判结果生成，不自动推送） -->
+        <el-card shadow="never" style="margin-top: 12px" v-if="form.scope === 'single' && form.talent_id">
+          <template #header>
+            <div class="card-head">
+              <span>智能培训计划</span>
+              <el-tag v-if="planInfo" size="small" type="success">已生成</el-tag>
+            </div>
+          </template>
+          <div v-if="!planInfo">
+            <div class="sub" style="margin-bottom: 8px">基于该人才研判短板 + 适配岗位，自动生成培训计划（不会自动推送）</div>
+            <el-button type="primary" :loading="generatingPlan" @click="onGeneratePlan">
+              <el-icon style="margin-right:4px"><MagicStick /></el-icon>生成学习计划
+            </el-button>
+          </div>
+          <div v-else>
+            <div class="sub">已生成计划，<b>未推送</b>。短板：
+              <el-tag v-for="t in planInfo.shortage_tags" :key="t" size="small" type="danger" effect="plain" style="margin-right:4px">{{ t }}</el-tag>
+            </div>
+            <div class="sub" style="margin-top: 4px">岗位需求：
+              <el-tag v-for="t in planInfo.position_tags" :key="t" size="small" type="success" effect="plain" style="margin-right:4px">{{ t }}</el-tag>
+            </div>
+            <!-- ★ 新增：推荐课程展示 -->
+            <div class="sub" style="margin-top: 4px">推荐课程（<b>{{ planInfo.course_ids?.length || 0 }}</b> 门）：
+              <el-tag v-for="c in planInfo.courses" :key="c.id" size="small" type="primary" effect="plain" style="margin-right:4px">{{ c.title }}</el-tag>
+              <span v-if="!planInfo.courses?.length" style="color:#9ca3af">无匹配课程</span>
+            </div>
+            <div style="margin-top: 10px">
+              <el-button v-if="!planPushed" type="primary" size="small" :loading="pushing" @click="onPushPlan">推送给该人才</el-button>
+              <el-tag v-else type="success" size="small">已推送</el-tag>
+              <el-button size="small" style="margin-left: 8px" @click="planInfo = null; planPushed = false">重新生成</el-button>
+            </div>
+          </div>
         </el-card>
       </el-col>
 
@@ -79,6 +113,8 @@ import { reactive, ref } from 'vue'
 import { ElMessage } from 'element-plus'
 import { ChatDotRound } from '@element-plus/icons-vue'
 import { ragAsk, listTalents } from '@/api/talent'
+import { MagicStick } from '@element-plus/icons-vue'
+import http from '@/utils/request'
 
 const form = reactive({ scope: 'single', talent_id: null, talent_ids: '', question: '', top_k: 5 })
 const raging = ref(false)
@@ -134,6 +170,46 @@ function onClear() {
   form.talent_ids = ''
   ragAnswer.value = ''
   ragMeta.value = ''
+}
+
+// ★ 新增：智能培训计划
+const generatingPlan = ref(false)
+const pushing = ref(false)
+const planInfo = ref(null)   // { plan_id, course_ids, shortage_tags, position_tags, positions }
+const planPushed = ref(false)
+
+async function onGeneratePlan() {
+  if (!form.talent_id) return ElMessage.warning('请先选择人才')
+  generatingPlan.value = true
+  try {
+    const res = await http.post('/training/agent/preview', { talent_id: form.talent_id })
+    planInfo.value = res.data   // 预览结果（含 courses）
+    planPushed.value = false
+    ElMessage.success('已生成预览（未落库）')
+  } catch (e) {
+    ElMessage.error('生成失败：' + e.message)
+  } finally {
+    generatingPlan.value = false
+  }
+}
+
+async function onPushPlan() {
+  if (!planInfo.value) return
+  pushing.value = true
+  try {
+    await http.post('/training/agent/recommend', {
+      talent_id: form.talent_id,
+      course_ids: planInfo.value.course_ids,
+      shortages: planInfo.value.shortage_tags || [],
+      push: true,
+    })
+    planPushed.value = true
+    ElMessage.success('已推送给该人才（计划已创建）')
+  } catch (e) {
+    ElMessage.error('推送失败：' + e.message)
+  } finally {
+    pushing.value = false
+  }
 }
 </script>
 

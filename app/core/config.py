@@ -45,7 +45,7 @@ class Settings(BaseSettings):
     # ---- 硅基流动（SiliconFlow）统一配置 ----
     # 大模型统一走硅基流动：chat 用 Qwen3-30B-A3B、embedding 用 bge-m3
     SILICONFLOW_BASE_URL: str = "https://api.siliconflow.cn/v1"
-    SILICONFLOW_API_KEY: str = ""      # 与 SILICON_FLOW_API_KEY 二选一填写（.env）
+    SILICONFLOW_API_KEY: str = "sk-lsdsrnfefoxvmynyoeabagnwyjccdmmtlkajwuduajgjyuqw"      # 与 SILICON_FLOW_API_KEY 二选一填写（.env）
     SILICONFLOW_MODEL: str = "Qwen/Qwen3-30B-A3B-Instruct-2507"
     SILICONFLOW_TIMEOUT: int = 20
 
@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     # ---- 硅基流动（SiliconFlow，OpenAI 兼容 API，统一默认走硅基流动）----
     # LLM_STRATEGY: "ollama" | "silicon_flow"，控制 chat/embed 走哪个后端
     LLM_STRATEGY: str = "silicon_flow"
-    SILICON_FLOW_API_KEY: str = ""
+    SILICON_FLOW_API_KEY: str = "sk-lsdsrnfefoxvmynyoeabagnwyjccdmmtlkajwuduajgjyuqw"
     SILICON_FLOW_BASE_URL: str = "https://api.siliconflow.cn/v1"
     SILICON_FLOW_LLM_MODEL: str = "Qwen/Qwen3-30B-A3B-Instruct-2507"
     SILICON_FLOW_EMBED_MODEL: str = "BAAI/bge-m3"

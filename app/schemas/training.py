@@ -138,5 +138,7 @@ class AgentRecommend(BaseModel):
     talent_id: int
     shortages: list[str] = Field(default_factory=list)  # 契约字段为 shortcomings，兼容别名
     position_ids: list[int] = Field(default_factory=list)  # 岗位能力预留，M 域完成后接入
+    course_ids: list[int] = Field(default_factory=list)  # ★ 确认生成时传入已选课程
     title: str = "个性化培训计划"
     deadline: datetime | None = None
+    push: bool = True

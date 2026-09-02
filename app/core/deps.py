@@ -32,7 +32,18 @@ def _user_perms(user: User) -> set[str]:
         for menu in role.menus:
             if menu.perm:
                 perms.add(menu.perm)
+                if ":" in menu.perm:
+                    perms.add(menu.perm.split(":", 1)[0] + ":*")
     return perms
+
+
+def _has_perm(required: str, owned: set[str]) -> bool:
+    if required in owned:
+        return True
+    if ":" in required:
+        head = required.split(":", 1)[0]
+        return f"{head}:*" in owned
+    return "*" in owned
 
 
 def require_permission(perm: str):
@@ -40,7 +51,7 @@ def require_permission(perm: str):
     def checker(user: User = Depends(get_current_user)) -> User:
         if user.is_super:
             return user
-        if perm not in _user_perms(user):
+        if not _has_perm(perm, _user_perms(user)):
             raise HTTPException(403, f"权限不足：需要 {perm}")
         return user
     return checker
