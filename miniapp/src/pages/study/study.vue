@@ -41,8 +41,18 @@ const courseCards = computed(() => {
       planRows.push(buildCourseCard(course, plan, record))
     })
   })
-  const merged = [...onlineRows, ...planRows]
-  if (merged.length) return merged
+  // 按 video_id 去重（在线视频课核心标识），无 video_id 的计划拆解课程按 id 去重
+  // 彻底修复：同一视频/课程被多 plan 引用或 online 接口去重未到位时都不重复展示
+  const merged = [...planRows, ...onlineRows]
+  const seen = new Set()
+  const dedup = []
+  for (const c of merged) {
+    const key = c.video_id != null ? `v:${c.video_id}` : `c:${c.id}`
+    if (seen.has(key)) continue
+    seen.add(key)
+    dedup.push(c)
+  }
+  if (dedup.length) return dedup
   return courses.value.map((course) => buildCourseCard(course, null, null))
 })
 
