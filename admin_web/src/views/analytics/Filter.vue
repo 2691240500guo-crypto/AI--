@@ -39,9 +39,11 @@
 
     <el-col :span="16">
       <el-card title="对比结果">
+        <el-alert v-if="isGlobalMetric" type="info" :closable="false" style="margin-bottom:12px"
+          title="该指标为全局口径：部门/岗位/等级/时间筛选与同比环比暂不生效（跨域数据待统一）" />
         <el-descriptions :column="1" border v-loading="loading">
           <el-descriptions-item label="指标">{{ metricLabel }}</el-descriptions-item>
-          <el-descriptions-item label="本期值">{{ result.current ?? '—' }}</el-descriptions-item>
+          <el-descriptions-item label="本期值">{{ fmtValue(result.current) }}</el-descriptions-item>
           <el-descriptions-item label="对比期值">{{ result.previous ?? '—' }}</el-descriptions-item>
           <el-descriptions-item label="变化率">
             {{ result.change_rate == null ? '—' : (result.change_rate * 100).toFixed(1) + '%' }}
@@ -53,12 +55,23 @@
 </template>
 
 <script setup>
-import { ref, computed } from 'vue'
+import { ref, computed, onMounted } from 'vue'
 import { getDimFilter } from '@/api/analytics'
+import { listDepts } from '@/api/dept'
 import { ElMessage } from 'element-plus'
 
-const deptOptions = [{ value: 1, label: '研发部' }, { value: 2, label: '产品部' }]
+// 部门下拉：从后端 /depts（sys_dept）动态加载，不再硬编码（2026-09-02）
+const deptOptions = ref([])
+async function loadDepts() {
+  try {
+    const list = (await listDepts()).data || []
+    deptOptions.value = list.filter(d => d.status !== 0).map(d => ({ value: d.id, label: d.name }))
+  } catch { /* 拉取失败留空，不阻塞筛选 */ }
+}
+onMounted(loadDepts)
 const levelOptions = [{ value: 'S', label: 'S' }, { value: 'A', label: 'A' }, { value: 'B', label: 'B' }, { value: 'C', label: 'C' }]
+// 全局口径指标：后端只返回全局正确值（不做部门筛选/对比），前端加提示（方案② 2026-09-02）
+const GLOBAL_METRICS = ['assess_pass_rate', 'training_completion_rate', 'match_avg_score']
 const metricOptions = [
   { value: 'talent_total', label: '人才总量' },
   { value: 'assess_pass_rate', label: '测评合格率' },
@@ -66,6 +79,15 @@ const metricOptions = [
   { value: 'match_avg_score', label: '平均匹配度' },
 ]
 const metricLabel = computed(() => (metricOptions.find(m => m.value === sel.value.metric) || {}).label || '')
+const isGlobalMetric = computed(() => GLOBAL_METRICS.includes(sel.value.metric))
+
+// 本期值格式化：合格率×100 加 %；匹配度保留 1 位小数；人才计数原样
+function fmtValue(v) {
+  if (v == null) return '—'
+  if (sel.value.metric === 'assess_pass_rate') return (v * 100).toFixed(1) + '%'
+  if (sel.value.metric === 'match_avg_score') return Number(v).toFixed(1)
+  return v
+}
 
 const sel = ref({ dept_id: null, position: '', level: null, dateRange: null, compare: 'none', metric: 'talent_total' })
 const result = ref({ current: null, previous: null, change_rate: null })

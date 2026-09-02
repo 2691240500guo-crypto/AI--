@@ -76,8 +76,10 @@ class DimFilterQuery(BaseModel):
 class DimFilterOut(BaseModel):
     """出参：本期值 + 对比期值 + 变化率（前端直接渲染卡片）。"""
     metric: str = Field(..., description="指标名")
-    current: int = Field(0, description="本期值")
-    previous: int | None = Field(None, description="对比期值，compare=none 时为 None")
+    # int|float：talent_total 为 int（人才计数）；assess_pass_rate/training_completion_rate
+    # 为 float(0-1 比率)、match_avg_score 为 float(0-100)——方案② 2026-09-02 起 metric 真分发
+    current: int | float = Field(0, description="本期值（计数 int；比率/匹配度 float）")
+    previous: int | float | None = Field(None, description="对比期值，compare=none/全局指标时为 None")
     change_rate: float | None = Field(None, description="变化率(小数)，如 0.15 表示 +15%")
 
 class ExportRequest(BaseModel):
