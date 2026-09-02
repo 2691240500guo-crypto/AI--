@@ -28,22 +28,21 @@ const loadedLessonCourses = new Set()
 const planStatusText = { 0: '未开始', 1: '进行中', 2: '已完成', 3: '已逾期' }
 
 const courseCards = computed(() => {
+  // 合并三处来源：① 在线视频课（video_ready）；② 培训计划拆解的课程；③ 课程库兜底
+  // 修复: 原版"有 video_ready 就 early-return"会完全跳过 plan，导致培训计划课程永远不显示
   const onlineRows = onlineCourses.value.map(buildOnlineCourseCard).filter((course) => course.video_ready)
-  if (onlineRows.length) return onlineRows
-
   const courseMap = new Map(courses.value.map((course) => [course.id, course]))
-  const rows = []
-
+  const planRows = []
   plans.value.forEach((plan) => {
     splitIds(plan.course_ids).forEach((courseId) => {
       const course = courseMap.get(courseId)
       if (!course) return
       const record = (plan.records || []).find((item) => Number(item.course_id) === courseId)
-      rows.push(buildCourseCard(course, plan, record))
+      planRows.push(buildCourseCard(course, plan, record))
     })
   })
-
-  if (rows.length) return rows
+  const merged = [...onlineRows, ...planRows]
+  if (merged.length) return merged
   return courses.value.map((course) => buildCourseCard(course, null, null))
 })
 

@@ -165,6 +165,8 @@ function formatTime(value) {
   const text = String(value).replace('T', ' ')
   return text.length > 16 ? text.slice(0, 16) : text
 }
+
+function go(url) { uni.navigateTo({ url }) }
 </script>
 
 <template>
@@ -243,9 +245,6 @@ function formatTime(value) {
       </view>
     </view>
   </view>
-  <script>
-  function go(url) { uni.navigateTo({ url }) }
-  </script>
 </template>
 
 <style lang="scss" scoped>
