@@ -488,67 +488,66 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resizeAll); dispose
 /* ===== 空状态 ===== */
 .chat-empty { text-align: center; padding: 56px 0 40px; }
 
-/* 顶部徽章：圆形渐变 + 光晕 + 内圆 + 图标 */
+/* 顶部徽章：蓝色球体 + 多层柔和光晕（参考图为纯净蓝球） */
 .hero-badge {
   position: relative;
-  width: 120px; height: 120px;
+  width: 110px; height: 110px;
   margin: 0 auto 22px;
   display: flex; align-items: center; justify-content: center;
 }
-.hero-badge-ring {
-  position: absolute; inset: 0;
+/* 外层柔和光晕（向四周扩散） */
+.hero-badge::before {
+  content: '';
+  position: absolute;
+  width: 220px; height: 220px;
   border-radius: 50%;
-  background: conic-gradient(from 180deg, #534ab7, #378add, #7f77dd, #534ab7);
-  filter: blur(14px);
-  opacity: 0.55;
-  animation: hero-rotate 8s linear infinite;
-}
-.hero-badge-orb {
-  position: absolute; inset: 6px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 30% 30%, rgba(255,255,255,0.35), transparent 60%),
-              linear-gradient(135deg, #534ab7 0%, #378add 100%);
-  box-shadow: inset 0 -6px 14px rgba(0,0,0,0.18);
+  background: radial-gradient(circle, rgba(59, 130, 246, 0.35) 0%, rgba(59, 130, 246, 0.12) 40%, transparent 70%);
+  z-index: 0;
+  pointer-events: none;
 }
 .hero-badge-inner {
   position: relative; z-index: 1;
-  width: 84px; height: 84px;
+  width: 96px; height: 96px;
   border-radius: 50%;
-  background: linear-gradient(135deg, #534ab7 0%, #378add 100%);
+  background:
+    radial-gradient(circle at 32% 28%, rgba(255,255,255,0.55) 0%, rgba(255,255,255,0) 45%),
+    radial-gradient(circle at 65% 75%, rgba(255,255,255,0.18) 0%, rgba(255,255,255,0) 50%),
+    linear-gradient(160deg, #60a5fa 0%, #3b82f6 55%, #2563eb 100%);
   display: flex; align-items: center; justify-content: center;
-  box-shadow: 0 8px 24px rgba(83, 74, 183, 0.35), inset 0 2px 4px rgba(255,255,255,0.25);
-}
-@keyframes hero-rotate {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  box-shadow:
+    0 12px 28px rgba(37, 99, 235, 0.35),
+    0 0 50px rgba(59, 130, 246, 0.45),
+    inset 0 -8px 18px rgba(29, 78, 216, 0.4),
+    inset 0 3px 6px rgba(255, 255, 255, 0.35);
 }
 
-/* AI Agent 标签 */
+/* AI Agent 标签（蓝色调统一） */
 .hero-tag {
   display: inline-flex; align-items: center; gap: 6px;
   padding: 6px 14px; border-radius: 999px;
-  background: linear-gradient(90deg, #ecf5ff 0%, #f0eaff 100%);
-  border: 1px solid #d6e4ff;
-  color: #534ab7;
+  background: linear-gradient(90deg, #eff6ff 0%, #e0e7ff 100%);
+  border: 1px solid #c7d2fe;
+  color: #2563eb;
   font-size: 12px; font-weight: 600;
   letter-spacing: 0.4px;
   margin-bottom: 14px;
 }
 .hero-tag-dot {
   width: 6px; height: 6px; border-radius: 50%;
-  background: #534ab7;
-  box-shadow: 0 0 0 0 rgba(83, 74, 183, 0.6);
+  background: #3b82f6;
+  box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.6);
   animation: hero-pulse 2s ease-out infinite;
 }
 @keyframes hero-pulse {
-  0% { box-shadow: 0 0 0 0 rgba(83, 74, 183, 0.6); }
-  100% { box-shadow: 0 0 0 8px rgba(83, 74, 183, 0); }
+  0% { box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.6); }
+  100% { box-shadow: 0 0 0 8px rgba(59, 130, 246, 0); }
 }
 
+/* 标题渐变：纯净蓝紫过渡（去黑色，更纯净） */
 .hero-title {
   font-size: 28px; font-weight: 700;
   margin: 0 0 8px;
-  background: linear-gradient(135deg, #1f2328 0%, #534ab7 50%, #378add 100%);
+  background: linear-gradient(135deg, #1e40af 0%, #3b82f6 50%, #6366f1 100%);
   -webkit-background-clip: text;
   background-clip: text;
   -webkit-text-fill-color: transparent;
