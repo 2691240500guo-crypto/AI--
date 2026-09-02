@@ -3,25 +3,34 @@ import { computed, onMounted, ref } from 'vue'
 import { onPullDownRefresh } from '@dcloudio/uni-app'
 import {
   currentTalentId,
+  getCourseVideoStreamUrl,
   listCourseLessons,
   listMyPlans,
+  listOnlineCourses,
   listTrainingCourses,
+  reportOnlineCourseProgress,
   updateLearningProgress
 } from '@/api'
 
 const loading = ref(false)
 const lessonLoading = ref(false)
 const updating = ref(false)
+const onlineCourses = ref([])
 const plans = ref([])
 const courses = ref([])
 const selectedKey = ref('')
 const selectedLessonId = ref(0)
 const watchSecond = ref(0)
+const videoDurationSecond = ref(0)
+const lastReportSecond = ref(0)
 const loadedLessonCourses = new Set()
 
 const planStatusText = { 0: '未开始', 1: '进行中', 2: '已完成', 3: '已逾期' }
 
 const courseCards = computed(() => {
+  const onlineRows = onlineCourses.value.map(buildOnlineCourseCard).filter((course) => course.video_ready)
+  if (onlineRows.length) return onlineRows
+
   const courseMap = new Map(courses.value.map((course) => [course.id, course]))
   const rows = []
 
@@ -59,21 +68,26 @@ const activeLesson = computed(() => {
 })
 
 const headerSub = computed(() => {
-  if (!summary.value.total) return '课程数据来自 P5 培训接口'
-  return `${summary.value.total} 门课程 · 已学 ${formatMinutes(summary.value.learnedMinutes)}`
+  if (!summary.value.total) return '课程数据来自在线学习接口'
+  const source = courseCards.value.some((course) => course.source === 'online') ? '在线视频课程' : 'P5 培训接口'
+  return `${source} · ${summary.value.total} 门课程 · 已学 ${formatMinutes(summary.value.learnedMinutes)}`
 })
 
-const canTrackProgress = computed(() => Boolean(activeCourse.value?.plan_id))
+const canTrackProgress = computed(() => Boolean(activeCourse.value?.source === 'online' || activeCourse.value?.plan_id))
 
 async function load() {
   loading.value = true
   loadedLessonCourses.clear()
   try {
-    const [planResult, courseResult] = await Promise.allSettled([
+    const [onlineResult, planResult, courseResult] = await Promise.allSettled([
+      listOnlineCourses(),
       listMyPlans(),
       listTrainingCourses({ page: 1, page_size: 200, status: 1 })
     ])
 
+    onlineCourses.value = onlineResult.status === 'fulfilled'
+      ? (onlineResult.value.data?.items || []).map(normalizeOnlineCourse)
+      : []
     plans.value = planResult.status === 'fulfilled' ? (planResult.value.data || []) : []
     courses.value = courseResult.status === 'fulfilled'
       ? (courseResult.value.data?.items || []).map(normalizeCourse)
@@ -106,6 +120,69 @@ function normalizeCourse(course) {
   }
 }
 
+function normalizeOnlineCourse(course) {
+  const videoId = Number(course.video_id)
+  const duration = Math.max(
+    0,
+    Math.floor(Number(course.duration) || Number(course.progress?.duration) || 0)
+  )
+
+  return {
+    ...course,
+    id: Number(course.id),
+    video_id: videoId,
+    title: course.title || `课程#${course.id}`,
+    description: course.description || '',
+    duration,
+    video_ready: Boolean(course.video_ready && videoId)
+  }
+}
+
+function buildOnlineCourseCard(course) {
+  const progressInfo = course.progress || {}
+  const position = Math.max(0, Math.floor(Number(progressInfo.position) || 0))
+  const duration = Math.max(
+    Number(course.duration) || 0,
+    Math.floor(Number(progressInfo.duration) || 0)
+  )
+  const progress = clampProgress(progressInfo.percent || secondsToProgress(position, duration))
+  const lesson = {
+    id: Number(course.video_id),
+    title: course.title,
+    content: course.description || '',
+    file_url: getCourseVideoStreamUrl(course.video_id),
+    duration: duration ? Math.ceil(duration / 60) : 0,
+    duration_seconds: duration,
+    position,
+    sort: 1,
+    source: 'online'
+  }
+
+  return {
+    source: 'online',
+    key: `online-${course.id}`,
+    id: Number(course.id),
+    video_id: Number(course.video_id),
+    video_ready: course.video_ready,
+    title: course.title,
+    category: '在线视频',
+    cover: '',
+    intro: course.description || '暂无课程简介',
+    score: duration ? Math.max(0.1, Number((duration / 3600).toFixed(1))) : 0,
+    study_time_text: duration ? formatMinutes(Math.ceil(duration / 60)) : '未配置时长',
+    lesson_count: 1,
+    lessons: [lesson],
+    plan_id: null,
+    plan_title: '在线学习课程',
+    plan_status: null,
+    progress,
+    learned_minutes: Math.ceil(position / 60),
+    last_lesson_id: lesson.id,
+    last_lesson_title: position ? lesson.title : '',
+    status_label: progress >= 100 ? '已完成' : progress > 0 ? '学习中' : '未开始'
+  }
+}
+
 function normalizeLessons(lessons = []) {
   return lessons
     .map((lesson, index) => ({
@@ -119,6 +196,11 @@ function normalizeLessons(lessons = []) {
     }))
     .filter((lesson) => lesson.id)
     .sort((a, b) => a.sort - b.sort || a.id - b.id)
+}
+
+function secondsToProgress(position, duration) {
+  if (!duration) return 0
+  return Math.round(Math.min(position, duration) * 100 / duration)
 }
 
 function buildCourseCard(course, plan, record) {
@@ -173,6 +255,8 @@ async function selectCourse(course) {
   selectedKey.value = course.key
   selectedLessonId.value = pickStartLesson(course)?.id || 0
   watchSecond.value = 0
+  videoDurationSecond.value = 0
+  lastReportSecond.value = 0
   await ensureLessons(course)
   syncSelection()
 }
@@ -180,9 +264,12 @@ async function selectCourse(course) {
 function selectLesson(lesson) {
   selectedLessonId.value = lesson.id
   watchSecond.value = 0
+  videoDurationSecond.value = 0
+  lastReportSecond.value = 0
 }
 
 async function ensureLessons(course) {
+  if (course?.source === 'online') return
   if (!course?.id || course.lessons.length || loadedLessonCourses.has(course.id)) return
   lessonLoading.value = true
   try {
@@ -202,7 +289,10 @@ function patchCourseLessons(courseId, lessons) {
 }
 
 function handleTimeUpdate(event) {
-  watchSecond.value = Math.floor(event.detail?.currentTime || 0)
+  const detail = event.detail || {}
+  watchSecond.value = Math.floor(detail.currentTime || 0)
+  if (detail.duration) videoDurationSecond.value = Math.floor(detail.duration)
+  queueOnlineProgressReport()
 }
 
 function handleVideoError() {
@@ -211,21 +301,74 @@ function handleVideoError() {
 
 async function handleVideoEnded() {
   if (!activeCourse.value || !activeLesson.value || !canTrackProgress.value) return
-  await saveProgress(activeCourse.value, activeLesson.value)
+  const duration = resolveLessonSeconds(activeCourse.value, activeLesson.value)
+  await saveProgress(activeCourse.value, activeLesson.value, 100, totalLessonMinutes(activeCourse.value), {
+    position: duration,
+    duration
+  })
 }
 
 async function markLessonDone() {
   if (!activeCourse.value || !activeLesson.value) return
-  await saveProgress(activeCourse.value, activeLesson.value)
+  const duration = resolveLessonSeconds(activeCourse.value, activeLesson.value)
+  await saveProgress(activeCourse.value, activeLesson.value, undefined, undefined, {
+    position: duration || watchSecond.value,
+    duration
+  })
 }
 
 async function markCourseDone() {
   if (!activeCourse.value || !activeLessons.value.length) return
   const lastLesson = activeLessons.value[activeLessons.value.length - 1]
-  await saveProgress(activeCourse.value, lastLesson, 100, totalLessonMinutes(activeCourse.value))
+  const duration = resolveLessonSeconds(activeCourse.value, lastLesson)
+  await saveProgress(activeCourse.value, lastLesson, 100, totalLessonMinutes(activeCourse.value), {
+    position: duration || watchSecond.value,
+    duration
+  })
 }
 
-async function saveProgress(course, lesson, targetProgress, targetMinutes) {
+async function saveProgress(course, lesson, targetProgress, targetMinutes, timing = {}) {
+  if (course.source === 'online') {
+    if (updating.value) return
+
+    let duration = Math.max(
+      0,
+      Math.floor(Number(timing.duration) || resolveLessonSeconds(course, lesson) || watchSecond.value || 0)
+    )
+    let position = Math.max(
+      0,
+      Math.floor(Number(timing.position) || watchSecond.value || duration)
+    )
+    if (targetProgress >= 100 && !duration) {
+      duration = Math.max(position, 1)
+      position = duration
+    }
+
+    updating.value = true
+    try {
+      const res = await reportOnlineCourseProgress({
+        course_id: course.id,
+        position: duration ? Math.min(position, duration) : position,
+        duration
+      })
+      const data = res.data || {}
+      const progress = clampProgress(data.percent ?? targetProgress ?? secondsToProgress(position, duration))
+      patchOnlineCourseProgress(course.id, {
+        position: duration ? Math.min(position, duration) : position,
+        duration,
+        percent: progress,
+        completed: Number(data.completed ?? (progress >= 100 ? 1 : 0)),
+        last_watch_at: new Date().toISOString()
+      })
+      if (!timing.silent) {
+        uni.showToast({ title: progress >= 100 ? '课程已完成' : '进度已更新', icon: 'success' })
+      }
+    } finally {
+      updating.value = false
+    }
+    return
+  }
+
   if (!course.plan_id) {
     uni.showToast({ title: '暂无学习计划，进度不记录', icon: 'none' })
     return
@@ -259,6 +402,29 @@ async function saveProgress(course, lesson, targetProgress, targetMinutes) {
   }
 }
 
+function queueOnlineProgressReport() {
+  if (activeCourse.value?.source !== 'online' || !activeLesson.value || updating.value) return
+  if (watchSecond.value < 5 || watchSecond.value - lastReportSecond.value < 15) return
+  lastReportSecond.value = watchSecond.value
+  saveProgress(activeCourse.value, activeLesson.value, undefined, undefined, {
+    position: watchSecond.value,
+    duration: resolveLessonSeconds(activeCourse.value, activeLesson.value),
+    silent: true
+  }).catch(() => {})
+}
+
+function resolveLessonSeconds(course, lesson) {
+  return Math.max(
+    0,
+    Math.floor(
+      Number(videoDurationSecond.value)
+      || Number(lesson?.duration_seconds)
+      || Number(course?.duration)
+      || 0
+    )
+  )
+}
+
 function patchRecord(planId, courseId, patch) {
   plans.value = plans.value.map((plan) => {
     if (Number(plan.id) !== Number(planId)) return plan
@@ -268,6 +434,19 @@ function patchRecord(planId, courseId, patch) {
     if (index >= 0) records[index] = { ...records[index], ...nextRecord }
     else records.push(nextRecord)
     return { ...plan, records }
+  })
+}
+
+function patchOnlineCourseProgress(courseId, patch) {
+  onlineCourses.value = onlineCourses.value.map((course) => {
+    if (Number(course.id) !== Number(courseId)) return course
+    return {
+      ...course,
+      progress: {
+        ...(course.progress || {}),
+        ...patch
+      }
+    }
   })
 }
 
@@ -308,7 +487,7 @@ function selectNextLesson() {
 }
 
 function statusColor(course) {
-  if (!course.plan_id) return '#64748b'
+  if (!course.plan_id && course.source !== 'online') return '#64748b'
   if (course.progress >= 100) return '#16a34a'
   if (course.progress > 0) return '#2563eb'
   return '#f59e0b'
@@ -371,7 +550,7 @@ onPullDownRefresh(async () => {
     <view v-if="loading" class="state">加载中...</view>
     <view v-else-if="!courseCards.length" class="empty">
       <text class="empty-title">暂无可学习课程</text>
-      <text class="empty-hint">请先在管理端创建课程，并给当前人才分配学习计划</text>
+      <text class="empty-hint">请先在管理端上传视频并生成课程，或给当前人才分配学习计划</text>
     </view>
 
     <template v-else>
@@ -398,7 +577,7 @@ onPullDownRefresh(async () => {
               <text class="course-intro">{{ course.intro }}</text>
               <view class="meta">
                 <text>{{ course.lessons.length || course.lesson_count }} 课节</text>
-                <text>{{ course.score }} 学时</text>
+                <text>{{ course.study_time_text || course.score + ' 学时' }}</text>
                 <text v-if="course.plan_id">{{ planStatusLabel(course.plan_status) }}</text>
               </view>
               <view class="progress-line">
@@ -426,8 +605,10 @@ onPullDownRefresh(async () => {
 
         <video
           v-if="activeLesson && activeLesson.file_url"
+          :key="activeLesson.file_url"
           class="video"
           :src="activeLesson.file_url"
+          :initial-time="activeLesson.position || 0"
           controls
           @timeupdate="handleTimeUpdate"
           @ended="handleVideoEnded"
