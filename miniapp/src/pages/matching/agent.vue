@@ -97,7 +97,7 @@ import { ref } from 'vue'
 import { onLoad } from '@dcloudio/uni-app'
 import request from '@/utils/request'
 
-const DIM = { skill: '技能', vector: '语义', years: '经验', quality: '素质' }
+const DIM = { skill: '技能', degree: '学历', vector: '语义', years: '经验', quality: '素质' }
 
 const queryText = ref('')
 const loading = ref(false)
