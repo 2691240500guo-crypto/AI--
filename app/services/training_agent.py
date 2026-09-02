@@ -20,6 +20,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.dao.training import CourseDAO
+from app.dao.user import UserDAO
 from app.utils.llm import get_llm
 from app.utils.logger import logger
 
@@ -309,12 +310,18 @@ class TrainingAgentService:
         # 推送
         if push:
             try:
-                MessageService.send(
-                    db, type_code="train", title=title,
-                    content=f"已为你生成个性化培训计划（含 {len(course_ids)} 门课程，"
-                            f"针对短板与适配岗位 {position_names or '通用能力'}）",
-                    receiver_ids=[talent_id], biz_type="training", biz_id=plan.id,
-                )
+                # 接收人统一按 user_id（sys_user.talent_id 反查），消息查询端用 user_id 匹配；
+                # 直接发 talent_id 会导致员工收不到（user_id != talent_id）。
+                owner = UserDAO.get_by(db, talent_id=talent_id, status=1)
+                if owner is None:
+                    logger.warning("[train] 培训计划已生成，但 talent_id=%s 无关联登录账号，跳过消息推送", talent_id)
+                else:
+                    MessageService.send(
+                        db, type_code="train", title=title,
+                        content=f"已为你生成个性化培训计划（含 {len(course_ids)} 门课程，"
+                                f"针对短板与适配岗位 {position_names or '通用能力'}）",
+                        receiver_ids=[owner.id], biz_type="training", biz_id=plan.id,
+                    )
             except Exception as exc:  # noqa: BLE001
                 logger.warning("[train] 培训消息推送失败（不影响计划）：%s", exc)
 

@@ -228,7 +228,7 @@ def submit_exam(eid: int, body: ExamSubmit, talent_id: int = Query(...),
 
 
 # ---------- Agent④ 推荐（TR-3）----------
-@router.post("/agent/preview")
+@router.post("/agent/preview", dependencies=[Depends(require_client("admin"))])
 def agent_preview(body: AgentRecommend, db: Session = Depends(get_db)):
     """智能培训 Agent 预览：读短板 + 岗位需求 → 选课，返回课程清单（不落库、不发消息）。"""
     res = TrainingAgentService.preview(
@@ -357,7 +357,7 @@ def sync_lessons(cid: int, body: LessonSyncIn, db: Session = Depends(get_db)):
     return ok([LessonOut.model_validate(l) for l in rows])
 
 
-@router.post("/plans/{pid}/push")
+@router.post("/plans/{pid}/push", dependencies=[Depends(require_client("admin"))])
 def push_plan(pid: int, db: Session = Depends(get_db)):
     """对已生成的培训计划手动推送消息（不重建计划）。"""
     from app.services.message_service import MessageService
