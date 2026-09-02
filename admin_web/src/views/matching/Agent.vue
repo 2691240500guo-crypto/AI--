@@ -483,20 +483,20 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resizeAll); dispose
 /* ===== 空状态 ===== */
 .chat-empty { text-align: center; padding: 56px 0 40px; }
 
-/* ===== 顶部徽章：深空质感球（高端简洁风） ===== */
+/* ===== 顶部徽章：清爽蓝球（与 Element Plus 整体匹配） ===== */
 .hero-badge {
   position: relative;
   width: 88px; height: 88px;
   margin: 0 auto 20px;
   display: flex; align-items: center; justify-content: center;
 }
-/* 极淡外晕（克制的氛围光） */
+/* 柔和外晕（蓝色氛围光） */
 .hero-badge::before {
   content: '';
   position: absolute;
-  width: 150px; height: 150px;
+  width: 140px; height: 140px;
   border-radius: 50%;
-  background: radial-gradient(circle, rgba(59, 130, 246, 0.16) 0%, rgba(59, 130, 246, 0.05) 45%, transparent 70%);
+  background: radial-gradient(circle, rgba(64, 158, 255, 0.22) 0%, rgba(64, 158, 255, 0.07) 45%, transparent 70%);
   z-index: 0;
   pointer-events: none;
 }
@@ -505,37 +505,36 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resizeAll); dispose
   width: 72px; height: 72px;
   border-radius: 50%;
   background:
-    radial-gradient(circle at 32% 26%, rgba(255,255,255,0.32) 0%, rgba(255,255,255,0) 42%),
-    linear-gradient(150deg, #3b4a63 0%, #1c2536 55%, #0f1626 100%);
+    radial-gradient(circle at 32% 26%, rgba(255,255,255,0.65) 0%, rgba(255,255,255,0) 45%),
+    linear-gradient(150deg, #66b1ff 0%, #409eff 60%, #337ecc 100%);
   display: flex; align-items: center; justify-content: center;
   box-shadow:
-    0 10px 24px rgba(15, 23, 42, 0.28),
-    inset 0 1px 2px rgba(255, 255, 255, 0.18),
-    inset 0 -6px 12px rgba(0, 0, 0, 0.35);
-  border: 1px solid rgba(255, 255, 255, 0.08);
+    0 8px 20px rgba(64, 158, 255, 0.28),
+    inset 0 1px 2px rgba(255, 255, 255, 0.5),
+    inset 0 -5px 10px rgba(51, 126, 204, 0.3);
 }
 
-/* AI Agent 标签：极简细边框 */
+/* AI Agent 标签：浅蓝胶囊 */
 .hero-tag {
   display: inline-block;
-  padding: 5px 12px; border-radius: 999px;
-  background: transparent;
-  border: 1px solid #d9dee5;
-  color: #5f6b7a;
-  font-size: 11px; font-weight: 500;
+  padding: 5px 14px; border-radius: 999px;
+  background: #ecf5ff;
+  border: 1px solid #d9ecff;
+  color: #409eff;
+  font-size: 11px; font-weight: 600;
   letter-spacing: 1.5px;
   text-transform: uppercase;
   margin-bottom: 16px;
 }
 
-/* 标题：深色 + 大留白（高端简洁核心） */
+/* 标题：深色正文 + 大留白 */
 .hero-title {
   font-size: 27px; font-weight: 600;
   margin: 0 0 10px;
-  color: #101828;
+  color: #303133;
   letter-spacing: 1px;
 }
-.hero-subtitle { font-size: 13px; color: #98a2b3; margin: 0 0 32px; line-height: 1.7; letter-spacing: 0.3px; }
+.hero-subtitle { font-size: 13px; color: #909399; margin: 0 0 32px; line-height: 1.7; letter-spacing: 0.3px; }
 .hint-block { margin-top: 28px; text-align: left; }
 .hint-label { font-size: 12px; font-weight: 600; color: #6e7681; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
 .cap-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
