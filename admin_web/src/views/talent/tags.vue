@@ -1,4 +1,4 @@
-<!-- hq新增内容 - 人才档案批次2.2 + 批次A [tags.vue]
+﻿<!-- hq新增内容 - 人才档案批次2.2 + 批次A [tags.vue]
      标签字典管理：按 type 分组 + 增/改/删 + 启用/停用切换。
      批次A：7 大类 + 「绑定人才」列（人数 + 悬浮人名）。
      后端：/api/v1/talent-dicts（见 app/routers/talent_dict.py）。 -->
@@ -34,6 +34,7 @@ const TYPE_LABEL = Object.fromEntries(TYPES.map((t) => [t.code, t.label]))
 // 之前 query.type='fit' 会传 category='fit' 过滤，云库无 fit 类 → 全 0 显示
 const query = reactive({ type: '', keyword: '' })
 const rows = ref([])
+const allDicts = ref([])
 const loading = ref(false)
 
 const dialog = reactive({ visible: false, editing: false })
@@ -115,7 +116,7 @@ const grouped = computed(() => {
 function goTalentsByTag(row) {
   // 人才列表页支持 ?tag=xxx 参数过滤（后端 keyword 暂不支持按标签，
   // 这里仅跳列表 + 提示，真正筛选由后端 list 接口 tag 参数扩展——批次A 先跳详情筛选）
-  router.push({ path: '/talent', query: { tag: row.code } })
+  router.push({ path: '/talent', query: { tag: row.name } })
 }
 
 onMounted(load)

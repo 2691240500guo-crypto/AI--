@@ -19,6 +19,10 @@ class TalentReportOut(ORMModel):
     shortcomings: Any = []
     fit_positions: Any = []
     potential: str | None = None
+    # 袁文武 2026-09-02：AI 解析新增三大板块
+    ability_level: str | None = None
+    experience_summary: str | None = None
+    composite_score: int | None = None
     summary_report: str | None = None
     vector_id: str | None = None
     created_at: datetime

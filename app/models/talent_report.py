@@ -40,6 +40,10 @@ class TalentReport(Base):
     shortcomings: Mapped[str | None] = mapped_column(Text, default=None, comment="JSON list")
     fit_positions: Mapped[str | None] = mapped_column(Text, default=None, comment="JSON list")
     potential: Mapped[str | None] = mapped_column(String(16), default=None, comment="P5/P6/P7")
+    # 袁文武 2026-09-02：AI 解析新增三大板块
+    ability_level: Mapped[str | None] = mapped_column(String(32), default=None, comment="能力等级，如 P5初级/P6中级/P7高级/P8专家")
+    experience_summary: Mapped[str | None] = mapped_column(Text, default=None, comment="从业经验总结（2-3 句）")
+    composite_score: Mapped[int | None] = mapped_column(default=None, comment="综合评分 0-100")
     # 评估总结（自然语言一段）
     summary_report: Mapped[str | None] = mapped_column(Text, default=None)
 

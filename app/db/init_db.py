@@ -205,11 +205,24 @@ def seed(db: Session) -> None:
 
 
 def init_db() -> None:
-    create_tables()
+    """建表 + 播种数据。数据库不可用时打印警告，不阻塞服务启动。
+    - 修改人：袁文武  修改时间：2026-09-02
+    - 场景：远程 MySQL 网络波动/超时，不应导致整个后端起不来。
+    """
+    import logging
+    logger = logging.getLogger("init_db")
+    try:
+        create_tables()
+    except Exception as e:
+        logger.warning("建表失败（数据库可能不可用），跳过初始化：%s", e)
+        return
     db = SessionLocal()
     try:
         seed(db)
         seed_assessment(db)
+    except Exception as e:
+        logger.warning("播种数据失败：%s", e)
+        db.rollback()
     finally:
         db.close()
 

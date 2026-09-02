@@ -106,21 +106,45 @@ export function fetchResumeBlob(id, inline = false) {
   })
 }
 // 便捷：下载为文件（取 blob → <a download>）
+// 修改人：袁文武  修改时间：2026-09-02
+// 优化：根据 blob 实际 content-type 自动匹配文件扩展名，避免 .pdf 后缀的 docx 文件
 export function downloadResume(id, filename) {
   return fetchResumeBlob(id, false).then((blob) => {
+    const ext = _extFromBlob(blob)
+    const fname = filename || 'resume'
+    const finalName = fname.includes('.') ? fname : `${fname}.${ext}`
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = filename || 'resume.pdf'
+    a.download = finalName
     document.body.appendChild(a)
     a.click()
     a.remove()
     URL.revokeObjectURL(url)
   })
 }
-// 便捷：在线预览（返回 objectURL）
+// 便捷：在线预览（返回 { url, mime } 供调用方按类型渲染）
 export function previewResume(id) {
-  return fetchResumeBlob(id, true).then((blob) => URL.createObjectURL(blob))
+  return fetchResumeBlob(id, true).then((blob) => {
+    const mime = blob.type || 'application/pdf'
+    return { url: URL.createObjectURL(blob), mime }
+  })
+}
+
+// 根据 blob MIME 推断文件扩展名
+function _extFromBlob(blob) {
+  const mime = (blob.type || '').toLowerCase()
+  const map = {
+    'application/pdf': 'pdf',
+    'application/msword': 'doc',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document': 'docx',
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+    'image/gif': 'gif',
+    'image/bmp': 'bmp',
+  }
+  return map[mime] || 'pdf'
 }
 
 // ============ hq+  批次C：人才去重（上传弹框人工确认后覆盖） ============
@@ -198,9 +222,9 @@ export function importWord(file) {
 export function talentStats() {
   return http.get('/talent/stats')
 }
-// 一键导出 .xlsx（blob）
-export function exportTalents() {
-  return http.get('/talent/export', { responseType: 'blob', timeout: 120000 })
+// 一键导出 .xlsx（blob），支持多维筛选条件
+export function exportTalents(params) {
+  return http.get('/talent/export', { params, responseType: 'blob', timeout: 120000 })
 }
 
 // ---- 证书管理 ----

@@ -13,8 +13,6 @@
         <el-button type="warning" :loading="repairing" @click="onRepair">
           <el-icon style="margin-right:4px"><MagicStick /></el-icon>一键标准化整改
         </el-button>
-        <el-button @click="excelDlg.visible = true">Excel 导入</el-button>
-        <el-button @click="wordDlg.visible = true">Word 导入</el-button>
         <el-button @click="onStats">多维统计</el-button>
         <el-button @click="onExpiring">过期提醒</el-button>
         <el-button type="success" :loading="exporting" @click="onExport">导出 Excel</el-button>
@@ -175,7 +173,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { MagicStick, Search, UploadFilled } from '@element-plus/icons-vue'
 import {
   governanceScan, governanceRepair, findDuplicates, mergeTalents,
-  importExcel, importWord, talentStats, exportTalents, scanExpiring,
+  talentStats, exportTalents, scanExpiring,
 } from '@/api/talent'
 
 // ---------- 治理扫描 ----------
