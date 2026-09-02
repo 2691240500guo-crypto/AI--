@@ -27,7 +27,9 @@ POSITION_VEC_COLLECTION = "position_vec"
 TALENT_VEC_COLLECTION = "talent_vec"
 
 # 默认匹配规则权重（skill/degree/years/quality）
-DEFAULT_RULE = {"skill": 0.4, "degree": 0.2, "years": 0.2, "quality": 0.2}
+# 精度优化 2026-09-02：skill 升到 0.5（关键词命中话语权），degree/years 各降 0.05，
+# 避免"学历高/年限长但技能完全不对"的人挤进前排
+DEFAULT_RULE = {"skill": 0.5, "degree": 0.15, "years": 0.15, "quality": 0.2}
 
 # 储备预警分数线
 RESERVE_SCORE_THRESHOLD = 80.0

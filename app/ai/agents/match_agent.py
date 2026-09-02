@@ -180,26 +180,39 @@ class MatchAgent:
 
     @classmethod
     def _years_score(cls, talent_years: int, require_years: int) -> float:
-        """经验维度：达标 90，超出加分（封顶 100），不足按差额扣分，未知/无要求 75。"""
+        """经验维度：达标 90，超出加分（封顶 100），不足按差额 15/年 递减（最低 20）。
+
+        精度优化 2026-09-02：扣分斜率 10→15、下限 30→20，把"差一年"的人才明显刷低，
+        避免仅凭年限优势挤进前排。
+        """
         if not require_years:
             return 75.0
         if talent_years <= 0:
             return 65.0
         if talent_years >= require_years:
             return min(100.0, 90.0 + (talent_years - require_years) * 5)
-        return max(30.0, 90.0 - (require_years - talent_years) * 10)
+        return max(20.0, 90.0 - (require_years - talent_years) * 15)
 
     @classmethod
     def _skill_score(cls, talent_skills: list[str], skill_standards: list[str],
                      similarity: float) -> float:
-        """技能维度：向量相似度 ×0.6 + 技能标准命中率 ×0.4 → 0-100。"""
+        """技能维度：向量相似度×0.3 + 技能标准命中率×0.7 → 0-100。
+
+        精度优化 2026-09-02：
+        - 关键词命中权重提到 0.7，语义相似降到 0.3（压制"语义像但技能对不上"的假阳性）
+        - 零命中不再吃 30 分兜底，只保留 0.3×sim（≤30），与有命中明显拉开差距
+        """
         sim_score = min(100.0, similarity * 100)
         if not skill_standards:
             return round(sim_score, 2)
         low = [s.lower() for s in talent_skills]
-        hit = sum(1 for s in skill_standards if any(s.lower() in t or t in s.lower() for t in low))
-        hit_score = min(100.0, hit / len(skill_standards) * 100 + 40) if hit else 30.0
-        return round(sim_score * 0.6 + hit_score * 0.4, 2)
+        covered = [s for s in skill_standards if any(s.lower() in t or t in s.lower() for t in low)]
+        if not covered:
+            # 零命中：保留少量语义分即可，避免假阳性挤进 top_k
+            return round(sim_score * 0.3, 2)
+        coverage = len(covered) / len(skill_standards)
+        hit_score = min(100.0, 40.0 + coverage * 60.0)
+        return round(sim_score * 0.3 + hit_score * 0.7, 2)
 
     @classmethod
     def _quality_score(cls, similarity: float, talent_text: str) -> float:
