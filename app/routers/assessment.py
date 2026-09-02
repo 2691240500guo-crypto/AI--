@@ -64,6 +64,25 @@ def _raise_business_error(exc: Exception) -> None:
     raise exc
 
 
+def _result_detail_outputs(result, details):
+    """把固化在试卷中的标准答案带到交卷结果，供学生复盘。"""
+    links = {link.question_id: link for link in result.paper.question_links}
+    return [ResultDetailOut(
+        id=item.id,
+        result_id=item.result_id,
+        question_id=item.question_id,
+        user_answer=item.user_answer,
+        is_correct=item.is_correct,
+        score=item.score,
+        correct_answer=links[item.question_id].answer_snapshot if item.question_id in links else None,
+        question_content=links[item.question_id].content_snapshot if item.question_id in links else None,
+        question_type=links[item.question_id].type_snapshot if item.question_id in links else None,
+        options=links[item.question_id].options_snapshot if item.question_id in links else None,
+        dimension=links[item.question_id].dimension_snapshot if item.question_id in links else None,
+        question_score=links[item.question_id].score_snapshot if item.question_id in links else None,
+    ) for item in details]
+
+
 @router.get("/banks", dependencies=[Depends(require_permission("assessment:list"))])
 def list_banks(
     keyword: str | None = None,
@@ -366,6 +385,8 @@ def list_todo(user: User = Depends(require_client("app")), db: Session = Depends
         **AssessmentResultOut.model_validate(result).model_dump(),
         talent_name=user.nickname,
         paper_title=result.paper.title,
+        paper_total_score=result.paper.total_score,
+        question_count=len(result.paper.question_links),
     ) for result in rows])
 
 
@@ -373,6 +394,44 @@ def list_todo(user: User = Depends(require_client("app")), db: Session = Depends
 def answer_by_paper(paper_id: int, user: User = Depends(require_client("app")), db: Session = Depends(get_db)):
     try:
         return ok(AnswerSnapshotOut.model_validate(AssessmentService.get_answer_by_paper(db, paper_id, user)))
+    except Exception as exc:
+        _raise_business_error(exc)
+
+
+@router.get("/my-results", dependencies=[Depends(get_current_user)])
+def list_my_results(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """用户端只读取自己的历史测评，避免暴露管理端成绩查询权限。"""
+    rows, _ = AssessmentService.list_results(
+        db, talent_id=user.id, paper_id=None, batch_id=None,
+        status=None, page=1, page_size=200,
+    )
+    return ok([AssessmentResultListOut(
+        **AssessmentResultOut.model_validate(result).model_dump(),
+        talent_name=talent_name,
+        paper_title=paper_title,
+        paper_total_score=result.paper.total_score,
+        question_count=len(result.paper.question_links),
+        batch_no=batch_no,
+        batch_name=batch_name,
+    ) for result, talent_name, paper_title, batch_no, batch_name in rows])
+
+
+@router.get("/my-result/{result_id}", dependencies=[Depends(get_current_user)])
+def get_my_result(result_id: int, user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """用户端读取自己的成绩明细，供交卷后查看结果页。"""
+    try:
+        detail = AssessmentService.get_result_detail(db, result_id, user)
+        result = AssessmentResultListOut(
+            **AssessmentResultOut.model_validate(detail["result"]).model_dump(),
+            talent_name=detail["talent_name"],
+            paper_title=detail["paper_title"],
+            paper_total_score=detail["result"].paper.total_score,
+            question_count=len(detail["result"].paper.question_links),
+        )
+        return ok({
+            "result": result,
+            "details": _result_detail_outputs(detail["result"], detail["details"]),
+        })
     except Exception as exc:
         _raise_business_error(exc)
 
@@ -421,7 +480,7 @@ def submit_result(result_id: int, body: AnswerSaveRequest | None = Body(default=
         db.commit()
         return ok(SubmitOut(
             result=AssessmentResultOut.model_validate(result),
-            details=[ResultDetailOut.model_validate(detail) for detail in details],
+            details=_result_detail_outputs(result, details),
         ))
     except Exception as exc:
         db.rollback()
@@ -532,7 +591,7 @@ def get_result(result_id: int, db: Session = Depends(get_db)):
         )
         return ok({
             "result": result,
-            "details": [ResultDetailOut.model_validate(item) for item in detail["details"]],
+            "details": _result_detail_outputs(detail["result"], detail["details"]),
             "events": [AnswerEventOut.model_validate(item) for item in detail["events"]],
         })
     except Exception as exc:

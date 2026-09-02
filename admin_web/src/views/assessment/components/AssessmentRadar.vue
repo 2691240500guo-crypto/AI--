@@ -55,7 +55,14 @@ function renderChart() {
   chart.resize()
 }
 
-function resize() { chart?.resize() }
+function resize() {
+  // 能力报告位于隐藏的 Tab 中，首次挂载时没有尺寸；显示后需要重新初始化实例。
+  if (!chart) {
+    renderChart()
+    return
+  }
+  chart.resize()
+}
 
 watch(() => props.dimensions, () => nextTick(renderChart), { deep: true })
 onMounted(() => {

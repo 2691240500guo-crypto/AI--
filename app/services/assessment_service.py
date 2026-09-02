@@ -506,6 +506,8 @@ class AssessmentService:
             "result_id": result.id,
             "paper_id": result.paper_id,
             "talent_id": result.talent_id,
+            "paper_title": result.paper.title,
+            "paper_total_score": result.paper.total_score,
             "status": result.status,
             "started_at": result.started_at,
             "deadline_at": result.deadline_at,

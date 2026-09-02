@@ -14,10 +14,12 @@ export const currentTalentId = () => {
 
 // 测评
 export const listMyTodos = () => req({ url: '/assessment/todo', data: { talent_id: currentTalentId() } })
-export const listMyResults = () => req({ url: '/assessment/results', data: { talent_id: currentTalentId() } })
-export const getAnswerView = (rid) => req({ url: `/assessment/results/${rid}/answer` })
-export const submitAnswer = (rid, payload) => req({ url: `/assessment/results/${rid}/submit`, method: 'POST', data: payload })
-export const getReport = (rid) => req({ url: `/assessment/results/${rid}/report` })
+export const listMyResults = () => req({ url: '/assessment/my-results' })
+export const getMyResult = (rid) => req({ url: `/assessment/my-result/${rid}` })
+export const getAnswerView = (rid) => req({ url: `/assessment/result/${rid}/answer` })
+export const saveAnswer = (rid, answers) => req({ url: `/assessment/result/${rid}/answer`, method: 'POST', data: { answers } })
+export const submitAnswer = (rid, answers) => req({ url: `/assessment/result/${rid}/submit`, method: 'POST', data: { answers } })
+export const getReport = (rid) => req({ url: `/assessment/result/${rid}/report` })
 
 // 人才档案
 export const getTalent = (id) => req({ url: `/talent/${id}` })
