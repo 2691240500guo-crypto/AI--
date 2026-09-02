@@ -106,7 +106,7 @@ REPORT_DEFS: dict[str, tuple[list[str], str]] = {
     "talent":   (["ID", "姓名", "学历", "等级", "部门ID"], "人才报表"),
     "assess":   (["ID", "人才ID", "测评状态", "得分"], "测评报表"),
     "match":    (["ID", "人才ID", "岗位ID", "匹配度"], "匹配报表"),
-    "training": (["ID", "人才ID", "培训计划", "进度"], "培训报表"),
+    "training": (["ID", "人才ID", "培训计划", "状态"], "培训报表"),
 }
 MAX_EXPORT_ROWS = 50_000        # 单次导出行数上限，防一次导出拖垮数据库
 
@@ -168,8 +168,13 @@ def _fetch_rows(db: Session, report_type: str, filters: dict) -> list[list]:
     logger.info("导出取数 report_type=%s filters=%s", report_type, filters)
     if report_type == "talent":
         return analytics_dao.talent_rows(db, filters)
-    # TODO(P10): assess / match / training 报表取数（等对应模型字段确认后补）
-    logger.warning("报表类型 %s 取数未实现，导出空表", report_type)
+    if report_type == "assess":
+        return analytics_dao.assess_rows(db, filters)
+    if report_type == "match":
+        return analytics_dao.match_rows(db, filters)
+    if report_type == "training":
+        return analytics_dao.training_rows(db, filters)
+    logger.warning("未知报表类型 %s，导出空表", report_type)
     return []
 
 
