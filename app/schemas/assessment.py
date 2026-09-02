@@ -229,6 +229,12 @@ class ResultDetailOut(ORMModel):
     user_answer: list[Any] | str | None
     is_correct: int
     score: Decimal
+    correct_answer: list[Any] | str | None = None
+    question_content: str | None = None
+    question_type: QuestionType | None = None
+    options: list[Any] | None = None
+    dimension: str | None = None
+    question_score: Decimal | None = None
 
 
 class AnswerEventOut(ORMModel):
@@ -279,6 +285,8 @@ class AnswerSnapshotOut(BaseModel):
     result_id: int
     paper_id: int
     talent_id: int
+    paper_title: str
+    paper_total_score: Decimal
     status: int
     started_at: datetime | None
     deadline_at: datetime | None

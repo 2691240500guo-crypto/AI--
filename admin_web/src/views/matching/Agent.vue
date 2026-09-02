@@ -1,365 +1,354 @@
 <template>
   <div class="agent-page">
-    <!-- ===== 对话流（可滚动） ===== -->
-    <div class="chat-list" ref="chatListRef">
-      <!-- 空状态：欢迎语 + 能力 + 快问 -->
-      <div v-if="!messages.length" class="chat-empty">
-        <div class="hero-icon">🤖</div>
-        <h1 class="hero-title">岗位人才匹配Agent</h1>
-        <p class="hero-subtitle">用一句话描述需求，AI 自动完成岗位解析 / 智能匹配 / 反向匹配 / 依据解释</p>
+    <!-- ===== 主对话区（单栏，全宽） ===== -->
+    <main class="agent-main">
+      <!-- 对话流（可滚动） -->
+      <div class="chat-list" ref="chatListRef">
+        <!-- 空状态 -->
+        <div v-if="!messages.length" class="chat-empty">
+          <div class="hero-badge">
+            <div class="hero-badge-inner">
+              <el-icon :size="34" color="#fff"><MagicStick /></el-icon>
+            </div>
+          </div>
+          <div class="hero-tag">AI Agent</div>
+          <h1 class="hero-title">岗位人才匹配Agent</h1>
+          <p class="hero-subtitle">岗位需求解析 · 双向智能匹配 · 适配度打分 · 原因解释 · 可视化展示</p>
 
-        <div class="hint-block">
-          <div class="hint-label">我能帮你做什么</div>
-          <div class="cap-row">
-            <div v-for="c in CAPABILITIES" :key="c.text" class="cap-chip">
-              <span class="cap-icon">{{ c.icon }}</span>
-              <div>
-                <div class="cap-text">{{ c.text }}</div>
-                <div class="cap-desc">{{ c.desc }}</div>
+          <div class="hint-block">
+            <div class="hint-label">我能帮你做什么</div>
+            <div class="cap-row">
+              <div v-for="c in CAPABILITIES" :key="c.text" class="cap-chip">
+                <div class="cap-icon-wrap">
+                  <el-icon :size="22" :color="c.color"><component :is="c.icon" /></el-icon>
+                </div>
+                <div>
+                  <div class="cap-text">{{ c.text }}</div>
+                  <div class="cap-desc">{{ c.desc }}</div>
+                </div>
               </div>
             </div>
           </div>
-        </div>
 
-        <div class="hint-block">
-          <div class="hint-label">试试这样问</div>
-          <div class="quick-row">
-            <span v-for="q in QUICK_QUERIES" :key="q" class="quick-chip" @click="fillNlp(q)">{{ q }}</span>
-          </div>
-        </div>
-      </div>
-
-      <!-- 消息流 -->
-      <template v-for="m in messages" :key="m.id">
-        <!-- 用户消息 -->
-        <div v-if="m.role === 'user'" class="msg-row user-msg">
-          <div class="msg-bubble user-bubble">{{ m.text }}</div>
-        </div>
-        <!-- AI 回复 -->
-        <div v-else class="msg-row agent-msg">
-          <div class="agent-avatar">AI</div>
-          <div class="agent-content">
-            <!-- 回复气泡（loading / 文本） -->
-            <div class="reply-bubble" :class="{ 'is-loading': m.loading }">
-              <template v-if="m.loading">思考中…</template>
-              <template v-else>{{ m.reply || '（无回复）' }}</template>
+          <div class="hint-block">
+            <div class="hint-label">试试这样问</div>
+            <div class="quick-row">
+              <span v-for="q in QUICK_QUERIES" :key="q" class="quick-chip" @click="fillNlp(q)">{{ q }}</span>
             </div>
-
-            <!-- 解析结果 -->
-            <el-card v-if="m.parsed" shadow="never" class="section-card">
-              <template #header>
-                <div class="card-header">
-                  <span>📋 岗位智能解析：{{ m.parsed.title }}</span>
-                  <el-tag v-for="t in m.parsed.tags" :key="t" size="small" class="tag" type="info">{{ t }}</el-tag>
-                </div>
-              </template>
-              <el-row :gutter="16">
-                <el-col :span="8">
-                  <div class="dim-box">
-                    <div class="dim-title">🎯 核心要求</div>
-                    <ul class="dim-list">
-                      <li v-for="(c, i) in m.parsed.core_requirements" :key="i">{{ c }}</li>
-                      <li v-if="!m.parsed.core_requirements.length" class="empty">暂无</li>
-                    </ul>
-                  </div>
-                </el-col>
-                <el-col :span="8">
-                  <div class="dim-box">
-                    <div class="dim-title">🛠 技能标准</div>
-                    <div class="skill-tags">
-                      <el-tag v-for="s in m.parsed.skill_standards" :key="s" class="tag" type="primary" effect="plain">{{ s }}</el-tag>
-                      <span v-if="!m.parsed.skill_standards.length" class="empty">暂无</span>
-                    </div>
-                  </div>
-                </el-col>
-                <el-col :span="8">
-                  <div class="dim-box">
-                    <div class="dim-title">📏 门槛条件</div>
-                    <div class="gate-line">学历要求：<el-tag size="small" type="warning">{{ m.parsed.degree_threshold || '不限' }}</el-tag></div>
-                    <div class="gate-line">经验要求：<el-tag size="small" type="warning">{{ m.parsed.experience_threshold?.text || '不限' }}</el-tag></div>
-                    <div class="gate-line">综合素质：{{ m.parsed.quality_dimensions.join('、') || '—' }}</div>
-                  </div>
-                </el-col>
-              </el-row>
-            </el-card>
-
-            <!-- 匹配结果：Top3 + 表格 -->
-            <el-card v-if="m.results && m.results.length" shadow="never" class="section-card">
-              <template #header><span>🏆 候选人才排序（Top3 卡片化）</span></template>
-              <el-row :gutter="16" class="top3-row">
-                <el-col v-for="r in m.results.slice(0, 3)" :key="r.talent_id" :xs="24" :sm="8">
-                  <el-card class="talent-card" :class="{ 'is-top1': r.rank === 1 }" shadow="hover">
-                    <div class="tc-head">
-                      <el-avatar :size="54" :src="r.avatar || ''" class="tc-avatar">{{ (r.talent_name || '人').slice(0, 1) }}</el-avatar>
-                      <div class="tc-info">
-                        <div class="tc-name">
-                          {{ r.talent_name || `人才${r.talent_id}` }}
-                          <el-tag v-if="r.rank === 1" type="danger" size="small" effect="dark">最适配</el-tag>
-                          <el-tag v-else-if="r.rank === 2" type="warning" size="small" effect="dark">次选</el-tag>
-                        </div>
-                        <div class="tc-meta">{{ r.current_title || '暂无职位' }}{{ r.current_company ? ' · ' + r.current_company : '' }}</div>
-                        <div class="tc-meta">人才#{{ r.talent_id }} · {{ r.degree || '学历未知' }} · {{ r.years || 0 }}年经验</div>
-                      </div>
-                    </div>
-                    <div class="tc-body">
-                      <el-progress type="dashboard" :percentage="Number(r.score)" :color="scoreColor(r.score)" :width="104" class="tc-ring">
-                        <template #default="{ percentage }">
-                          <div class="tc-ring-inner"><b>{{ percentage }}</b><span>匹配度</span></div>
-                        </template>
-                      </el-progress>
-                      <div class="tc-dims">
-                        <div v-for="(v, k) in parseDims(r.dimension_json)" :key="k" class="tc-dim">
-                          <span class="tc-dim-label">{{ DIM_LABEL[k] }}</span>
-                          <el-progress :percentage="Number(v)" :stroke-width="7" :show-text="false" :color="scoreColor(v)" class="tc-dim-bar" />
-                          <span class="tc-dim-val">{{ v }}</span>
-                        </div>
-                      </div>
-                    </div>
-                    <div class="tc-foot">
-                      <el-button size="small" type="primary" plain @click="goProfile(r)">👤 档案</el-button>
-                      <el-button size="small" :type="r.status === 1 ? 'primary' : 'default'" plain :disabled="r.status === 1 || r.status === 2" @click="setStatus(r, 1)">推荐</el-button>
-                      <el-button size="small" :type="r.status === 2 ? 'success' : 'default'" plain :disabled="r.status === 2" @click="setStatus(r, 2)">录用</el-button>
-                    </div>
-                  </el-card>
-                </el-col>
-              </el-row>
-
-              <el-table :data="m.results" stripe border class="mt">
-                <el-table-column label="排名" width="64" align="center">
-                  <template #default="{ row }">
-                    <el-tag :type="row.rank <= 3 ? 'danger' : 'info'" effect="dark" round>{{ row.rank }}</el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column label="人才" min-width="140">
-                  <template #default="{ row }">
-                    <div class="tal-cell">
-                      <el-avatar :size="28" :src="row.avatar || ''" class="tal-avatar">{{ (row.talent_name || '人').slice(0, 1) }}</el-avatar>
-                      <div>
-                        <div class="tal-name">{{ row.talent_name || `人才${row.talent_id}` }}<span class="tal-id">#{{ row.talent_id }}</span></div>
-                        <div class="tal-pos">{{ row.current_title || '—' }}</div>
-                      </div>
-                    </div>
-                  </template>
-                </el-table-column>
-                <el-table-column label="匹配度" width="170">
-                  <template #default="{ row }">
-                    <el-progress :percentage="Number(row.score)" :color="scoreColor(row.score)" :stroke-width="10" />
-                    <span class="score-num">{{ row.score }}</span>
-                  </template>
-                </el-table-column>
-                <el-table-column label="四维得分" min-width="210">
-                  <template #default="{ row }">
-                    <div class="dims">
-                      <span v-for="(v, k) in parseDims(row.dimension_json)" :key="k" class="dim-item">
-                        {{ DIM_LABEL[k] }}<b>{{ v }}</b>
-                      </span>
-                    </div>
-                  </template>
-                </el-table-column>
-                <el-table-column label="状态" width="72" align="center">
-                  <template #default="{ row }">
-                    <el-tag :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
-                  </template>
-                </el-table-column>
-                <el-table-column label="操作" width="180" align="center" fixed="right">
-                  <template #default="{ row }">
-                    <el-button size="small" type="primary" link @click="showExplain(row)">依据</el-button>
-                    <el-button size="small" type="info" link @click="goProfile(row)">档案</el-button>
-                    <el-button size="small" type="success" link :disabled="row.status === 2" @click="setStatus(row, 2)">录用</el-button>
-                  </template>
-                </el-table-column>
-              </el-table>
-            </el-card>
-
-            <!-- 反向匹配结果 -->
-            <el-card v-if="m.reverseResults && m.reverseResults.length" shadow="never" class="section-card">
-              <template #header><span>🔄 人才适配岗位（反向匹配）</span></template>
-              <el-table :data="m.reverseResults" stripe border>
-                <el-table-column label="岗位ID" prop="position_id" width="80" align="center" />
-                <el-table-column label="岗位名称" prop="position_name" min-width="160" />
-                <el-table-column label="匹配度" width="180">
-                  <template #default="{ row }">
-                    <el-progress :percentage="Number(row.score)" :color="scoreColor(row.score)" :stroke-width="10" />
-                  </template>
-                </el-table-column>
-                <el-table-column label="四维得分" min-width="210">
-                  <template #default="{ row }">
-                    <div class="dims">
-                      <span v-for="(v, k) in parseDims(row.dimension_json)" :key="k" class="dim-item">
-                        {{ DIM_LABEL[k] }}<b>{{ v }}</b>
-                      </span>
-                    </div>
-                  </template>
-                </el-table-column>
-              </el-table>
-            </el-card>
           </div>
         </div>
-      </template>
 
-      <!-- 最新匹配的可视化图表（最新匹配的可显示） -->
-      <el-card v-if="latestMatchResults.length" shadow="never" class="section-card charts-card">
-        <template #header><span>📊 匹配可视化</span></template>
-        <el-row :gutter="16">
-          <el-col :span="12">
-            <div class="chart-title">柱状图 · 候选人才匹配度总分</div>
-            <div ref="barChart" class="chart" />
-          </el-col>
-          <el-col :span="12">
-            <div class="chart-title">折线图 · Top5 各维度得分走势</div>
-            <div ref="lineChart" class="chart" />
-          </el-col>
-        </el-row>
-        <el-row :gutter="16" class="mt">
-          <el-col :span="12">
-            <div class="chart-title">饼图 · 匹配结果分布（推荐/候选/储备）</div>
-            <div ref="pieChart" class="chart" />
-          </el-col>
-          <el-col :span="12">
-            <div class="chart-title">维度权重占比（默认规则）</div>
-            <div ref="pieWeightChart" class="chart" />
-          </el-col>
-        </el-row>
-      </el-card>
-    </div>
+        <!-- 消息流 -->
+        <template v-for="m in messages" :key="m.id">
+          <div v-if="m.role === 'user'" class="msg-row user-msg">
+            <div class="msg-bubble user-bubble">{{ m.text }}</div>
+          </div>
+          <div v-else class="msg-row agent-msg">
+            <div class="agent-avatar">AI</div>
+            <div class="agent-content">
+              <div class="reply-bubble" :class="{ 'is-loading': m.loading }">
+                <template v-if="m.loading">思考中…</template>
+                <template v-else>{{ m.reply || '（无回复）' }}</template>
+              </div>
 
-    <!-- ===== 输入栏（固定底部） ===== -->
-    <div class="chat-input-bar">
-      <div class="chat-input-inner">
-        <div class="chat-input-card">
-          <el-input
-            v-model="nlpInput"
-            type="textarea"
-            :rows="2"
-            :autosize="{ minRows: 2, maxRows: 6 }"
-            placeholder="试试这样说：帮我找适合后端开发岗位的人才，要求硕士、3年以上经验、会Python（Ctrl+Enter 发送）"
-            :disabled="nlpLoading"
-            @keydown.enter.prevent.ctrl="handleChat"
-          />
-          <el-button
-            class="send-btn"
-            type="primary"
-            size="large"
-            :loading="nlpLoading"
-            @click="handleChat"
-          >🚀 发送</el-button>
+              <el-card v-if="m.parsed" shadow="never" class="section-card">
+                <template #header>
+                  <div class="card-header">
+                    <span>📋 岗位智能解析：{{ m.parsed.title }}</span>
+                    <el-tag v-for="t in m.parsed.tags" :key="t" size="small" class="tag" type="info">{{ t }}</el-tag>
+                  </div>
+                </template>
+                <el-row :gutter="16">
+                  <el-col :span="8">
+                    <div class="dim-box">
+                      <div class="dim-title">🎯 核心要求</div>
+                      <ul class="dim-list">
+                        <li v-for="(c, i) in m.parsed.core_requirements" :key="i">{{ c }}</li>
+                        <li v-if="!m.parsed.core_requirements.length" class="empty">暂无</li>
+                      </ul>
+                    </div>
+                  </el-col>
+                  <el-col :span="8">
+                    <div class="dim-box">
+                      <div class="dim-title">🛠 技能标准</div>
+                      <div class="skill-tags">
+                        <el-tag v-for="s in m.parsed.skill_standards" :key="s" class="tag" type="primary" effect="plain">{{ s }}</el-tag>
+                        <span v-if="!m.parsed.skill_standards.length" class="empty">暂无</span>
+                      </div>
+                    </div>
+                  </el-col>
+                  <el-col :span="8">
+                    <div class="dim-box">
+                      <div class="dim-title">📏 门槛条件</div>
+                      <div class="gate-line">学历要求：<el-tag size="small" type="warning">{{ m.parsed.degree_threshold || '不限' }}</el-tag></div>
+                      <div class="gate-line">经验要求：<el-tag size="small" type="warning">{{ m.parsed.experience_threshold?.text || '不限' }}</el-tag></div>
+                      <div class="gate-line">综合素质：{{ m.parsed.quality_dimensions.join('、') || '—' }}</div>
+                    </div>
+                  </el-col>
+                </el-row>
+              </el-card>
+
+              <el-card v-if="m.results && m.results.length && !m.chartType" shadow="never" class="section-card">
+                <template #header><span>🏆 候选人才（按匹配度排序）</span></template>
+                <div v-for="r in m.results" :key="r.talent_id" class="cand-row">
+                  <div class="cand-left">
+                    <el-tag :type="r.rank <= 3 ? 'danger' : 'info'" effect="dark" round size="small" class="cand-rank">{{ r.rank }}</el-tag>
+                    <el-avatar :size="34" :src="r.avatar || ''" class="cand-avatar">{{ (r.talent_name || '人').slice(0, 1) }}</el-avatar>
+                    <div class="cand-id">
+                      <div class="cand-name">{{ r.talent_name || `人才${r.talent_id}` }}<span class="cand-tag">#{{ r.talent_id }}</span></div>
+                      <div class="cand-meta">{{ r.current_title || '暂无职位' }} · {{ r.degree || '学历未知' }} · {{ r.years || 0 }}年经验</div>
+                    </div>
+                  </div>
+                  <div class="cand-right">
+                    <div class="cand-score">
+                      <el-progress :percentage="Number(r.score)" :color="scoreColor(r.score)" :stroke-width="9" class="cand-bar" />
+                      <b class="cand-num">{{ r.score }}</b>
+                    </div>
+                    <div class="cand-dims">
+                      <span v-for="(v, k) in parseDims(r.dimension_json)" :key="k" class="dim-chip">
+                        {{ DIM_LABEL[k] }}<b>{{ v }}</b>
+                      </span>
+                    </div>
+                    <div v-if="r.explain" class="cand-explain">💬 {{ r.explain }}</div>
+                  </div>
+                </div>
+              </el-card>
+
+              <el-card v-if="m.reverseResults && m.reverseResults.length" shadow="never" class="section-card">
+                <template #header><span>🔄 人才适配岗位（反向匹配）</span></template>
+                <el-table :data="m.reverseResults" stripe border>
+                  <el-table-column label="岗位" prop="position_name" min-width="160" />
+                  <el-table-column label="匹配度" width="180">
+                    <template #default="{ row }">
+                      <el-progress :percentage="Number(row.score)" :color="scoreColor(row.score)" :stroke-width="10" />
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="四维得分" min-width="210">
+                    <template #default="{ row }">
+                      <div class="dims">
+                        <span v-for="(v, k) in parseDims(row.dimension_json)" :key="k" class="dim-chip">
+                          {{ DIM_LABEL[k] }}<b>{{ v }}</b>
+                        </span>
+                      </div>
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </el-card>
+
+              <el-card v-if="m.chartType && m.results && m.results.length" shadow="never" class="section-card charts-card">
+                <template #header>
+                  <span>📊 {{ CHART_LABEL[m.chartType] || '' }} · {{ m.chartTitle || '候选人匹配度' }}</span>
+                </template>
+                <div class="single-chart-wrap">
+                  <div :data-chart-id="m.id" :data-chart-type="'bar'" v-show="m.chartType === 'bar'" class="chart chart-single" />
+                  <div :data-chart-id="m.id" :data-chart-type="'line'" v-show="m.chartType === 'line'" class="chart chart-single" />
+                  <div :data-chart-id="m.id" :data-chart-type="'pie'" v-show="m.chartType === 'pie'" class="chart chart-single" />
+                </div>
+              </el-card>
+            </div>
+          </div>
+        </template>
+      </div>
+
+      <!-- 输入栏（底部固定） -->
+      <div class="chat-input-bar">
+        <div class="chat-input-inner">
+          <div class="chat-input-card">
+            <el-input
+              v-model="nlpInput"
+              type="textarea"
+              :rows="2"
+              :autosize="{ minRows: 2, maxRows: 6 }"
+              placeholder="试试这样说：帮我找适合后端开发的人才"
+              :disabled="nlpLoading"
+              class="input-area"
+              @keydown.enter.exact.prevent="handleChat"
+            />
+            <div class="input-footer">
+              <span class="input-tip">Enter 发送 · Shift+Enter 换行</span>
+              <el-button
+                class="send-btn"
+                type="primary"
+                size="large"
+                :loading="nlpLoading"
+                @click="handleChat"
+              >
+                <el-icon style="margin-right: 6px;"><Promotion /></el-icon>
+                发送
+              </el-button>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
-
-    <!-- ===== 匹配依据解释弹窗 ===== -->
-    <el-dialog v-model="explainDialog.visible" title="匹配依据 · 得分解释" width="560px">
-      <template v-if="explainDialog.data">
-        <div class="explain-score">
-          <span class="big">{{ explainDialog.data.score }}</span>
-          <span class="unit">分</span>
-          <el-tag :type="scoreColor(explainDialog.data.score)" effect="dark" class="ml">{{ explainDialog.data.score >= 80 ? '推荐录用' : explainDialog.data.score >= 60 ? '储备候选' : '暂不推荐' }}</el-tag>
-        </div>
-        <el-descriptions :column="2" border class="mt">
-          <el-descriptions-item v-for="(v, k) in parseDims(explainDialog.data.dimension_json)" :key="k" :label="DIM_LABEL[k]">
-            <b>{{ v }}</b>
-          </el-descriptions-item>
-        </el-descriptions>
-        <div class="explain-text">{{ explainDialog.data.explain || '暂无解释' }}</div>
-      </template>
-      <template #footer>
-        <el-button @click="explainDialog.visible = false">关闭</el-button>
-      </template>
-    </el-dialog>
+    </main>
   </div>
 </template>
 
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
-import { useRouter } from 'vue-router'
+import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import {
+  Aim, ChatLineRound, Document, MagicStick, Promotion, TrendCharts,
+} from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
-import { agentChat, updateResultStatus } from '@/api/matching'
-
-const router = useRouter()
+import { agentChat } from '@/api/matching'
 
 const DIM_LABEL = { skill: '技能', degree: '学历', years: '经验', quality: '综合素质' }
-const DEGREE_WEIGHTS = { skill: 0.4, degree: 0.2, years: 0.2, quality: 0.2 }
+const CHART_LABEL = { bar: '柱状图', line: '折线图', pie: '饼图' }
+const CHART_TITLE = {
+  bar: '各候选人匹配度对比',
+  line: '候选人匹配度走势',
+  pie: '匹配结果分布（推荐/候选/储备）',
+}
 
 const QUICK_QUERIES = [
+  '帮我找适合后端开发的人才',
   '分析后端开发工程师的岗位要求',
-  '帮我找适合后端开发岗位的人才，要求硕士、3年以上经验、会Python',
+  '生成后端开发的折线图',
+  '为什么人才4排第一',
   '人才5适合什么岗位',
-  '为什么人才7排第一',
 ]
 
 const CAPABILITIES = [
-  { icon: '📋', text: '岗位解析', desc: 'AI 拆解任职要求/技能/经验门槛' },
-  { icon: '🎯', text: '智能匹配', desc: '按条件筛选并排序候选人' },
-  { icon: '🔄', text: '反向匹配', desc: '按人才找适配岗位' },
-  { icon: '💬', text: '匹配解释', desc: '解释推荐依据与维度得分' },
+  { icon: Document, color: '#409eff', text: '岗位解析', desc: 'AI 拆解任职要求/技能/经验门槛' },
+  { icon: Aim, color: '#67c23a', text: '人才匹配', desc: '向量检索+硬过滤+软加权打分排序' },
+  { icon: TrendCharts, color: '#e6a23c', text: '可视化', desc: '柱状图/折线图/饼图展示匹配维度' },
+  { icon: ChatLineRound, color: '#9c64f6', text: '匹配解释', desc: '说明推荐依据与维度得分' },
 ]
 
-// ===== 消息流 =====
-const messages = ref([])  // [{id, role:'user'|'agent', text, reply, loading, parsed, results, reverseResults}]
+// ===== 对话历史（localStorage 持久化） =====
+const STORAGE_KEY = 'agent_conv_history_v2'
+const conversations = ref(loadConversations())
+const activeConvId = ref(null)
+const messages = ref([])
 const nlpInput = ref('')
 const nlpLoading = ref(false)
-const chatListRef = ref(null)
 let msgSeq = 0
+let chartInstances = new Map()
 
-// 最新一次有结果的匹配数据（用于图表）
-const latestMatchResults = computed(() => {
-  for (let i = messages.value.length - 1; i >= 0; i--) {
-    const m = messages.value[i]
-    if (m.role === 'agent' && m.results && m.results.length) return m.results
+// 按时间分组（今天/昨天/更早）
+const groupedConvs = computed(() => {
+  const now = Date.now()
+  const oneDay = 86400 * 1000
+  const today = [], yesterday = [], older = []
+  for (const c of conversations.value) {
+    if (now - c.updatedAt < oneDay) today.push(c)
+    else if (now - c.updatedAt < 2 * oneDay) yesterday.push(c)
+    else older.push(c)
   }
-  return []
+  const groups = []
+  if (today.length) groups.push({ label: '今天', items: today })
+  if (yesterday.length) groups.push({ label: '昨天', items: yesterday })
+  if (older.length) groups.push({ label: '更早', items: older })
+  return groups
 })
 
-// ===== 工具 =====
-function parseDims(json) {
-  if (!json) return {}
-  try { return JSON.parse(json) } catch { return {} }
-}
-function scoreColor(s) {
-  const n = Number(s)
-  if (n >= 80) return '#67c23a'
-  if (n >= 60) return '#e6a23c'
-  return '#f56c6c'
-}
-function statusLabel(s) { return { 0: '候选', 1: '推荐', 2: '录用' }[s] ?? '候选' }
-function statusType(s) { return { 0: 'info', 1: 'warning', 2: 'success' }[s] ?? 'info' }
-
-function fillNlp(text) { nlpInput.value = text }
-
-// ===== 解释弹窗 =====
-const explainDialog = reactive({ visible: false, data: null })
-function showExplain(row) {
-  explainDialog.data = row
-  explainDialog.visible = true
-}
-
-// ===== 操作闭环 =====
-function goProfile(row) { router.push(`/talent/detail/${row.talent_id}`) }
-async function setStatus(row, status) {
-  const label = { 1: '推荐', 2: '录用' }[status]
+function loadConversations() {
   try {
-    await ElMessageBox.confirm(`确认将 人才${row.talent_id}（${row.talent_name || ''}）标记为「${label}」？`, '操作确认', { type: 'warning' })
+    const raw = localStorage.getItem(STORAGE_KEY)
+    if (!raw) return []
+    const list = JSON.parse(raw)
+    // 过滤掉旧版本可能残留的 loading 字段
+    return list.map((c) => ({ ...c, messages: (c.messages || []).map((m) => ({ ...m, loading: false })) }))
+  } catch {
+    return []
+  }
+}
+
+function saveConversations() {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(conversations.value))
+  } catch { /* ignore */ }
+}
+
+function createNewConv() {
+  // 保存当前
+  if (activeConvId.value) persistCurrentConv()
+  disposeCharts()
+  activeConvId.value = null
+  messages.value = []
+  msgSeq = 0
+}
+
+function persistCurrentConv() {
+  if (!activeConvId.value) return
+  const c = conversations.value.find((x) => x.id === activeConvId.value)
+  if (!c) return
+  const cleanMsgs = messages.value.filter((m) => !m.loading).map((m) => ({
+    id: m.id, role: m.role, text: m.text, reply: m.reply,
+    chartType: m.chartType, results: m.results || [], reverseResults: m.reverseResults || [], parsed: m.parsed || null,
+  }))
+  c.messages = cleanMsgs
+  c.messageCount = cleanMsgs.length
+  c.preview = cleanMsgs.find((m) => m.role === 'user')?.text || c.preview || ''
+  c.updatedAt = Date.now()
+  if (!c.title && c.preview) c.title = c.preview.slice(0, 20)
+}
+
+function openConv(id) {
+  if (activeConvId.value) persistCurrentConv()
+  const c = conversations.value.find((x) => x.id === id)
+  if (!c) return
+  activeConvId.value = id
+  messages.value = (c.messages || []).map((m) => ({ ...m, loading: false }))
+  msgSeq = messages.value.reduce((acc, m) => Math.max(acc, m.id || 0), 0)
+  nextTick(() => {
+    setTimeout(() => {
+      messages.value.forEach((m) => {
+        if (m.chartType && m.results && m.results.length) renderChart(m)
+      })
+    }, 100)
+  })
+}
+
+async function deleteConv(id) {
+  try {
+    await ElMessageBox.confirm('确定删除这条对话吗？', '确认', { type: 'warning' })
   } catch { return }
-  try {
-    const res = await updateResultStatus(row.match_id, status)
-    row.status = res.data.status
-    ElMessage.success(`已标记为「${label}」`)
-  } catch { /* 拦截器已提示 */ }
+  const idx = conversations.value.findIndex((c) => c.id === id)
+  if (idx >= 0) {
+    conversations.value.splice(idx, 1)
+    saveConversations()
+  }
+  if (activeConvId.value === id) {
+    activeConvId.value = null
+    messages.value = []
+    disposeCharts()
+  }
+  ElMessage.success('已删除')
 }
 
-// ===== 自然语言聊天（对话流） =====
+function fillNlp(text) {
+  nlpInput.value = text
+  // 自动滚动到输入栏并聚焦（快问点完没反应是因为输入栏被滚动到页面下方，看不到）
+  nextTick(() => {
+    const inputCard = document.querySelector('.chat-input-card')
+    if (inputCard) inputCard.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    const textarea = document.querySelector('.chat-input-card textarea')
+    if (textarea) textarea.focus()
+  })
+}
+
+// ===== 自然语言聊天 =====
 async function handleChat() {
   const msg = nlpInput.value.trim()
   if (!msg) return ElMessage.warning('请输入指令')
-  nlpLoading.value = true
 
-  // 1. 推入用户消息
+  if (!activeConvId.value) {
+    const id = `c_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+    const newConv = {
+      id, title: msg.slice(0, 20), preview: msg,
+      messages: [], messageCount: 0,
+      createdAt: Date.now(), updatedAt: Date.now(),
+    }
+    conversations.value.unshift(newConv)
+    activeConvId.value = id
+  }
+
+  nlpLoading.value = true
   const userMsg = { id: ++msgSeq, role: 'user', text: msg }
-  messages.value.push(userMsg)
-  // 2. 推入 agent loading 消息（reply 暂空）
   const agentMsg = { id: ++msgSeq, role: 'agent', loading: true, reply: '' }
-  messages.value.push(agentMsg)
+  messages.value.push(userMsg, agentMsg)
   nlpInput.value = ''
   scrollToBottom()
 
@@ -373,15 +362,17 @@ async function handleChat() {
       agentMsg.parsed = result
     } else if (intent === 'match' && result) {
       agentMsg.results = result.results || []
+    } else if (intent === 'chart' && result) {
+      agentMsg.chartType = data.chart_type || 'bar'
+      agentMsg.results = result.results || []
+      agentMsg.chartTitle = CHART_TITLE[agentMsg.chartType] || '候选人匹配度'
+      await nextTick()
+      setTimeout(() => renderChart(agentMsg), 50)
     } else if (intent === 'reverse' && result) {
       agentMsg.reverseResults = result.results || []
-    } else if (intent === 'explain' && result) {
-      explainDialog.data = {
-        talent_id: result.talent_id, score: result.score,
-        dimension_json: result.dimension_json, explain: result.explain,
-      }
-      explainDialog.visible = true
     }
+    persistCurrentConv()
+    saveConversations()
   } finally {
     nlpLoading.value = false
     scrollToBottom()
@@ -390,140 +381,174 @@ async function handleChat() {
 
 function scrollToBottom() {
   nextTick(() => {
-    if (chatListRef.value) chatListRef.value.scrollTop = chatListRef.value.scrollHeight
+    const el = document.querySelector('.chat-list')
+    if (el) el.scrollTop = el.scrollHeight
   })
 }
 
-// ===== ECharts 可视化（fix: nextTick 等待 DOM） =====
-const barChart = ref(null)
-const lineChart = ref(null)
-const pieChart = ref(null)
-const pieWeightChart = ref(null)
-let chartInstances = []
-
-function renderCharts(list) {
-  if (!list.length) return
-  disposeCharts()
-  // 柱状图
-  const bar = echarts.init(barChart.value)
-  bar.setOption({
-    tooltip: { trigger: 'axis' },
-    grid: { left: 40, right: 20, top: 30, bottom: 30 },
-    xAxis: { type: 'category', data: list.map((r) => `人才${r.talent_id}`) },
-    yAxis: { type: 'value', max: 100 },
-    series: [{
-      type: 'bar', data: list.map((r) => Number(r.score)), barWidth: 26,
-      itemStyle: { color: (p) => (p.value >= 80 ? '#67c23a' : p.value >= 60 ? '#e6a23c' : '#f56c6c') },
-      label: { show: true, position: 'top' },
-    }],
-  })
-  chartInstances.push(bar)
-
-  // 折线图
-  const top5 = list.slice(0, 5)
-  const line = echarts.init(lineChart.value)
-  line.setOption({
-    tooltip: { trigger: 'axis' },
-    legend: { top: 0, data: ['技能', '学历', '经验', '综合素质'] },
-    grid: { left: 40, right: 20, top: 34, bottom: 30 },
-    xAxis: { type: 'category', data: top5.map((r) => `人才${r.talent_id}`) },
-    yAxis: { type: 'value', max: 100 },
-    series: ['skill', 'degree', 'years', 'quality'].map((k) => ({
-      name: DIM_LABEL[k], type: 'line', smooth: true,
-      data: top5.map((r) => Number(parseDims(r.dimension_json)[k] ?? 0)),
-    })),
-  })
-  chartInstances.push(line)
-
-  // 饼图：匹配结果分布
-  const dist = { 推荐: 0, 候选: 0, 储备: 0 }
-  list.forEach((r) => {
-    const s = Number(r.score)
-    if (s >= 80) dist.推荐++
-    else if (s >= 60) dist.候选++
-    else dist.储备++
-  })
-  const pie = echarts.init(pieChart.value)
-  pie.setOption({
-    tooltip: { trigger: 'item' },
-    legend: { bottom: 0 },
-    series: [{
-      type: 'pie', radius: ['40%', '65%'],
-      data: Object.entries(dist).map(([name, value]) => ({ name, value })),
-      label: { formatter: '{b}: {c} 人 ({d}%)' },
-    }],
-  })
-  chartInstances.push(pie)
-
-  // 饼图：维度权重占比
-  const pieW = echarts.init(pieWeightChart.value)
-  pieW.setOption({
-    tooltip: { trigger: 'item' },
-    legend: { bottom: 0 },
-    series: [{
-      type: 'pie', radius: ['40%', '65%'],
-      data: Object.entries(DEGREE_WEIGHTS).map(([k, v]) => ({ name: DIM_LABEL[k], value: v })),
-      label: { formatter: '{b}: {d}%' },
-    }],
-  })
-  chartInstances.push(pieW)
+// ===== 工具 =====
+function parseDims(json) {
+  if (!json) return {}
+  try { return JSON.parse(json) } catch { return {} }
+}
+function scoreColor(s) {
+  const n = Number(s)
+  if (n >= 80) return '#67c23a'
+  if (n >= 60) return '#e6a23c'
+  return '#f56c6c'
 }
 
-function disposeCharts() {
-  chartInstances.forEach((c) => { try { c.dispose() } catch { /* noop */ } })
-  chartInstances = []
-}
-function resizeCharts() {
-  chartInstances.forEach((c) => c.resize())
-}
-
-// 监听最新匹配结果：等 DOM 更新完成后再渲染图表（修复 charts 不显示的 bug）
-watch(latestMatchResults, async (val) => {
-  if (val.length) {
-    await nextTick()
-    renderCharts(val)
-  } else {
-    disposeCharts()
+// ===== 图表渲染 =====
+function renderChart(m) {
+  const type = m.chartType
+  const key = `${m.id}:${type}`
+  const el = document.querySelector(`[data-chart-id="${m.id}"][data-chart-type="${type}"]`)
+  if (!el) return
+  let chart = chartInstances.get(key)
+  if (!chart) {
+    chart = echarts.init(el)
+    chartInstances.set(key, chart)
   }
-})
+  if (type === 'bar') setBarOption(chart, m.results)
+  else if (type === 'line') setLineOption(chart, m.results)
+  else if (type === 'pie') setPieOption(chart, m.results)
+  chart.resize()
+}
 
-onMounted(() => window.addEventListener('resize', resizeCharts))
-onBeforeUnmount(() => {
-  disposeCharts()
-  window.removeEventListener('resize', resizeCharts)
-})
+function setBarOption(chart, list) {
+  chart.setOption({
+    tooltip: { trigger: 'axis' },
+    grid: { left: 50, right: 30, top: 30, bottom: 40 },
+    xAxis: { type: 'category', name: '候选人', data: list.map((r) => r.talent_name || `人才${r.talent_id}`), axisLabel: { fontSize: 12, color: '#6e7681', interval: 0, rotate: 30 } },
+    yAxis: { type: 'value', name: '匹配度', max: 100, axisLabel: { fontSize: 12, color: '#6e7681' }, splitLine: { lineStyle: { color: '#f0f0f0' } } },
+    series: [{ type: 'bar', barWidth: 28, data: list.map((r) => Number(r.score)), itemStyle: { color: (p) => (p.value >= 80 ? '#67c23a' : p.value >= 60 ? '#e6a23c' : '#f56c6c') }, label: { show: true, position: 'top', fontSize: 11, color: '#6e7681' } }],
+  }, true)
+}
+
+function setLineOption(chart, list) {
+  chart.setOption({
+    tooltip: { trigger: 'axis' },
+    grid: { left: 60, right: 60, top: 30, bottom: 50 },
+    xAxis: { type: 'category', name: '排名', data: list.map((r) => r.rank), boundaryGap: false, axisLabel: { fontSize: 12, color: '#6e7681' } },
+    yAxis: { type: 'value', name: '匹配度', min: (v) => Math.max(0, Math.floor(v.min - 5)), max: 100, axisLabel: { fontSize: 12, color: '#6e7681' }, splitLine: { lineStyle: { color: '#f0f0f0' } } },
+    series: [{ type: 'line', smooth: false, symbol: 'circle', symbolSize: 8, data: list.map((r) => ({ value: Number(r.score), name: `人才${r.talent_id}` })), itemStyle: { color: '#409eff', borderColor: '#fff', borderWidth: 2 }, lineStyle: { color: '#409eff', width: 2 }, label: { show: true, position: 'top', fontSize: 11, color: '#6e7681', formatter: '{c}' }, areaStyle: { color: 'rgba(64, 158, 255, 0.08)' } }],
+  }, true)
+}
+
+function setPieOption(chart, list) {
+  const dist = { 推荐: 0, 候选: 0, 储备: 0 }
+  list.forEach((r) => { const s = Number(r.score); if (s >= 80) dist.推荐++; else if (s >= 60) dist.候选++; else dist.储备++ })
+  chart.setOption({
+    tooltip: { trigger: 'item' }, legend: { bottom: 0 },
+    series: [{ type: 'pie', radius: ['40%', '65%'], data: Object.entries(dist).map(([name, value]) => ({ name, value })), label: { formatter: '{b}: {c} 人 ({d}%)', fontSize: 12, color: '#6e7681' } }],
+  }, true)
+}
+
+function resizeAll() { chartInstances.forEach((c) => c.resize()) }
+function disposeCharts() { chartInstances.forEach((c) => { try { c.dispose() } catch { /* noop */ } }); chartInstances.clear() }
+onMounted(() => window.addEventListener('resize', resizeAll))
+onBeforeUnmount(() => { window.removeEventListener('resize', resizeAll); disposeCharts() })
 </script>
 
 <style scoped>
+/* ===== 单栏布局（填满 el-main 区域） ===== */
 .agent-page {
-  padding: 0 0 200px;
-  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #fff;
+  overflow: hidden;
 }
 
-/* ===== 对话流 ===== */
+/* ===== 主对话区 ===== */
+.agent-main {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0; /* 关键：允许 flex 子项收缩 */
+  overflow: hidden;
+  background: #fff;
+}
 .chat-list {
-  max-width: 760px;
+  flex: 1;
+  min-height: 0; /* 关键 */
+  overflow-y: auto;
+  padding: 24px 24px 16px;
+  max-width: 820px;
   margin: 0 auto;
-  padding: 24px 16px 0;
+  width: 100%;
 }
 
 /* ===== 空状态 ===== */
-.chat-empty {
-  text-align: center;
-  padding: 60px 0 40px;
+.chat-empty { text-align: center; padding: 56px 0 40px; }
+
+/* ===== 顶部徽章：清爽蓝球（与 Element Plus 整体匹配） ===== */
+.hero-badge {
+  position: relative;
+  width: 88px; height: 88px;
+  margin: 0 auto 20px;
+  display: flex; align-items: center; justify-content: center;
 }
-.hero-icon { font-size: 44px; line-height: 1; margin-bottom: 12px; }
-.hero-title { font-size: 26px; font-weight: 700; color: #1f2328; margin: 0 0 6px; letter-spacing: 0.3px; }
-.hero-subtitle { font-size: 13px; color: #6e7681; margin: 0 0 24px; line-height: 1.6; }
+/* 柔和外晕（蓝色氛围光） */
+.hero-badge::before {
+  content: '';
+  position: absolute;
+  width: 140px; height: 140px;
+  border-radius: 50%;
+  background: radial-gradient(circle, rgba(64, 158, 255, 0.22) 0%, rgba(64, 158, 255, 0.07) 45%, transparent 70%);
+  z-index: 0;
+  pointer-events: none;
+}
+.hero-badge-inner {
+  position: relative; z-index: 1;
+  width: 72px; height: 72px;
+  border-radius: 50%;
+  background:
+    radial-gradient(circle at 32% 26%, rgba(255,255,255,0.65) 0%, rgba(255,255,255,0) 45%),
+    linear-gradient(150deg, #66b1ff 0%, #409eff 60%, #337ecc 100%);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow:
+    0 8px 20px rgba(64, 158, 255, 0.28),
+    inset 0 1px 2px rgba(255, 255, 255, 0.5),
+    inset 0 -5px 10px rgba(51, 126, 204, 0.3);
+}
+
+/* AI Agent 标签：浅蓝胶囊 */
+.hero-tag {
+  display: inline-block;
+  padding: 5px 14px; border-radius: 999px;
+  background: #ecf5ff;
+  border: 1px solid #d9ecff;
+  color: #409eff;
+  font-size: 11px; font-weight: 600;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  margin-bottom: 16px;
+}
+
+/* 标题：深色正文 + 大留白 */
+.hero-title {
+  font-size: 27px; font-weight: 600;
+  margin: 0 0 10px;
+  color: #303133;
+  letter-spacing: 1px;
+}
+.hero-subtitle { font-size: 13px; color: #909399; margin: 0 0 32px; line-height: 1.7; letter-spacing: 0.3px; }
 .hint-block { margin-top: 28px; text-align: left; }
 .hint-label { font-size: 12px; font-weight: 600; color: #6e7681; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 12px; }
 .cap-row { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
 .cap-chip {
-  display: flex; align-items: flex-start; gap: 8px; padding: 12px;
+  display: flex; align-items: flex-start; gap: 10px; padding: 12px;
   background: #fff; border: 1px solid #e5e7eb; border-radius: 10px; transition: all 0.2s;
 }
 .cap-chip:hover { border-color: #409eff; box-shadow: 0 2px 8px rgba(64, 158, 255, 0.08); }
-.cap-icon { font-size: 20px; line-height: 1; flex-shrink: 0; margin-top: 2px; }
+.cap-icon-wrap {
+  flex-shrink: 0;
+  width: 36px; height: 36px;
+  display: inline-flex; align-items: center; justify-content: center;
+  background: #f5f7fa; border-radius: 8px;
+}
 .cap-text { font-size: 13px; font-weight: 600; color: #1f2328; }
 .cap-desc { font-size: 11px; color: #8b949e; margin-top: 3px; line-height: 1.5; }
 .quick-row { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -538,8 +563,7 @@ onBeforeUnmount(() => {
 .msg-row { display: flex; margin: 16px 0; gap: 10px; }
 .user-msg { justify-content: flex-end; }
 .user-bubble {
-  max-width: 75%;
-  background: #409eff; color: #fff;
+  max-width: 75%; background: #409eff; color: #fff;
   padding: 10px 14px; border-radius: 14px 14px 4px 14px;
   font-size: 14px; line-height: 1.6; word-break: break-word;
 }
@@ -564,12 +588,9 @@ onBeforeUnmount(() => {
   margin-left: 4px; border-radius: 50%; background: #409eff;
   animation: typing 1s infinite;
 }
-@keyframes typing {
-  0%, 100% { opacity: 0.3; }
-  50% { opacity: 1; }
-}
+@keyframes typing { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
 
-/* ===== 结果区 ===== */
+/* ===== 结果卡片 ===== */
 .section-card { margin-top: 12px; border-radius: 10px; }
 .card-header { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .dim-box { border: 1px solid #ebeef5; border-radius: 6px; padding: 12px; height: 100%; }
@@ -581,69 +602,66 @@ onBeforeUnmount(() => {
 .empty { color: #c0c4cc; font-size: 13px; }
 .tag { margin: 0 4px 4px 0; }
 
-/* ===== Top3 卡片 ===== */
-.top3-row { margin-bottom: 16px; }
-.talent-card { border-radius: 10px; transition: all 0.25s; }
-.talent-card.is-top1 { border: 1px solid #f56c6c; box-shadow: 0 2px 12px rgba(245, 108, 108, 0.15); }
-.talent-card.is-top1 .tc-name { color: #f56c6c; }
-.tc-head { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
-.tc-avatar { background: #409eff; color: #fff; font-weight: 600; flex-shrink: 0; }
-.tc-name { font-size: 16px; font-weight: 700; color: #303133; display: flex; align-items: center; gap: 6px; }
-.tc-meta { font-size: 12px; color: #909399; margin-top: 2px; }
-.tc-body { display: flex; align-items: center; gap: 14px; }
-.tc-ring { flex-shrink: 0; }
-.tc-ring-inner { text-align: center; }
-.tc-ring-inner b { display: block; font-size: 22px; color: #303133; line-height: 1.1; }
-.tc-ring-inner span { font-size: 11px; color: #909399; }
-.tc-dims { flex: 1; display: flex; flex-direction: column; gap: 7px; }
-.tc-dim { display: flex; align-items: center; gap: 6px; }
-.tc-dim-label { font-size: 12px; color: #606266; width: 52px; flex-shrink: 0; }
-.tc-dim-bar { flex: 1; }
-.tc-dim-val { font-size: 12px; font-weight: 600; color: #409eff; width: 30px; text-align: right; }
-.tc-foot { display: flex; justify-content: center; gap: 8px; margin-top: 14px; }
-
-/* ===== 表格人才列 ===== */
-.tal-cell { display: flex; align-items: center; gap: 8px; }
-.tal-avatar { background: #409eff; color: #fff; font-weight: 600; flex-shrink: 0; }
-.tal-name { font-weight: 600; color: #303133; }
-.tal-id { color: #c0c4cc; font-size: 12px; margin-left: 4px; }
-.tal-pos { font-size: 12px; color: #909399; }
-.dims { display: flex; gap: 10px; flex-wrap: wrap; font-size: 12px; color: #909399; }
-.dim-item b { color: #409eff; margin-left: 2px; }
-.score-num { font-weight: 700; color: #409eff; margin-left: 6px; }
-.mt { margin-top: 12px; }
+/* ===== 候选列表 ===== */
+.cand-row { display: flex; align-items: center; gap: 12px; padding: 10px 4px; border-bottom: 1px solid #f0f2f5; }
+.cand-row:last-child { border-bottom: none; }
+.cand-row:hover { background: #fafbfc; border-radius: 8px; }
+.cand-left { display: flex; align-items: center; gap: 10px; flex: 1; min-width: 0; }
+.cand-rank { flex-shrink: 0; }
+.cand-avatar { background: #409eff; color: #fff; font-weight: 600; flex-shrink: 0; }
+.cand-name { font-weight: 600; color: #1f2328; }
+.cand-tag { color: #c0c4cc; font-size: 12px; margin-left: 4px; }
+.cand-meta { font-size: 12px; color: #8b949e; margin-top: 2px; }
+.cand-right { flex: 1.2; min-width: 0; }
+.cand-score { display: flex; align-items: center; gap: 8px; }
+.cand-bar { flex: 1; }
+.cand-num { font-size: 15px; font-weight: 700; color: #409eff; }
+.cand-dims { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 6px; }
+.dim-chip {
+  font-size: 11px; color: #606266; background: #f5f7fa;
+  border: 1px solid #e5e7eb; border-radius: 4px; padding: 2px 6px;
+}
+.dim-chip b { color: #409eff; margin-left: 2px; }
+.cand-explain {
+  margin-top: 8px; font-size: 12px; color: #606266;
+  background: #f0f9eb; border: 1px solid #e1f3d8; border-radius: 6px;
+  padding: 8px 10px; line-height: 1.6;
+}
+.dims { display: flex; gap: 6px; flex-wrap: wrap; }
 
 /* ===== 图表 ===== */
 .charts-card { background: #fafbfc; }
-.chart { height: 260px; width: 100%; }
-.chart-title { font-size: 13px; color: #6e7681; margin-bottom: 8px; font-weight: 500; }
+.single-chart-wrap { max-width: 640px; margin: 0 auto; }
+.chart { width: 100%; }
+.chart-single { height: 360px; }
 
-/* ===== 输入栏（固定底部，避开侧边栏 220px） ===== */
+/* ===== 输入栏（主区底部固定，高度自适应） ===== */
 .chat-input-bar {
-  position: fixed; left: 220px; right: 0; bottom: 0;
+  flex-shrink: 0;
+  padding: 12px 24px 16px;
   background: linear-gradient(to top, #ffffff 70%, rgba(255,255,255,0));
-  padding: 16px 16px 20px; z-index: 5;
+  border-top: 1px solid #f0f2f5;
 }
-.chat-input-inner { max-width: 760px; margin: 0 auto; }
+.chat-input-inner { max-width: 820px; margin: 0 auto; }
 .chat-input-card {
-  display: flex; align-items: flex-end; gap: 10px;
   background: #fff; border: 1px solid #e5e7eb; border-radius: 18px;
   box-shadow: 0 4px 20px rgba(0, 0, 0, 0.06);
-  padding: 10px 12px 10px 16px;
+  padding: 12px 16px 10px;
   transition: border-color 0.2s;
 }
 .chat-input-card:focus-within { border-color: #409eff; box-shadow: 0 4px 20px rgba(64, 158, 255, 0.12); }
+.input-area { display: block; width: 100%; }
+.chat-input-card :deep(.el-textarea) { display: block; width: 100%; }
 .chat-input-card :deep(.el-textarea__inner) {
   font-size: 15px; padding: 6px 0; border: none; box-shadow: none;
   resize: none; line-height: 1.6; color: #1f2328; background: transparent;
+  width: 100% !important; min-height: 40px !important;
 }
 .chat-input-card :deep(.el-textarea__inner::placeholder) { color: #a1a8b3; }
+.input-footer {
+  display: flex; justify-content: space-between; align-items: center;
+  margin-top: 4px;
+}
+.input-tip { font-size: 12px; color: #a1a8b3; }
 .send-btn { border-radius: 14px !important; padding: 0 18px !important; height: 40px !important; }
-
-/* ===== 弹窗 ===== */
-.explain-score { display: flex; align-items: baseline; gap: 8px; margin-bottom: 14px; }
-.big { font-size: 36px; font-weight: 700; color: #409eff; }
-.unit { color: #909399; }
-.ml { margin-left: 8px; }
-.explain-text { margin-top: 14px; padding: 12px; background: #f5f7fa; border-radius: 6px; color: #303133; line-height: 1.7; font-size: 14px; }
 </style>

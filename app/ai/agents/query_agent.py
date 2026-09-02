@@ -200,3 +200,8 @@ def get_query_agent() -> NL2SQLAgent:
     if _agent is None:
         _agent = NL2SQLAgent()
     return _agent
+
+
+async def run(input_data: dict[str, Any]) -> dict[str, Any]:
+    """契约统一入口：in {question} → out {sql, columns, rows, chart_json, status}。"""
+    return await get_query_agent().run(input_data)

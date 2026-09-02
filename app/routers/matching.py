@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.core.deps import require_permission
+from app.core.deps import require_any_perm
 from app.dao.matching import MatchPushLogDAO, MatchResultDAO, MatchRuleDAO, PosPositionDAO
 from app.db.session import get_db
 from app.models.matching import MatchResult, PosPosition, MatchRule, MatchPushLog
@@ -40,7 +40,11 @@ from app.ai.agents.match_agent import MatchAgent
 from app.utils.pagination import PageParams, count_rows, paged_result
 from app.utils.response import ok
 
-router = APIRouter(dependencies=[Depends(require_permission("matching:*"))])
+# 岗位匹配模块入口：持有任一岗位匹配子权限即放行（菜单授权的是叶子 perm：position/result/agent/alert；
+# 兼容历史目录授权 matching:*），避免"菜单授权了但路由要求别的码"导致 403。
+router = APIRouter(dependencies=[Depends(require_any_perm(
+    "matching:*", "matching:position", "matching:result", "matching:agent", "matching:alert",
+))])
 
 
 # ==================== 岗位 CRUD（M-1） ====================

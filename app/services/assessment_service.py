@@ -357,6 +357,9 @@ class AssessmentService:
         paper = AssessmentService.get_paper(db, paper_id)
         if paper.results:
             raise ValueError("试卷已有测评记录，不能删除；请先停用试卷")
+        # 先清空题目关联：PaperQuestion.paper_id 为复合主键，直接删 paper 时 ORM
+        # 会尝试把 paper_id 置 NULL 触发 AssertionError（500），需先手动删除关联行
+        db.query(PaperQuestion).filter(PaperQuestion.paper_id == paper_id).delete(synchronize_session=False)
         AssessmentPaperDAO.delete(db, paper)
 
     @staticmethod
@@ -503,6 +506,8 @@ class AssessmentService:
             "result_id": result.id,
             "paper_id": result.paper_id,
             "talent_id": result.talent_id,
+            "paper_title": result.paper.title,
+            "paper_total_score": result.paper.total_score,
             "status": result.status,
             "started_at": result.started_at,
             "deadline_at": result.deadline_at,
@@ -647,62 +652,33 @@ class AssessmentService:
     @staticmethod
     def statistics(db: Session, *, talent_id: int | None, paper_id: int | None,
                    batch_id: int | None = None) -> dict:
-        completed = AssessmentResultDAO.list_completed(
+        # SQL 聚合（AssessmentResultDAO.statistics），避免全量加载 + Python 聚合
+        agg = AssessmentResultDAO.statistics(
             db, talent_id=talent_id, paper_id=paper_id, batch_id=batch_id
         )
-        total_results = AssessmentResultDAO.paged(
-            db, talent_id=talent_id, paper_id=paper_id, batch_id=batch_id, page=1, page_size=1
-        )[1]
-        completed_count = len(completed)
-        average_score = (
-            sum((Decimal(str(result.score)) for result in completed), Decimal("0.00")) / completed_count
-            if completed_count else Decimal("0.00")
-        )
-        result_rates = [
-            Decimal(str(result.score)) / Decimal(str(result.paper.total_score))
-            for result in completed
-            if Decimal(str(result.paper.total_score or 0)) > 0
-        ]
-        average_rate = (
-            sum(result_rates, Decimal("0.00")) / len(result_rates)
-            if result_rates else Decimal("0.00")
-        )
-        pass_count = 0
-        dimension_scores: dict[str, dict[str, Any]] = {}
-        for result in completed:
-            total_score = Decimal(str(result.paper.total_score))
-            if total_score and Decimal(str(result.score)) / total_score >= Decimal("0.60"):
-                pass_count += 1
-            detail_by_question = {detail.question_id: detail for detail in result.details}
-            for link in result.paper.question_links:
-                bucket = dimension_scores.setdefault(link.dimension_snapshot, {
-                    "score": Decimal("0.00"),
-                    "total_score": Decimal("0.00"),
-                    "result_ids": set(),
-                    "question_ids": set(),
-                })
-                bucket["total_score"] += Decimal(str(link.score_snapshot))
-                bucket["result_ids"].add(result.id)
-                bucket["question_ids"].add(link.question_id)
-                detail = detail_by_question.get(link.question_id)
-                if detail:
-                    bucket["score"] += Decimal(str(detail.score))
+        total_results = agg["total_results"]
+        completed_count = agg["completed_results"]
+        avg_score = agg["average_score"] if agg["average_score"] is not None else Decimal("0.00")
+        avg_rate = agg["average_rate"] if agg["average_rate"] is not None else Decimal("0.00")
+        pass_count = agg["pass_count"]
         dimensions = [
             {
-                "dimension": dimension,
-                "score": values["score"],
-                "total_score": values["total_score"],
-                "accuracy": values["score"] / values["total_score"] if values["total_score"] else Decimal("0.00"),
-                "result_count": len(values["result_ids"]),
-                "question_count": len(values["question_ids"]),
+                "dimension": d["dimension"],
+                "score": Decimal(str(d["score"])),
+                "total_score": Decimal(str(d["total_score"])),
+                "accuracy": Decimal(str(
+                    d["score"] / d["total_score"] if d["total_score"] else 0
+                )).quantize(Decimal("0.01")),
+                "result_count": d["result_count"],
+                "question_count": d["question_count"],
             }
-            for dimension, values in sorted(dimension_scores.items())
+            for d in agg["dimensions"]
         ]
         return {
             "total_results": total_results,
             "completed_results": completed_count,
-            "average_score": average_score,
-            "average_rate": average_rate,
+            "average_score": avg_score,
+            "average_rate": avg_rate,
             "pass_count": pass_count,
             "pass_rate": Decimal(str(pass_count / completed_count if completed_count else 0)).quantize(Decimal("0.01")),
             "dimensions": dimensions,
@@ -711,43 +687,29 @@ class AssessmentService:
     @staticmethod
     def batch_statistics(db: Session, *, batch_id: int | None = None,
                          paper_id: int | None = None) -> list[dict]:
-        if batch_id is not None:
-            batches = [AssessmentService.get_batch(db, batch_id)]
-        else:
-            batches = AssessmentBatchDAO.paged(
-                db, paper_id=paper_id, page=1, page_size=100000
-            )[0]
-
+        # SQL 聚合（AssessmentBatchDAO.batch_statistics），避免逐批次全量拉取 + Python 聚合
+        rows = AssessmentBatchDAO.batch_statistics(db, batch_id=batch_id, paper_id=paper_id)
         items = []
-        for batch in batches:
-            results = AssessmentResultDAO.paged(
-                db, batch_id=batch.id, page=1, page_size=100000
-            )[0]
-            completed = [result for result in results if result.status in {2, 3}]
-            pass_count = 0
-            for result in completed:
-                total_score = Decimal(str(result.paper.total_score))
-                if total_score and Decimal(str(result.score)) / total_score >= Decimal("0.60"):
-                    pass_count += 1
+        for row in rows:
+            total = int(row["total_results"] or 0)
+            completed_count = int(row["completed_results"] or 0)
+            pass_count = int(row["pass_count"] or 0)
+            avg = row["avg_score"]
             items.append({
-                "batch_id": batch.id,
-                "batch_no": batch.batch_no,
-                "batch_name": batch.name,
-                "paper_id": batch.paper_id,
-                "total_results": len(results),
-                "completed_results": len(completed),
+                "batch_id": row["batch_id"],
+                "batch_no": row["batch_no"],
+                "batch_name": row["name"],
+                "paper_id": row["paper_id"],
+                "total_results": total,
+                "completed_results": completed_count,
                 "completion_rate": Decimal(str(
-                    len(completed) / len(results) if results else 0
+                    completed_count / total if total else 0
                 )).quantize(Decimal("0.01")),
                 "pass_count": pass_count,
                 "pass_rate": Decimal(str(
-                    pass_count / len(completed) if completed else 0
+                    pass_count / completed_count if completed_count else 0
                 )).quantize(Decimal("0.01")),
-                "average_score": (
-                    sum((Decimal(str(result.score)) for result in completed), Decimal("0.00"))
-                    / len(completed)
-                    if completed else Decimal("0.00")
-                ),
+                "average_score": Decimal(str(avg if avg is not None else 0)).quantize(Decimal("0.01")),
             })
         return items
 

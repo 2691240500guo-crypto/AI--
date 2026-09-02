@@ -31,10 +31,10 @@ class LLMClient:
         self.strategy = settings.LLM_STRATEGY
         self.model = settings.OLLAMA_MODEL
         self.embed_model = settings.OLLAMA_EMBED_MODEL
-        # 硅基流动配置
-        self.sf_api_key = settings.SILICON_FLOW_API_KEY
-        self.sf_base = settings.SILICON_FLOW_BASE_URL
-        self.sf_llm_model = settings.SILICON_FLOW_LLM_MODEL
+        # 硅基流动配置（key 兼容两套命名，.env 填 SILICON_FLOW_API_KEY 或 SILICONFLOW_API_KEY 任一即可）
+        self.sf_api_key = settings.SILICON_FLOW_API_KEY or settings.SILICONFLOW_API_KEY
+        self.sf_base = settings.SILICON_FLOW_BASE_URL or settings.SILICONFLOW_BASE_URL
+        self.sf_llm_model = settings.SILICON_FLOW_LLM_MODEL or settings.SILICONFLOW_MODEL
         self.sf_embed_model = settings.SILICON_FLOW_EMBED_MODEL
         # Ollama 客户端（惰性，仅当 strategy=ollama 且需要时创建）
         self._ollama: Any | None = None

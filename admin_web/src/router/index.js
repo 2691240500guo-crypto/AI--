@@ -8,14 +8,15 @@ const routes = [
     path: '/',
     name: 'root',   // 必须有 name，addRoute('root', child) 才能注册到根布局下
     component: () => import('@/layout/index.vue'),
-    redirect: '/dashboard',
+    redirect: '/home',
     children: [
+      { path: 'home', name: 'home', component: () => import('@/views/home.vue'), meta: { title: '首页' } },
       { path: 'dashboard', name: 'dashboard', component: () => import('@/views/dashboard.vue'), meta: { title: '数据看板' } },
-      // 岗位匹配域（M 域）静态路由：sys_menu 未种子 matching 菜单项前，用静态路由保证页面可直接访问
-      // meta.static=true 保护：registerDynamicRoutes 清理旧动态路由时跳过，避免登录后被 removeRoute 导致 404
-      { path: 'matching/position', name: 'matching-position', component: () => import('@/views/matching/Position.vue'), meta: { title: '岗位管理', static: true } },
-      { path: 'matching/result', name: 'matching-result', component: () => import('@/views/matching/Result.vue'), meta: { title: '匹配结果', static: true } },
-      { path: 'matching/agent', name: 'matching-agent', component: () => import('@/views/matching/Agent.vue'), meta: { title: '岗位人才匹配Agent', static: true } },
+      // 一级 Layout 目录（type=1）路由：点开跳到第一个子菜单，避免 404
+      { path: 'system', redirect: '/system/user' },
+      { path: 'assessment', redirect: '/assessment/overview' },
+      { path: 'training', redirect: '/training/plan' },
+      // 岗位匹配域（M 域）：菜单已种子到 sys_menu（2026-09-02），由 registerDynamicRoutes 按权限动态注册，不再硬编码
       // 人才档案域（T 域，hy 分支合并）：详情/新增/编辑/简历解析/治理/RAG 静态路由
       { path: 'talent/detail/:id', name: 'talent-detail', component: () => import('@/views/talent/detail.vue'), meta: { title: '人才档案详情', static: true } },
       { path: 'talent/new', name: 'talent-new', component: () => import('@/views/talent/edit.vue'), meta: { title: '新增人才档案', static: true } },
@@ -58,25 +59,35 @@ function resolveComponent(component) {
 }
 
 export function registerDynamicRoutes(menus) {
-  const parent = router.options.routes.find((r) => r.path === '/')
-  // 清理旧动态路由时跳过 meta.static=true 的静态路由（如岗位匹配域页面），避免登录后被误删
-  const children = (parent?.children || []).filter((c) => c.name !== 'dashboard' && !c.meta?.static)
-  // 清理旧动态路由（登录态切换时避免重复注册）
-  for (const c of children) {
-    if (router.hasRoute(c.name)) router.removeRoute(c.name)
+  // 只清理本次 registerDynamicRoutes 之前留下的路由（name 以 'dynamic-' 开头），
+  // 必须保留所有静态路由（home / dashboard / 三个 redirect 路由 / meta.static=true），
+  // 否则 /home 等被误删后，没有菜单权限码的非超管用户登录后跳 /home → 路由不存在 → 404。
+  for (const r of router.getRoutes()) {
+    if (r.name && String(r.name).startsWith('dynamic-')) {
+      router.removeRoute(r.name)
+    }
   }
   const leaf = menus.filter((m) => m.type === 2 && m.path && m.status !== 0).sort((a, b) => (a.sort - b.sort) || (a.id - b.id))
   const folders = menus.filter((m) => m.type === 1)           // 目录
+  // 菜单 component 指向实际视图文件（如 system/Dict -> system/dict.vue）。
+  // 命中失败（页面未实现/未合入/文件名不一致）时兜底占位页而非 404——
+  // 保留菜单布局、提示"功能开发中"，避免误报成"无访问权限"的裸 404。
+  const fallback = () => import('@/views/placeholder.vue')
   for (const m of leaf) {
     const fullPath = m.path.startsWith('/') ? m.path : `/${m.path}`
+    const resolved = resolveComponent(m.component)
+    if (!resolved) {
+      console.warn('[router] 菜单 component 未命中视图文件: id=%s title=%s path=%s component=%s',
+        m.id, m.title, m.path, m.component)
+    }
     const child = {
       path: fullPath.replace(/^\//, ''),
       name: `dynamic-${m.id}`,
-      component: resolveComponent(m.component) || (() => import('@/views/not-found.vue')),
+      component: resolved || fallback,
       meta: { title: m.title }
     }
     if (router.hasRoute(child.name)) router.removeRoute(child.name)
-    // 用根路由的 name（'root'）作为父路由名；component 为 null 会导致后续跳转崩，兜底为 404 组件
+    // 用根路由的 name（'root'）作为父路由名
     router.addRoute('root', child)
   }
   return folders.length > 0
@@ -92,14 +103,37 @@ router.beforeEach(async (to) => {
     user.token = storedToken
   }
   if (to.path !== '/login' && !user.token) return '/login'
-  if (to.path === '/login' && user.token) return '/'
+  if (to.path === '/login' && user.token) {
+    // 已登录状态访问登录页：回跳原目标（redirect 仅在登录成功后使用，守卫带 token 进来时同样放行回跳）
+    const r = to.query.redirect
+    return (typeof r === 'string' && r.startsWith('/') && !r.startsWith('//')) ? r : '/'
+  }
   // 关键：token 在但 menus 为空（刷新后）→ 先恢复菜单+动态路由，避免刷新到动态页 404
   if (user.token && user.menus.length === 0) {
+    let restored = false
     try {
       await user.restore()
+      restored = true
     } catch (e) {
       console.warn('[router] restore failed:', e?.message)
-      if (to.name === 'not-found') return to.fullPath
+      // 会话恢复失败（典型：后端重启未就绪/连接被拒/token 失效）时，
+      // 动态路由尚未注册，URL 已被解析为 not-found 兜底页——放行会永久卡 404。
+      // 统一清空本地凭证并回登录页，登录成功后按 redirect 回跳原目标。
+      user.token = ''
+      user.user = null
+      user.menus = []
+      user.perms = []
+      sessionStorage.removeItem('token')
+      sessionStorage.removeItem('refresh_token')
+      return { path: '/login', query: { redirect: to.fullPath } }
+    }
+    if (restored && to.name === 'not-found') {
+      // vue-router 在守卫执行前就完成了路由匹配：动态路由是 restore() 里才
+      // addRoute 的，当前导航的 to 仍是旧匹配（落到了 not-found 兜底）。
+      // 必须 replace 重导一次，让路由表重新匹配到刚注册的动态页；
+      // 若目标确实是乱输的不存在路径，二次进入时 menus 已非空不会再重导，
+      // 会正常渲染 404 页（无死循环）。
+      return { path: to.fullPath, replace: true }
     }
   }
   if (to.meta.title) document.title = `${to.meta.title} · AI 人才平台`

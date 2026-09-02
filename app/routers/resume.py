@@ -7,7 +7,7 @@ POST /api/v1/resume/upload   上传简历文件，自动抽出文本 → 创建 
 - 批次 2.3b：LLM 抽取 8 字段，更新 talent 与打 AI 标签
 - 批次 2.3c：评估报告 + 向量入 Milvus
 
-权限：``talent:list``（与 talent 主档共用）。
+权限：``talent:manage``（简历上传属于写操作，菜单"简历智能解析"即该权限码）。
 仅本模块新增。
 """
 # hq新增内容 - 人才档案批次 2.3a
@@ -21,7 +21,7 @@ from app.schemas.talent import TalentOut
 from app.services.resume_upload_service import ResumeUploadService
 from app.utils.response import ok
 
-router = APIRouter(dependencies=[Depends(require_permission("talent:list"))])
+router = APIRouter(dependencies=[Depends(require_permission("talent:manage"))])
 
 
 @router.post("/upload", summary="上传简历文件（PDF/Word/图片/TXT/MD），自动抽文本 → 创建 talent 草稿")

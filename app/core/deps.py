@@ -32,7 +32,18 @@ def _user_perms(user: User) -> set[str]:
         for menu in role.menus:
             if menu.perm:
                 perms.add(menu.perm)
+                if ":" in menu.perm:
+                    perms.add(menu.perm.split(":", 1)[0] + ":*")
     return perms
+
+
+def _has_perm(required: str, owned: set[str]) -> bool:
+    if required in owned:
+        return True
+    if ":" in required:
+        head = required.split(":", 1)[0]
+        return f"{head}:*" in owned
+    return "*" in owned
 
 
 def require_permission(perm: str):
@@ -40,8 +51,48 @@ def require_permission(perm: str):
     def checker(user: User = Depends(get_current_user)) -> User:
         if user.is_super:
             return user
-        if perm not in _user_perms(user):
+        if not _has_perm(perm, _user_perms(user)):
             raise HTTPException(403, f"权限不足：需要 {perm}")
+        return user
+    return checker
+
+
+def require_any_perm(*perms: str):
+    """接口鉴权：持有任一 perm 即通过（超管放行）。
+
+    用于"模块入口"场景：菜单按钮 perm 细粒度（training:course/plan/effect），
+    但 router 级保护想用"任一细粒度 perm 即放行"，避免菜单 perm 与路由 perm 字面值不一致。
+    """
+    def checker(user: User = Depends(get_current_user)) -> User:
+        if user.is_super:
+            return user
+        user_perms = _user_perms(user)
+        if not any(p in user_perms for p in perms):
+            raise HTTPException(403, f"权限不足：需要 {'/'.join(perms)} 之一")
+        return user
+    return checker
+
+
+def _token_client_type(token: str | None) -> str:
+    """从 access token 中读端标识；缺省按 admin（兼容旧 token）。"""
+    if not token:
+        return "admin"
+    payload = decode_token(token)
+    return (payload or {}).get("client_type") or "admin"
+
+
+def require_client(types: str | list[str]):
+    """端隔离校验器：要求 token 的 client_type ∈ types（如 admin / app）。
+
+    用法：
+        _=Depends(require_client("app"))            # 仅小程序
+        _=Depends(require_client(["admin", "app"])) # 两端都行
+    """
+    allowed = {types} if isinstance(types, str) else set(types)
+    def checker(request: Request, token: str | None = Depends(oauth2_scheme),
+                user: User = Depends(get_current_user)) -> User:
+        if _token_client_type(token) not in allowed:
+            raise HTTPException(403, "跨端调用被拒绝：token 端标识不匹配")
         return user
     return checker
 

@@ -19,8 +19,9 @@ class User(Base):
     status: Mapped[int] = mapped_column(default=1)                    # 1正常 0禁用
     is_super: Mapped[int] = mapped_column(default=0)                  # 1超管(越过权限码)
     openid: Mapped[str | None] = mapped_column(String(64), default=None)          # 微信 openid (A03)
-    talent_id: Mapped[int | None] = mapped_column(ForeignKey("tal_talent.id"), default=None, index=True)  # 关联人才档案
-    user_type: Mapped[str] = mapped_column(String(16), default="admin")            # admin / employee
+    emp_no: Mapped[str | None] = mapped_column(String(32), index=True, unique=True, default=None)  # 员工工号(小程序登录)
+    talent_id: Mapped[int | None] = mapped_column(ForeignKey("tal_talent.id"), default=None, index=True)  # 关联人才档案(本人数据锚点)
+    user_type: Mapped[str] = mapped_column(String(16), default="admin")            # admin(管理端) / employee(小程序)
     last_login_at: Mapped[datetime | None] = mapped_column(default=None)
     created_at: Mapped[datetime] = mapped_column(default=datetime.now)
     updated_at: Mapped[datetime] = mapped_column(default=datetime.now, onupdate=datetime.now)
