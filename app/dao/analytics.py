@@ -31,49 +31,85 @@ def talent_by_degree(db: Session) -> dict[str, int]:
         return {}
 
 
-def assess_pass_rate(db: Session) -> float:
+def _time_cond(model, start_date, end_date):
+    """构造时间窗口条件：model.created_at BETWEEN [start_date 00:00:00] AND [end_date 23:59:59.999999]。
+
+    仅当 start_date 与 end_date 均非空、且模型确有 created_at 列时返回条件；
+    否则返回 None（不过滤）。用于全局指标在指定周期内重算对比期值。
+    注意：start/end 入参是 date，而 created_at 多为 DATETIME，故结束日用 time.max
+    推到当天末、起始日用 time.min，保证「含当日」（与 daily_new_counts 既有写法一致）。
+    """
+    if start_date is None or end_date is None:
+        return None
+    col = getattr(model, "created_at", None)
+    if col is None:
+        logger.warning("%s 缺少 created_at 列，时间窗口被忽略", getattr(model, "__name__", model))
+        return None
+    return col.between(datetime.combine(start_date, time.min),
+                      datetime.combine(end_date, time.max))
+
+
+def assess_pass_rate(db: Session, start_date=None, end_date=None) -> float:
     """测评合格率（A 域 asm_result，负责人 P4）。
 
     口径暂定：status in (2,3)（交卷/出报告）且 score >= 60 视为合格。
+    start_date/end_date：可选时间窗口（按 AssessmentResult.created_at 过滤），
+        不传 = 全量（兼容 overview 看板全局口径调用）。
     TODO(P10): P4 确认后可能改为只看状态位、或不同阈值——确认后只改这一处。
     """
     try:
         from app.models.assessment import AssessmentResult  # P4 的类名是 AssessmentResult
-        total = db.scalar(select(func.count(AssessmentResult.id))) or 0
+        time_cond = _time_cond(AssessmentResult, start_date, end_date)
+        base_total = select(func.count(AssessmentResult.id))
+        base_passed = select(func.count(AssessmentResult.id)).where(
+            AssessmentResult.status.in_([2, 3]), AssessmentResult.score >= 60
+        )
+        if time_cond is not None:
+            base_total = base_total.where(time_cond)
+            base_passed = base_passed.where(time_cond)
+        total = db.scalar(base_total) or 0
         if total == 0:
             return 0.0
-        passed = db.scalar(
-            select(func.count(AssessmentResult.id))
-            .where(AssessmentResult.status.in_([2, 3]),
-                   AssessmentResult.score >= 60)
-        ) or 0
+        passed = db.scalar(base_passed) or 0
         return round(passed / total, 4)
     except Exception as exc:
         logger.warning("assess_pass_rate 降级: %s", exc)
         return 0.0
 
 
-def training_completion_rate(db: Session) -> float:
-    """培训计划完成率（TR 域 trn_training_plan，负责人 P8）：status=2 表示已完成。"""
+def training_completion_rate(db: Session, start_date=None, end_date=None) -> float:
+    """培训计划完成率（TR 域 trn_training_plan，负责人 P8）：status=2 表示已完成。
+    start_date/end_date：可选时间窗口（按 TrainingPlan.created_at 过滤），不传 = 全量。
+    """
     try:
         from app.models.training import TrainingPlan   # 惰性导入，沿用文件风格
-        total = db.scalar(select(func.count(TrainingPlan.id))) or 0
+        time_cond = _time_cond(TrainingPlan, start_date, end_date)
+        base_total = select(func.count(TrainingPlan.id))
+        base_done = select(func.count(TrainingPlan.id)).where(TrainingPlan.status == 2)
+        if time_cond is not None:
+            base_total = base_total.where(time_cond)
+            base_done = base_done.where(time_cond)
+        total = db.scalar(base_total) or 0
         if total == 0:
             return 0.0
-        done = db.scalar(
-            select(func.count(TrainingPlan.id)).where(TrainingPlan.status == 2)
-        ) or 0
+        done = db.scalar(base_done) or 0
         return round(done / total, 4)
     except Exception as exc:                            # 表未建/字段不符时降级，不拖垮看板
         logger.warning("training_completion_rate 降级: %s", exc)
         return 0.0
 
 
-def match_avg_score(db: Session) -> float:
-    """平均匹配度（M 域 match_result，负责人 P6）：score 满分 0-100。"""
+def match_avg_score(db: Session, start_date=None, end_date=None) -> float:
+    """平均匹配度（M 域 match_result，负责人 P6）：score 满分 0-100。
+    start_date/end_date：可选时间窗口（按 MatchResult.created_at 过滤），不传 = 全量。
+    """
     try:
         from app.models.matching import MatchResult
-        avg = db.scalar(select(func.avg(MatchResult.score)))
+        time_cond = _time_cond(MatchResult, start_date, end_date)
+        q = select(func.avg(MatchResult.score))
+        if time_cond is not None:
+            q = q.where(time_cond)
+        avg = db.scalar(q)
         return float(avg) if avg is not None else 0.0
     except Exception as exc:
         logger.warning("match_avg_score 降级: %s", exc)

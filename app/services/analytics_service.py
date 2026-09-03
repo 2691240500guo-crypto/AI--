@@ -109,19 +109,24 @@ def _shift_period(start: date, end: date, compare: str) -> tuple[date, date]:
         return start.replace(year=start.year - 1, day=28), end.replace(year=end.year - 1, day=28)
 
 
-# 全局口径指标（方案②，2026-09-02）：因 asm_result 挂 sys_user、trn/match 挂 tal_talent，
-# 部门归属体系不一致（跨域），暂不做部门/岗位/等级筛选，只返回全局正确值（前端有口径提示）。
+# 全局口径指标（方案② 修订，2026-09-03）：因 asm_result 挂 sys_user、trn/match 挂 tal_talent，
+# 部门归属体系不一致（跨域），dept/position/level 筛选仍不生效（只给全局正确值）；
+# 但时间窗口 + 同比/环比现已支持——在 [start,end] 与 [prev_start,prev_end] 两个窗口内
+# 分别重算全局值作 current / previous（变化率 = (current-previous)/previous）。
 _GLOBAL_METRICS = {"assess_pass_rate", "training_completion_rate", "match_avg_score"}
 
 
-def _global_metric_value(db: Session, metric: str) -> float:
-    """取全局指标的正确口径值（复用 dao 既有函数，忽略筛选条件）。"""
+def _global_metric_value(db: Session, metric: str, start_date=None, end_date=None) -> float:
+    """取全局指标在 [start_date, end_date] 窗口内的正确口径值（忽略 dept/position/level）。
+
+    start_date/end_date 为 None 时退化为全量全局值（兼容 overview 看板调用）。
+    """
     fn = {
         "assess_pass_rate": analytics_dao.assess_pass_rate,
         "training_completion_rate": analytics_dao.training_completion_rate,
         "match_avg_score": analytics_dao.match_avg_score,
     }[metric]
-    return fn(db)
+    return fn(db, start_date, end_date)
 
 
 def dim_filter(db: Session, filters) -> dict:
@@ -129,8 +134,9 @@ def dim_filter(db: Session, filters) -> dict:
 
     返回：{"metric", "current", "previous", "change_rate"}
       - metric="talent_total"：支持 dept/position/level/时间筛选 + mom/yoy 对比（人才表自带 dept_id）
-      - metric ∈ 全局指标（合格率/完成率/匹配度）：只返回全局正确值，previous/change_rate=None，
-        忽略 dept/position/level/compare（跨域部门归属体系不一，诚实口径=不给错值，方案② 2026-09-02）
+      - metric ∈ 全局指标（合格率/完成率/匹配度）：忽略 dept/position/level 筛选；
+        但 compare!=none 且传了时间范围时，previous/change_rate 按 [prev_start,prev_end] 窗口重算
+        （变化率=(current-previous)/previous，previous=0 时为 None；方案② 修订 2026-09-03）
       - compare="none" 时 previous / change_rate 均为 None（前端就不渲染对比标签）
       - 未传时间范围时无法定位对比期，previous 为 None 并打日志，不报错
       - previous=0 时 change_rate 为 None，避免除零（前端显示"—"而不是 Infinity）
@@ -141,14 +147,25 @@ def dim_filter(db: Session, filters) -> dict:
     compare = params.get("compare") or "none"
     start, end = params.get("start_date"), params.get("end_date")
 
-    # ---- 全局口径指标：只返回正确全局值，不做筛选/对比 ----
+    # ---- 全局口径指标：忽略 dept/position/level 筛选，但支持时间窗口 + 同比/环比 ----
     if metric in _GLOBAL_METRICS:
-        logger.info("dim-filter metric=%s 为全局口径，忽略 dept/position/level/compare 筛选", metric)
+        logger.info("dim-filter metric=%s 为全局口径，忽略 dept/position/level 筛选（时间对比仍生效）", metric)
+        current = _global_metric_value(db, metric, start, end)
+        previous: int | float | None = None
+        change_rate: float | None = None
+        if compare != "none":
+            if not (start and end):
+                # 没有时间范围就没有"上期"概念，降级为只返回本期，不阻塞接口
+                logger.warning("全局指标 compare=%s 但未传时间范围，跳过对比期计算", compare)
+            else:
+                prev_start, prev_end = _shift_period(start, end, compare)
+                previous = _global_metric_value(db, metric, prev_start, prev_end)
+                change_rate = round((current - previous) / previous, 4) if previous not in (None, 0) else None
         return {
             "metric": metric,
-            "current": _global_metric_value(db, metric),
-            "previous": None,
-            "change_rate": None,
+            "current": current,
+            "previous": previous,
+            "change_rate": change_rate,
         }
 
     # ---- 人才总量：按维度筛选 + 同比/环比（现状逻辑）----
