@@ -471,6 +471,16 @@ class MatchAgent:
         results.sort(key=lambda r: r["score"], reverse=True)
         results = [r for r in results if r["score"] >= min_score][:top_k]
 
+        # 去重：position_vec 同一岗位可能有多条重复向量，导致同一 position_id 多次进入 results；
+        # 按 position_id 去重（保留最高分），否则落库时 UNIQUE(talent_id,position_id) 第二次 insert 会抛
+        # IntegrityError（前端表现为"Internal server error" 500）。
+        dedup: dict[int, dict[str, Any]] = {}
+        for r in results:
+            pid = r["position_id"]
+            if pid not in dedup or r["score"] > dedup[pid]["score"]:
+                dedup[pid] = r
+        results = list(dedup.values())
+
         # 落库 match_result（幂等，与 run_match 一致；已推荐/录用结论不覆盖）
         # 先过滤 status!=0，再连续编号 1..N（与 run_match 同修复，避免 rank 与显示不一致）
         visible: list[tuple[dict[str, Any], Any]] = []
