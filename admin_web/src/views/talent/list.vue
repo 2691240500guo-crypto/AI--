@@ -9,7 +9,7 @@ import { ElMessage, ElMessageBox } from 'element-plus'
 import { Upload, ArrowDown, Download, Plus, UploadFilled } from '@element-plus/icons-vue'
 import {
   deleteTalent, downloadResume, fetchResumeBlob, previewResume, listTalents,
-  semanticSearchTalent, importExcel, importWord, parseResume,
+  semanticSearchTalent, semanticSearchTalentV2, importExcel, importWord, parseResume,
   exportTalents, talentStats,
 } from '@/api/talent'
 
@@ -40,11 +40,18 @@ const degreeOptions = [
   { label: '大专', value: '大专' },
   { label: '高中及以下', value: '高中' },
 ]
+// 能力层级选项：与后端画像标签库(SEED_TAGS level 维度)同源，按名称精确匹配标签筛选
 const levelOptions = [
-  { label: 'P5 初级', value: 'P5' },
-  { label: 'P6 中级', value: 'P6' },
-  { label: 'P7 高级', value: 'P7' },
-  { label: 'P8 专家', value: 'P8' },
+  { label: '初级', value: '初级' },
+  { label: '中级', value: '中级' },
+  { label: '高级', value: '高级' },
+  { label: '资深', value: '资深' },
+  { label: '骨干', value: '骨干' },
+  { label: '专家', value: '专家' },
+  { label: '架构师', value: '架构师' },
+  { label: '管理者', value: '管理者' },
+  { label: '负责人', value: '负责人' },
+  { label: '技术总监', value: '技术总监' },
 ]
 const yearOptions = [
   { label: '1年以上', value: 1 },
@@ -385,32 +392,81 @@ async function doBackup() {
   }
 }
 
-// ========== 语义搜索 ==========
+// ========== 语义搜索 v2 ==========
 const semanticOpen = ref(false)
 const semanticQ = ref('')
 const semanticHits = ref([])
 const semanticBusy = ref(false)
+const semanticInfo = ref(null)
+
+// 推荐查询示例
+const semanticExamples = [
+  '擅长数字化转型的骨干人才',
+  '有3年以上AI项目经验的产品经理',
+  'Python高级工程师，5年以上经验',
+  '硕士以上学历的算法工程师',
+  '前端开发，2年经验',
+]
+
 async function doSemanticSearch() {
   const q = semanticQ.value.trim()
-  if (!q) { ElMessage.warning('请输入问题'); return }
+  if (!q) { ElMessage.warning('请输入查询描述'); return }
   semanticBusy.value = true
+  semanticInfo.value = null
   try {
-    const res = await semanticSearchTalent(q, 10)
-    const arr = Array.isArray(res.data) ? res.data : (res.data?.hits || [])
-    semanticHits.value = arr
-    if (!semanticHits.value.length) ElMessage.info('没有召回结果，试试更宽泛的描述')
+    const res = await semanticSearchTalentV2(q, 10)
+    const data = res.data
+    if (data && data.results) {
+      semanticHits.value = data.results
+      semanticInfo.value = {
+        parse_mode: data.parse_mode,
+        parsed_conditions: data.parsed_conditions || [],
+        search_mode: data.search_mode,
+        total: data.total,
+        relaxed: data.relaxed || [],
+      }
+    } else {
+      semanticHits.value = []
+    }
+    if (!semanticHits.value.length) {
+      ElMessage.info('没有匹配的人才，试试调整关键词或降低条件')
+    }
   } catch (e) {
-    ElMessage.error('语义搜索失败：' + (e.message || ''))
+    // v2 失败时降级到 v1
+    try {
+      const res = await semanticSearchTalent(q, 10)
+      const arr = Array.isArray(res.data) ? res.data : (res.data?.hits || [])
+      semanticHits.value = arr
+      semanticInfo.value = { parse_mode: 'fallback', parsed_conditions: [], search_mode: 'keyword', total: arr.length, relaxed: [] }
+    } catch (e2) {
+      ElMessage.error('语义搜索失败：' + (e.message || ''))
+    }
   } finally {
     semanticBusy.value = false
   }
 }
 function toggleSemantic() {
   semanticOpen.value = !semanticOpen.value
-  if (!semanticOpen.value) { semanticHits.value = []; semanticQ.value = '' }
+  if (!semanticOpen.value) { semanticHits.value = []; semanticQ.value = ''; semanticInfo.value = null }
 }
 function jumpToTalent(tid) {
   if (tid) router.push(`/talent/detail/${tid}`)
+}
+function useExample(q) {
+  semanticQ.value = q
+  doSemanticSearch()
+}
+function parseModeLabel(mode) {
+  const map = { llm: 'AI 智能解析', rule: '规则解析', fallback: '关键词匹配', unknown: '解析中' }
+  return map[mode] || mode
+}
+function searchModeLabel(mode) {
+  const map = { vector: '向量语义匹配', keyword: '关键词匹配', hybrid: '混合排序', structured_filter_no_result: '无符合条件的结果', unknown: '—' }
+  return map[mode] || mode
+}
+function matchTagType(i) {
+  const types = ['success', 'primary', 'warning', 'info', 'danger']
+  return types[i % types.length]
 }
 
 // ========== 列表操作 ==========
@@ -513,35 +569,114 @@ onMounted(() => {
       </el-button>
     </div>
 
-    <!-- 语义搜索面板 -->
+    <!-- 语义搜索面板 v2 -->
     <div v-if="semanticOpen" class="semantic">
+      <div class="semantic-header">
+        <span class="semantic-title">🔍 智能语义搜索</span>
+        <span class="semantic-subtitle">支持自然语言描述，自动解析条件并匹配人才</span>
+      </div>
       <el-input v-model="semanticQ" type="textarea" :rows="2"
         placeholder="例如：擅长数字化转型、有3年以上AI项目经验的骨干人才"
         @keydown.ctrl.enter.prevent="doSemanticSearch" />
       <div class="semantic-actions">
         <el-button type="primary" :loading="semanticBusy" :disabled="!semanticQ.trim()" @click="doSemanticSearch">
-          语义召回
+          智能搜索
         </el-button>
-        <span class="hint">Ctrl + Enter 提交；基于向量召回 + 候选人画像</span>
+        <span class="hint">Ctrl + Enter 提交</span>
+        <span v-if="semanticInfo" class="search-mode-tag" :class="semanticInfo.search_mode">
+          {{ searchModeLabel(semanticInfo.search_mode) }}
+        </span>
       </div>
-      <el-table v-if="semanticHits.length" :data="semanticHits" stripe size="small" style="margin-top:10px">
-        <el-table-column label="姓名" min-width="120">
+      <!-- 推荐查询 -->
+      <div v-if="!semanticHits.length && !semanticBusy" class="semantic-examples">
+        <span class="example-label">试试这些：</span>
+        <el-tag
+          v-for="ex in semanticExamples" :key="ex"
+          class="example-tag"
+          @click="useExample(ex)"
+        >
+          {{ ex }}
+        </el-tag>
+      </div>
+      <!-- 解析条件展示 -->
+      <div v-if="semanticInfo && semanticInfo.parsed_conditions && semanticInfo.parsed_conditions.length"
+           class="parsed-conditions">
+        <div class="parsed-header">
+          <span>✨ 已解析条件（{{ parseModeLabel(semanticInfo.parse_mode) }}）</span>
+        </div>
+        <div class="parsed-tags">
+          <el-tag v-for="(c, i) in semanticInfo.parsed_conditions" :key="i"
+                  type="success" size="small" effect="light">
+            {{ c }}
+          </el-tag>
+        </div>
+        <div v-if="semanticInfo.total !== undefined" class="parsed-total">
+          共找到 <b>{{ semanticInfo.total }}</b> 位匹配人才
+        </div>
+        <div v-if="semanticInfo.relaxed && semanticInfo.relaxed.length" class="parsed-relaxed">
+          ⚠️ {{ semanticInfo.relaxed[0] }}
+        </div>
+      </div>
+      <!-- 搜索结果表格 -->
+      <el-table v-if="semanticHits.length" :data="semanticHits" stripe size="small" class="semantic-table">
+        <el-table-column label="姓名" min-width="110">
           <template #default="{ row }">
             <el-link v-if="row.talent_id" type="primary" :underline="false" @click="jumpToTalent(row.talent_id)">
-              {{ row.name || row.talent?.name || `#${row.talent_id}` }}
+              <b>{{ row.name || `#${row.talent_id}` }}</b>
             </el-link>
+          </template>
+        </el-table-column>
+        <el-table-column label="职位" min-width="110" show-overflow-tooltip>
+          <template #default="{ row }">{{ row.current_title || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="学历" width="70">
+          <template #default="{ row }">{{ row.highest_education || '—' }}</template>
+        </el-table-column>
+        <el-table-column label="年限" width="60">
+          <template #default="{ row }">{{ row.years_experience ?? '—' }}年</template>
+        </el-table-column>
+        <el-table-column v-if="semanticInfo?.search_mode === 'vector'" label="相似度" width="110">
+          <template #default="{ row }">
+            <el-progress v-if="row.score !== null && row.score !== undefined"
+              :percentage="Math.min(100, Math.round(row.score * 100))"
+              :stroke-width="6" />
             <span v-else>—</span>
           </template>
         </el-table-column>
-        <el-table-column label="相似度" width="120">
+        <el-table-column label="匹配条件" min-width="200">
           <template #default="{ row }">
-            <el-progress :percentage="Math.min(100, Math.round((row.score || 0) * 100))" />
+            <div class="match-tags">
+              <el-tag v-for="(c, i) in (row.matched_conditions || []).slice(0, 4)" :key="i"
+                      size="small" :type="matchTagType(i)" effect="plain">
+                {{ c }}
+              </el-tag>
+            </div>
           </template>
         </el-table-column>
-        <el-table-column label="命中说明" min-width="260" show-overflow-tooltip>
-          <template #default="{ row }">{{ row.match_reason || row.snippet || row.preview || '—' }}</template>
+        <el-table-column label="匹配说明" min-width="240" show-overflow-tooltip>
+          <template #default="{ row }">
+            <span class="match-reason">{{ row.match_reason || '—' }}</span>
+          </template>
+        </el-table-column>
+        <el-table-column label="操作" width="80" fixed="right">
+          <template #default="{ row }">
+            <el-button link type="primary" size="small" @click="jumpToTalent(row.talent_id)">
+              详情
+            </el-button>
+          </template>
         </el-table-column>
       </el-table>
+      <!-- 空结果提示 -->
+      <div v-if="!semanticBusy && semanticHits.length === 0 && semanticInfo" class="semantic-empty">
+        <el-empty description="没有找到完全匹配的人才" :image-size="80">
+          <p>建议：</p>
+          <ul>
+            <li>尝试减少限定条件（如去掉"骨干"等级要求）</li>
+            <li>换用更宽泛的关键词描述</li>
+            <li>检查是否有错别字</li>
+          </ul>
+        </el-empty>
+      </div>
     </div>
 
     <!-- 列表 -->
@@ -663,9 +798,128 @@ onMounted(() => {
 .stat-card-num { font-size: 30px; font-weight: 700; line-height: 1.2; }
 .stat-card-label { font-size: 13px; opacity: 0.9; margin-top: 6px; }
 
-.semantic { background: #fffbe6; border: 1px solid #fde58e; border-radius: 6px; padding: 12px 14px; margin-bottom: 14px; }
-.semantic-actions { display: flex; align-items: center; gap: 10px; margin-top: 8px; }
-.semantic-actions .hint { color: #9ca3af; font-size: 12px; }
+.semantic {
+  background: linear-gradient(135deg, #f0fdf4 0%, #ecfeff 100%);
+  border: 1px solid #86efac;
+  border-radius: 8px;
+  padding: 16px 18px;
+  margin-bottom: 16px;
+}
+.semantic-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.semantic-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #065f46;
+}
+.semantic-subtitle {
+  font-size: 12px;
+  color: #6b7280;
+}
+.semantic-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 10px;
+  flex-wrap: wrap;
+}
+.semantic-actions .hint {
+  color: #9ca3af;
+  font-size: 12px;
+}
+.search-mode-tag {
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: 10px;
+  font-weight: 500;
+}
+.search-mode-tag.vector { background: #ede9fe; color: #7c3aed; }
+.search-mode-tag.keyword { background: #fef3c7; color: #b45309; }
+.search-mode-tag.hybrid { background: #dbeafe; color: #2563eb; }
+.search-mode-tag.structured_filter_no_result { background: #fee2e2; color: #dc2626; }
+.semantic-examples {
+  margin-top: 12px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+.example-label {
+  font-size: 12px;
+  color: #6b7280;
+}
+.example-tag {
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.example-tag:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+.parsed-conditions {
+  margin-top: 12px;
+  padding: 10px 14px;
+  background: rgba(255,255,255,0.7);
+  border-radius: 6px;
+  border-left: 3px solid #10b981;
+}
+.parsed-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  font-weight: 500;
+  color: #065f46;
+  margin-bottom: 8px;
+}
+.parsed-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.parsed-total {
+  margin-top: 8px;
+  font-size: 13px;
+  color: #374151;
+}
+.parsed-total b {
+  color: #059669;
+  font-size: 15px;
+}
+.parsed-relaxed {
+  margin-top: 6px;
+  font-size: 12px;
+  color: #d97706;
+}
+.semantic-table {
+  margin-top: 12px;
+}
+.match-tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.match-reason {
+  font-size: 12px;
+  color: #4b5563;
+  line-height: 1.5;
+}
+.semantic-empty {
+  margin-top: 16px;
+  text-align: center;
+}
+.semantic-empty ul {
+  text-align: left;
+  display: inline-block;
+  margin: 8px 0 0;
+  padding-left: 20px;
+  font-size: 12px;
+  color: #6b7280;
+}
 .preview-box { min-height: 70vh; }
 .preview-frame { width: 100%; height: 70vh; border: 1px solid #eef1f5; border-radius: 6px; background: #fff; }
 .img-preview { display: flex; justify-content: center; align-items: center; min-height: 50vh; background: #f5f5f5; border-radius: 6px; }

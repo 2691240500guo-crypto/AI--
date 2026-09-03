@@ -5,7 +5,7 @@
     返回: {"talent_id": int, "tags": [str], "status": "done"|"failed"}
 
 内部流程（复用 T 域实现，保证与上传接口行为一致）：
-    下载文件 → 提取文本 → LLM 抽取结构化字段 → 落库 tal_talent + 自动打标签 → Embedding 入 Milvus talent_vec
+    下载文件 → 提取文本 → LLM 抽取结构化字段 → 落库 tal_talent + 自动打标签 → Embedding 入 Milvus 四维集合(skill/exp/quality/resume, upsert_talent_vectors)
     全部由 ResumeUploadService.handle 完成（含 LLM apply 与去重检测）。
 """
 from __future__ import annotations

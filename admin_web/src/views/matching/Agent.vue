@@ -694,8 +694,10 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resizeAll); dispose
   min-height: 0; /* 关键 */
   overflow-y: auto;
   padding: 24px 24px 16px;
-  max-width: 820px;
-  margin: 0 auto;
+  /* 关键：放弃 820px 定宽居中方案——column flex 下 stretch 会让
+     max-width/margin:auto 失效导致居中失败、内容仍贴左。
+     改为 chat-list 直接填满 agent-main 宽度（去掉 max-width 限制），
+     内部 cap-row / hero 自身居中各自负责，彻底消除右侧空白。 */
   width: 100%;
 }
 
@@ -713,6 +715,8 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resizeAll); dispose
 .hero-badge::before {
   content: '';
   position: absolute;
+  left: 50%; top: 50%;
+  transform: translate(-50%, -50%);
   width: 140px; height: 140px;
   border-radius: 50%;
   background: radial-gradient(circle, rgba(64, 158, 255, 0.22) 0%, rgba(64, 158, 255, 0.07) 45%, transparent 70%);

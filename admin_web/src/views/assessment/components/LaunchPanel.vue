@@ -87,8 +87,8 @@ onMounted(load)
             <el-form-item label="批次名称"><el-input v-model="form.batch_name" maxlength="128" show-word-limit placeholder="可选，默认按试卷和时间生成" /></el-form-item>
             <el-form-item label="测试人员">
               <el-select v-model="form.talent_ids" multiple filterable clearable collapse-tags collapse-tags-tooltip :max-collapse-tags="2" :teleported="false" style="width:100%" placeholder="按姓名或账号搜索人才">
-                <el-option v-for="talent in talents" :key="talent.id" :label="talentOptionLabel(talent)" :value="talent.id" :disabled="!talent.user_id">
-                  <div class="talent-option"><strong>{{ talent.name || `人才#${talent.id}` }}</strong><small v-if="talent.user_id">账号：{{ talent.nickname || talent.username }} / {{ talent.username }} · 用户#{{ talent.user_id }}</small><small v-else>未关联可用员工账号</small></div>
+                <el-option v-for="talent in talents.filter((t) => t.user_id)" :key="talent.id" :label="talentOptionLabel(talent)" :value="talent.id">
+                  <div class="talent-option"><strong>{{ talent.name || `人才#${talent.id}` }}</strong><small>账号：{{ talent.nickname || talent.username }} / {{ talent.username }} · 用户#{{ talent.user_id }}</small></div>
                 </el-option>
               </el-select>
               <div class="field-tip">提交人才档案 ID；未关联有效员工账号的档案会显示但不可选。</div>

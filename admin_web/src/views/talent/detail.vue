@@ -1,13 +1,11 @@
 <!-- hq新增内容 - 人才档案批次1 [detail.vue]
      通过静态路由 /talent/detail/:id 访问，列表页 `router.push` 跳过来。
-     后端：GET /api/v1/talent/{id}
-
-     hq+  批次2.3c：末尾追加 AI 档案问答输入框 -->
+     后端：GET /api/v1/talent/{id} -->
 <script setup>
-import { onMounted, ref } from 'vue'
+import { onMounted, ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
-import { askTalentQA, getTalent, getTalentReport, getTalentVectors } from '@/api/talent'
+import { getTalent, getTalentReport, getTalentVectors, getTalentProfile } from '@/api/talent'
 
 const route = useRoute()
 const router = useRouter()
@@ -15,16 +13,28 @@ const loading = ref(false)
 const data = ref(null)
 const activeCollapse = ref(['summary'])  // 默认展开「个人简介」
 
-// hq+  AI 问答
-const qaQuestion = ref('')
-const qaHistory = ref([])  // [{q, a}]
-const qaBusy = ref(false)
-
-// 袁文武 2026-09-02：AI 解析报告 + 三维向量画像（详情页展示）
+// 袁文武 2026-09-02：AI 解析报告 + 四维向量画像（详情页展示）
 const report = ref(null)
 const reportLoading = ref(false)
 const vectors = ref([])
 const vectorsLoading = ref(false)
+
+// 袁文武 2026-09-03：AI 数字画像（8 维度标签分组）
+const profileData = ref(null)
+const profileLoading = ref(false)
+// 标签维度映射（与后端 SEED_TAGS 对应）
+const TAG_DIM_LABELS = {
+  skill: '专业技能', level: '能力层级', exp: '从业经验', quality: '综合素质',
+  position: '适配岗位', potential: '潜力评级', specialty: '职业特长', industry: '行业经验',
+}
+const TAG_DIM_COLORS = {
+  skill: 'success', level: 'warning', exp: 'primary', quality: 'info',
+  position: 'danger', potential: 'warning', specialty: 'success', industry: 'primary',
+}
+const hasProfileData = computed(() => {
+  const p = profileData.value
+  return p && p.tags_by_dim && Object.keys(p.tags_by_dim).length > 0
+})
 const DIM_COLOR = { skill: 'success', exp: 'primary', quality: 'warning', resume: 'info' }
 
 // 袁文武 2026-09-02：综合评分颜色映射
@@ -56,6 +66,17 @@ async function loadVectors() {
   }
 }
 
+// 袁文武 2026-09-03：加载画像概览
+async function loadProfile() {
+  profileLoading.value = true
+  try {
+    const res = await getTalentProfile(route.params.id)
+    profileData.value = res.data
+  } catch (_) { profileData.value = null } finally {
+    profileLoading.value = false
+  }
+}
+
 async function load() {
   loading.value = true
   try {
@@ -67,24 +88,10 @@ async function load() {
   } finally {
     loading.value = false
   }
-  // 并行加载 AI 报告和向量画像（失败不影响详情页展示）
+  // 并行加载画像、AI 报告和向量画像（失败不影响详情页展示）
+  loadProfile()
   loadReport()
   loadVectors()
-}
-
-async function askQuestion() {
-  const q = qaQuestion.value.trim()
-  if (!q) return
-  qaBusy.value = true
-  try {
-    const res = await askTalentQA(Number(route.params.id), q)
-    qaHistory.value.unshift({ q, a: res.data?.answer || '(LLM 无回答)' })
-    qaQuestion.value = ''
-  } catch (e) {
-    ElMessage.error('AI 问答失败：' + (e.message || '未知错误'))
-  } finally {
-    qaBusy.value = false
-  }
 }
 
 function fmtDate(s) {
@@ -153,58 +160,72 @@ onMounted(load)
         <el-descriptions-item label="更新时间" :span="3">{{ fmtDate(data.updated_at) }}</el-descriptions-item>
       </el-descriptions>
 
-      <!-- 袁文武 2026-09-02：AI 解析报告 -->
-      <el-divider content-position="left">AI 解析报告</el-divider>
-      <el-card shadow="never" class="report" v-loading="reportLoading">
+      <!-- 袁文武 2026-09-03：AI 数字画像（8 维度百级标签 + 向量画像） -->
+      <el-divider content-position="left">AI 数字画像</el-divider>
+      <el-card shadow="never" class="profile-card" v-loading="reportLoading">
         <template #header>
-          <div class="report-head">
-            <span>AI 自动抽取 + 评估</span>
-            <el-tag v-if="report?.potential" type="warning" size="small">
-              潜力评级：{{ report.potential }}
-            </el-tag>
+          <div class="profile-head">
+            <div class="profile-head-left">
+              <span class="profile-title">🧬 智能画像</span>
+              <el-tag v-if="profileData?.tag_count" type="success" size="small" effect="dark">
+                {{ profileData.tag_count }} 个标签
+              </el-tag>
+              <el-tag v-if="profileData?.generate_mode === 'llm'" type="primary" size="small">
+                AI 生成
+              </el-tag>
+              <el-tag v-else-if="profileData?.generate_mode === 'rule'" type="info" size="small">
+                规则推导
+              </el-tag>
+              <el-tag v-else type="warning" size="small">
+                快速画像
+              </el-tag>
+            </div>
+            <div v-if="profileData?.profile_updated_at" class="profile-update">
+              更新于 {{ profileData.profile_updated_at }}
+            </div>
           </div>
         </template>
-        <div v-if="!report" class="report-empty">
-          暂无 AI 解析报告，可在编辑页点击「AI 解析」生成
+        <div v-if="!hasProfileData" class="report-empty">
+          暂无画像数据，可在编辑页点击「生成 AI 画像」
         </div>
         <template v-else>
-          <el-row :gutter="20">
-            <el-col :span="12">
-              <div class="report-title">技能关键词（{{ report.skills?.length || 0 }}）</div>
-              <div class="chip-grid">
-                <el-tag v-for="(s, i) in report.skills" :key="i" type="success" effect="plain" size="small">{{ s }}</el-tag>
-                <span v-if="!report.skills?.length" class="empty">—</span>
+          <!-- 8 维度标签分组 -->
+          <div class="tag-dim-grid">
+            <div v-for="(dim, dimKey) in TAG_DIM_LABELS" :key="dimKey" class="tag-dim-card">
+              <div class="tag-dim-head">
+                <el-tag :type="TAG_DIM_COLORS[dimKey] || ''" size="small" effect="dark">
+                  {{ dim }}
+                </el-tag>
+                <span class="tag-dim-count">{{ (profileData.tags_by_dim?.[dimKey] || []).length }}</span>
               </div>
-            </el-col>
-            <el-col :span="12">
-              <div class="report-title">适配岗位（{{ report.fit_positions?.length || 0 }}）</div>
-              <div class="chip-grid">
-                <el-tag v-for="(s, i) in report.fit_positions" :key="i" type="primary" effect="plain" size="small">{{ s }}</el-tag>
-                <span v-if="!report.fit_positions?.length" class="empty">—</span>
+              <div class="tag-dim-body">
+                <template v-if="(profileData.tags_by_dim?.[dimKey] || []).length">
+                  <el-tag
+                    v-for="(tag, i) in profileData.tags_by_dim[dimKey]"
+                    :key="i"
+                    :type="TAG_DIM_COLORS[dimKey] || 'info'"
+                    effect="plain"
+                    size="small"
+                    class="dim-tag"
+                  >
+                    {{ tag }}
+                  </el-tag>
+                </template>
+                <span v-else class="empty">—</span>
               </div>
-            </el-col>
-            <el-col :span="12" style="margin-top:14px">
-              <div class="report-title">亮点</div>
-              <ul class="bullet">
-                <li v-for="(s, i) in report.highlights" :key="i">{{ s }}</li>
-                <li v-if="!report.highlights?.length" class="empty">—</li>
-              </ul>
-            </el-col>
-            <el-col :span="12" style="margin-top:14px">
-              <div class="report-title">短板</div>
-              <ul class="bullet">
-                <li v-for="(s, i) in report.shortcomings" :key="i">{{ s }}</li>
-                <li v-if="!report.shortcomings?.length" class="empty">—</li>
-              </ul>
-            </el-col>
-            <el-col :span="8" style="margin-top:14px">
+            </div>
+          </div>
+
+          <!-- 画像摘要 -->
+          <el-row :gutter="20" style="margin-top:16px" v-if="report">
+            <el-col :span="8">
               <div class="report-title">能力等级</div>
               <div v-if="report.ability_level" class="ability-box">
                 <el-tag type="warning" size="large" effect="dark">{{ report.ability_level }}</el-tag>
               </div>
               <span v-else class="empty">—</span>
             </el-col>
-            <el-col :span="8" style="margin-top:14px">
+            <el-col :span="8">
               <div class="report-title">综合评分</div>
               <div v-if="report.composite_score != null" class="score-box">
                 <span class="score-num">{{ report.composite_score }}</span>
@@ -219,28 +240,44 @@ onMounted(load)
               </div>
               <span v-else class="empty">—</span>
             </el-col>
-            <el-col :span="8" style="margin-top:14px">
-              <div class="report-title">从业经验</div>
-              <div v-if="report.experience_summary" class="exp-text">
-                {{ report.experience_summary }}
+            <el-col :span="8">
+              <div class="report-title">潜力评级</div>
+              <div v-if="report.potential || profileData.potential_level" class="ability-box">
+                <el-tag type="warning" size="large" effect="dark">
+                  {{ report.potential || profileData.potential_level }}
+                </el-tag>
               </div>
               <span v-else class="empty">—</span>
             </el-col>
+            <el-col :span="12" style="margin-top:14px">
+              <div class="report-title">核心优势</div>
+              <ul class="bullet">
+                <li v-for="(s, i) in report.highlights" :key="i">{{ s }}</li>
+                <li v-if="!report.highlights?.length" class="empty">—</li>
+              </ul>
+            </el-col>
+            <el-col :span="12" style="margin-top:14px">
+              <div class="report-title">待提升方向</div>
+              <ul class="bullet">
+                <li v-for="(s, i) in report.shortcomings" :key="i">{{ s }}</li>
+                <li v-if="!report.shortcomings?.length" class="empty">—</li>
+              </ul>
+            </el-col>
             <el-col :span="24" style="margin-top:14px" v-if="report.summary_report">
-              <div class="report-title">评估总结</div>
+              <div class="report-title">综合评估</div>
               <pre class="summary">{{ report.summary_report }}</pre>
             </el-col>
           </el-row>
         </template>
       </el-card>
 
-      <!-- 袁文武 2026-09-02：三维向量画像（Milvus） -->
-      <el-divider content-position="left">三维向量画像（Milvus）</el-divider>
+      <!-- 袁文武 2026-09-02：四维向量画像（Milvus） -->
+      <el-divider content-position="left">四维向量画像（Milvus）</el-divider>
       <el-card shadow="never" class="report" v-loading="vectorsLoading">
         <template #header>
           <div class="report-head">
             <span>技能 / 经验 / 素质 / 简历原文 四维向量</span>
-            <span style="font-size:12px;color:#9ca3af">保存或 AI 解析后自动写入</span>
+            <span style="font-size:12px;color:#9ca3af">画像生成时自动写入 Milvus，支持语义检索</span>
           </div>
         </template>
         <div v-if="!vectors.length" class="report-empty">
@@ -262,31 +299,6 @@ onMounted(load)
           </el-col>
         </el-row>
       </el-card>
-
-      <!-- hq+  批次2.3c：AI 档案问答 -->
-      <el-divider content-position="left">AI 档案问答</el-divider>
-      <div class="qa" v-loading="qaBusy">
-        <div class="qa-input">
-          <el-input
-            v-model="qaQuestion"
-            type="textarea"
-            :rows="2"
-            placeholder="例如：这位候选人的核心优势是什么？适合做数据中台负责人吗？"
-            @keydown.ctrl.enter.prevent="askQuestion"
-          />
-          <div class="qa-tips">提示：Ctrl + Enter 提交，问题会基于本人才档案 + AI 报告做 RAG 回答。</div>
-        </div>
-        <el-button type="primary" :loading="qaBusy" :disabled="!qaQuestion.trim()" @click="askQuestion">
-          提问
-        </el-button>
-        <div v-if="qaHistory.length" class="qa-list">
-          <div v-for="(item, i) in qaHistory" :key="i" class="qa-item">
-            <div class="qa-q"><b>Q：</b>{{ item.q }}</div>
-            <div class="qa-a" v-if="item.a"><b>A：</b>{{ item.a }}</div>
-          </div>
-        </div>
-        <el-empty v-else description="还没有问答记录" :image-size="60" />
-      </div>
     </template>
   </el-card>
 </template>
@@ -320,20 +332,34 @@ onMounted(load)
   margin: 0;
 }
 
-/* hq+  AI 问答区 */
-.qa { background: #f9fafb; border: 1px solid #eef1f5; border-radius: 6px; padding: 14px 16px; margin-top: 8px; }
-.qa-input { margin-bottom: 10px; }
-.qa-tips { font-size: 12px; color: #9ca3af; margin-top: 4px; }
-.qa-list { margin-top: 14px; display: flex; flex-direction: column; gap: 10px; }
-.qa-item { padding: 10px 12px; border: 1px solid #e5e7eb; border-radius: 6px; background: #fff; }
-.qa-q { color: #1d4ed8; font-size: 13px; margin-bottom: 6px; }
-.qa-a { color: #374151; font-size: 13px; white-space: pre-wrap; word-break: break-word; }
-
 /* 袁文武 2026-09-02：AI 报告 + 向量画像样式（与编辑页保持一致） */
 .report { background: #fcfcfd; margin-top: 8px; }
 .report-head { display: flex; align-items: center; justify-content: space-between; }
 .report-title { font-weight: 600; color: #374151; margin-bottom: 6px; font-size: 13px; }
 .report-empty { color: #9ca3af; font-size: 13px; padding: 8px 0; }
+
+/* 袁文武 2026-09-03：AI 数字画像卡片 */
+.profile-card { background: linear-gradient(135deg, #f0fdf4 0%, #ecfeff 100%); margin-top: 8px; border: 1px solid #86efac; }
+.profile-head { display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 8px; }
+.profile-head-left { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.profile-title { font-size: 15px; font-weight: 600; color: #065f46; }
+.profile-update { font-size: 12px; color: #6b7280; }
+
+/* 8 维度标签网格 */
+.tag-dim-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; }
+@media (max-width: 900px) { .tag-dim-grid { grid-template-columns: repeat(2, 1fr); } }
+.tag-dim-card {
+  background: rgba(255,255,255,0.85);
+  border-radius: 8px;
+  padding: 10px 12px;
+  border: 1px solid rgba(16,185,129,0.2);
+}
+.tag-dim-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 8px; }
+.tag-dim-count { font-size: 12px; color: #6b7280; font-weight: 500; }
+.tag-dim-body { display: flex; flex-wrap: wrap; gap: 4px; min-height: 28px; }
+.dim-tag { margin-bottom: 2px; }
+.tag-dim-body .empty { color: #9ca3af; font-size: 12px; }
+
 .bullet { padding-left: 18px; margin: 0; color: #4b5563; line-height: 1.7; }
 .bullet li.empty { list-style: none; color: #9ca3af; }
 .summary {

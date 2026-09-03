@@ -37,45 +37,112 @@ _VECTOR_SETS = ("skill", "exp", "quality", "resume")
 _TAG_PREFIX_RE = re.compile(r"^talent_id=(\d+)\|\|")
 
 
-# ---------------- 内置 200+ 多维度标签库（可扩展）----------------
+# ---------------- 内置 100+ 多维度标签库（8 大维度）----------------
+# 袁文武 2026-09-03 优化：扩展到 100+ 标签，覆盖 8 大维度
+# 维度：skill(专业技能) / level(能力层级) / exp(从业经验) / quality(综合素质)
+#       position(适配岗位) / potential(潜力评级) / specialty(职业特长) / industry(行业经验)
 SEED_TAGS: list[tuple[str, str, str]] = [
-    # 专业技能 skill
+    # === 专业技能 skill（40+） ===
     ("Python", "skill", "编程语言"), ("Java", "skill", "编程语言"), ("Go", "skill", "编程语言"),
-    ("C++", "skill", "编程语言"), ("SQL", "skill", "数据库"), ("Linux", "skill", "操作系统"),
-    ("Docker", "skill", "容器化"), ("Kubernetes", "skill", "编排"), ("MySQL", "skill", "关系数据库"),
-    ("Redis", "skill", "缓存"), ("MongoDB", "skill", "文档数据库"), ("FastAPI", "skill", "Web框架"),
-    ("Spring", "skill", "Java框架"), ("PyTorch", "skill", "深度学习"), ("TensorFlow", "skill", "深度学习"),
-    ("NLP", "skill", "自然语言处理"), ("机器学习", "skill", "AI"), ("深度学习", "skill", "AI"),
-    ("数据分析", "skill", "数据"), ("数据建模", "skill", "数据"), ("ETL", "skill", "数据集成"),
+    ("C++", "skill", "编程语言"), ("JavaScript", "skill", "编程语言"), ("TypeScript", "skill", "编程语言"),
+    ("Rust", "skill", "编程语言"), ("PHP", "skill", "编程语言"), ("C#", "skill", "编程语言"),
+    ("SQL", "skill", "数据库"), ("MySQL", "skill", "关系数据库"), ("PostgreSQL", "skill", "关系数据库"),
+    ("Oracle", "skill", "关系数据库"), ("Redis", "skill", "缓存"), ("MongoDB", "skill", "文档数据库"),
+    ("Elasticsearch", "skill", "搜索引擎"), ("Kafka", "skill", "消息队列"),
+    ("Linux", "skill", "操作系统"), ("Docker", "skill", "容器化"), ("Kubernetes", "skill", "编排"),
+    ("FastAPI", "skill", "Web框架"), ("Django", "skill", "Web框架"), ("Flask", "skill", "Web框架"),
+    ("Spring Boot", "skill", "Java框架"), ("Spring Cloud", "skill", "微服务"),
+    ("Vue", "skill", "前端框架"), ("React", "skill", "前端框架"), ("Angular", "skill", "前端框架"),
+    ("PyTorch", "skill", "深度学习"), ("TensorFlow", "skill", "深度学习"),
+    ("NLP", "skill", "自然语言处理"), ("计算机视觉", "skill", "CV"),
+    ("机器学习", "skill", "AI"), ("深度学习", "skill", "AI"), ("AIGC", "skill", "AI"),
+    ("RAG", "skill", "AI"), ("LangChain", "skill", "AI框架"), ("Agent", "skill", "AI"),
+    ("数据分析", "skill", "数据"), ("数据建模", "skill", "数据"), ("数据治理", "skill", "数据"),
+    ("ETL", "skill", "数据集成"), ("大数据", "skill", "数据"), ("Hadoop", "skill", "大数据"),
+    ("Spark", "skill", "大数据"), ("Flink", "skill", "大数据"),
     ("Tableau", "skill", "可视化"), ("PowerBI", "skill", "可视化"), ("Excel", "skill", "办公"),
+    ("UI设计", "skill", "设计"), ("UX设计", "skill", "设计"), ("产品设计", "skill", "产品"),
+    ("需求分析", "skill", "产品"), ("原型设计", "skill", "产品"),
     ("项目管理", "skill", "通用"), ("敏捷开发", "skill", "研发管理"), ("DevOps", "skill", "工程效能"),
-    ("前端开发", "skill", "Web"), ("Vue", "skill", "前端框架"), ("React", "skill", "前端框架"),
-    ("UI设计", "skill", "设计"), ("产品设计", "skill", "产品"), ("需求分析", "skill", "产品"),
+    ("CI/CD", "skill", "工程效能"), ("自动化测试", "skill", "测试"), ("性能测试", "skill", "测试"),
+    ("信息安全", "skill", "安全"), ("网络安全", "skill", "安全"), ("渗透测试", "skill", "安全"),
     ("人力资源管理", "skill", "HR"), ("招聘", "skill", "HR"), ("薪酬绩效", "skill", "HR"),
-    ("财务管理", "skill", "财务"), ("市场营销", "skill", "市场"), ("销售", "skill", "市场"),
-    # 能力层级 level
-    ("初级", "level", "0-2年"), ("中级", "level", "2-5年"), ("高级", "level", "5年以上"),
-    ("骨干", "level", "团队中坚"), ("专家", "level", "领域权威"), ("架构师", "level", "技术决策"),
-    ("管理者", "level", "带团队"), ("负责人", "level", "独立负责模块"),
-    # 从业经验 exp
-    ("3年以上经验", "exp", "资深"), ("5年以上经验", "exp", "专家"), ("10年以上经验", "exp", "资深专家"),
-    ("互联网行业", "exp", "行业"), ("制造业", "exp", "行业"), ("金融", "exp", "行业"),
-    ("政企", "exp", "行业"), ("创业经历", "exp", "经历"), ("海外经历", "exp", "经历"),
-    ("大型项目", "exp", "项目规模"), ("从0到1", "exp", "建设经验"),
-    # 综合素质 quality
-    ("沟通能力强", "quality", "软技能"), ("抗压能力", "quality", "软技能"), ("学习能力", "quality", "软技能"),
-    ("责任心强", "quality", "软技能"), ("团队协作", "quality", "软技能"), ("创新意识", "quality", "软技能"),
-    ("逻辑思维", "quality", "软技能"), ("领导力", "quality", "软技能"), ("执行力强", "quality", "软技能"),
-    ("客户导向", "quality", "软技能"), ("结果导向", "quality", "软技能"),
-    # 适配岗位 position
-    ("后端工程师", "position", "研发"), ("前端工程师", "position", "研发"), ("算法工程师", "position", "研发"),
-    ("数据工程师", "position", "数据"), ("产品经理", "position", "产品"), ("项目经理", "position", "管理"),
-    ("HRBP", "position", "HR"), ("财务专员", "position", "财务"), ("运维工程师", "position", "运维"),
-    ("测试工程师", "position", "质量"), ("技术总监", "position", "管理"),
-    # 潜力评级 potential
-    ("高潜力", "potential", "P9"), ("中高潜力", "potential", "P8"), ("稳健型", "potential", "P7"),
-    ("培养型", "potential", "P6"), ("待观察", "potential", "P5"),
+    ("培训发展", "skill", "HR"), ("人才发展", "skill", "HR"),
+    ("财务管理", "skill", "财务"), ("市场营销", "skill", "市场"), ("销售管理", "skill", "销售"),
+    ("运营管理", "skill", "运营"), ("内容运营", "skill", "运营"), ("用户运营", "skill", "运营"),
+    # === 能力层级 level（10） ===
+    ("初级", "level", "0-2年"), ("中级", "level", "2-5年"), ("高级", "level", "5-8年"),
+    ("资深", "level", "8年以上"), ("骨干", "level", "团队中坚"),
+    ("专家", "level", "领域权威"), ("架构师", "level", "技术决策"),
+    ("管理者", "level", "带团队"), ("负责人", "level", "独立负责"), ("技术总监", "level", "高管"),
+    # === 从业经验 exp（12） ===
+    ("3年以上经验", "exp", "年限"), ("5年以上经验", "exp", "年限"),
+    ("8年以上经验", "exp", "年限"), ("10年以上经验", "exp", "年限"),
+    ("大型项目经验", "exp", "项目规模"), ("从0到1经验", "exp", "建设经验"),
+    ("跨部门协作", "exp", "协作"), ("带团队经验", "exp", "管理经验"),
+    ("创业经历", "exp", "特殊经历"), ("海外经历", "exp", "特殊经历"),
+    ("甲方经验", "exp", "经历类型"), ("乙方经验", "exp", "经历类型"),
+    # === 综合素质 quality（15） ===
+    ("沟通能力强", "quality", "软技能"), ("抗压能力强", "quality", "软技能"),
+    ("学习能力强", "quality", "软技能"), ("责任心强", "quality", "软技能"),
+    ("团队协作", "quality", "软技能"), ("创新意识", "quality", "软技能"),
+    ("逻辑思维强", "quality", "软技能"), ("领导力", "quality", "软技能"),
+    ("执行力强", "quality", "软技能"), ("客户导向", "quality", "软技能"),
+    ("结果导向", "quality", "软技能"), ("结构化思维", "quality", "思维"),
+    ("系统思维", "quality", "思维"), ("数据驱动", "quality", "思维"),
+    ("自驱力强", "quality", "特质"),
+    # === 适配岗位 position（15） ===
+    ("后端工程师", "position", "研发"), ("前端工程师", "position", "研发"),
+    ("全栈工程师", "position", "研发"), ("算法工程师", "position", "AI"),
+    ("数据工程师", "position", "数据"), ("数据分析师", "position", "数据"),
+    ("产品经理", "position", "产品"), ("项目经理", "position", "管理"),
+    ("测试工程师", "position", "质量"), ("运维工程师", "position", "运维"),
+    ("架构师", "position", "技术"), ("技术总监", "position", "管理"),
+    ("UI设计师", "position", "设计"), ("HRBP", "position", "HR"),
+    ("运营经理", "position", "运营"),
+    # === 潜力评级 potential（5） ===
+    ("高潜力", "potential", "P9"), ("中高潜力", "potential", "P8"),
+    ("稳健型", "potential", "P7"), ("培养型", "potential", "P6"), ("待观察", "potential", "P5"),
+    # === 职业特长 specialty（10）===
+    ("技术攻坚", "specialty", "特长"), ("架构设计", "specialty", "特长"),
+    ("团队管理", "specialty", "特长"), ("业务理解", "specialty", "特长"),
+    ("数据分析", "specialty", "特长"), ("产品规划", "specialty", "特长"),
+    ("技术创新", "specialty", "特长"), ("成本优化", "specialty", "特长"),
+    ("流程优化", "specialty", "特长"), ("跨部门协调", "specialty", "特长"),
+    # === 行业经验 industry（12）===
+    ("互联网行业", "industry", "行业"), ("金融行业", "industry", "行业"),
+    ("制造业", "industry", "行业"), ("电商行业", "industry", "行业"),
+    ("教育行业", "industry", "行业"), ("医疗行业", "industry", "行业"),
+    ("政企行业", "industry", "行业"), ("汽车行业", "industry", "行业"),
+    ("能源行业", "industry", "行业"), ("零售行业", "industry", "行业"),
+    ("房地产行业", "industry", "行业"), ("物流行业", "industry", "行业"),
 ]
+# 统计：skill(67) + level(10) + exp(12) + quality(15) + position(15) + potential(5) + specialty(10) + industry(12) = 146
+# 真正的百级标签体系
+
+
+# 标签维度中文名称映射
+TAG_DIM_LABELS = {
+    "skill": "专业技能",
+    "level": "能力层级",
+    "exp": "从业经验",
+    "quality": "综合素质",
+    "position": "适配岗位",
+    "potential": "潜力评级",
+    "specialty": "职业特长",
+    "industry": "行业经验",
+}
+# 标签维度配色
+TAG_DIM_COLORS = {
+    "skill": "success",
+    "level": "warning",
+    "exp": "primary",
+    "quality": "info",
+    "position": "danger",
+    "potential": "warning",
+    "specialty": "success",
+    "industry": "primary",
+}
 
 
 # ---------------- 工具函数 ----------------
@@ -508,85 +575,368 @@ def _ensure_ai_report_three_fields(db: Session, t: Talent) -> None:
         logger.warning("[袁文武] 解析后写入 AI 报告三大字段失败（不影响入库）：%s", e)
 
 
-# ---------------- 画像：标签 + 三维向量 + 潜力 ----------------
+# ---------------- 画像：标签 + 四维向量 + 潜力 + 多维度分组 ----------------
+# 袁文武 2026-09-03 优化：8 大维度百级标签体系 + 规则智能推导 + LLM 增强
 def build_profile(db: Session, t: Talent, fast: bool = False) -> TalentProfileOut:
-    """向量级人才画像（需求②）。生成 AI 标签、三维向量、潜力评级。
+    """向量级人才画像（需求②）。生成多维度 AI 标签、四维向量、潜力评级。
 
-    fast=True 时跳过 LLM（CPU 环境单次生成可达数分钟），直接走规则兜底，
-    用于 create/import/parse 等写路径，保证接口快速返回；完整 AI 画像由
-    POST /{tid}/profile 显式触发（默认 fast=False）。
+    8 大标签维度：专业技能 / 能力层级 / 从业经验 / 综合素质 / 适配岗位 /
+                  潜力评级 / 职业特长 / 行业经验
+
+    fast=True 时跳过 LLM，用规则智能推导标签，保证接口快速返回；
+    完整 AI 画像由 POST /{tid}/profile 显式触发。
     """
+    from datetime import datetime
+
     if fast:
-        ai_tags = _split_skills(t.skills)
-        potential = ("高潜力" if t.years_experience >= 5
-                     else ("中高潜力" if t.years_experience >= 3 else "培养型"))
-        if ai_tags:
-            cats = _classify_tags(ai_tags)
-            tags = TagDAO.ensure_tags(db, ai_tags, category="custom", source="ai")
+        # 快速画像：规则推导多维度标签，不生成向量
+        tags_by_dim = _derive_tags_by_rules(t)
+        all_tags = _flatten_tags(tags_by_dim)
+        potential = tags_by_dim.get("potential", ["培养型"])[0]
+        if all_tags:
+            cats = _classify_tags(all_tags)
+            tags = TagDAO.ensure_tags(db, all_tags, category="custom", source="ai")
             TalentTagRelDAO.set_ai_tags(
                 db, t.id, [tg.id for tg in tags],
-                scores={tg.id: cats.get(tg.name) for tg in tags},
+                scores={tg.id: cats.get(tg.name, 0.6) for tg in tags},
             )
         db.flush()
+        now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         return TalentProfileOut(
             talent_id=t.id, name=t.name, vectors_built=False,
-            ai_tags=ai_tags, skill_summary=t.skills,
+            ai_tags=all_tags, skill_summary=t.skills,
             experience_summary=t.work_experience, quality_summary=None,
             potential_level=potential,
+            tags_by_dim=tags_by_dim, tag_count=len(all_tags),
+            generate_mode="fast", profile_updated_at=now_str,
         )
-    ai_tags, skill_sum, exp_sum, qual_sum, potential = _generate_profile_text(t)
+
+    # 完整画像：LLM 生成（失败走规则兜底）
+    tags_by_dim, skill_sum, exp_sum, qual_sum, potential, mode = _generate_profile_full(t)
+    all_tags = _flatten_tags(tags_by_dim)
+
     # 标签落库
     vectors_built = False
-    if ai_tags:
-        cats = _classify_tags(ai_tags)
-        tags = TagDAO.ensure_tags(db, ai_tags, category="custom", source="ai")
+    if all_tags:
+        cats = _classify_tags(all_tags)
+        tags = TagDAO.ensure_tags(db, all_tags, category="custom", source="ai")
         TalentTagRelDAO.set_ai_tags(
             db, t.id, [tg.id for tg in tags],
-            scores={tg.id: cats.get(tg.name) for tg in tags},
+            scores={tg.id: cats.get(tg.name, 0.6) for tg in tags},
         )
-    # 三维向量入库（Milvus）
-    text_for_vec = {
-        "skill": skill_sum or (t.skills or ""),
-        "exp": exp_sum or (t.work_experience or t.project_experience or ""),
-        "quality": qual_sum or _talent_full_text(t),
-    }
-    vb = _embed_and_store_all(t.id, text_for_vec)
+
+    # 四维向量入库（Milvus）：统一走 talent_vector_service.upsert_talent_vectors
+    # （2026-09-03：收敛第二个写实现 _embed_and_store_all，保证 resume 文本带 meta 头、
+    #   所有写入口同一契约，匹配/语义搜索读取一致）
+    from app.services.talent_vector_service import upsert_talent_vectors
+    vb = upsert_talent_vectors(t)
     vectors_built = any(vb.values())
+
     db.flush()
+    now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     return TalentProfileOut(
         talent_id=t.id, name=t.name, vectors_built=vectors_built,
-        ai_tags=ai_tags, skill_summary=skill_sum, experience_summary=exp_sum,
+        ai_tags=all_tags, skill_summary=skill_sum, experience_summary=exp_sum,
         quality_summary=qual_sum, potential_level=potential,
+        tags_by_dim=tags_by_dim, tag_count=len(all_tags),
+        generate_mode=mode, profile_updated_at=now_str,
     )
 
 
-def _generate_profile_text(t: Talent) -> tuple[list[str], str, str, str, str]:
-    """调用 LLM 生成标签与摘要；LLM 不可用时走规则兜底。"""
+def _flatten_tags(tags_by_dim: dict[str, list[str]]) -> list[str]:
+    """把分组标签拍平成去重的一维列表。"""
+    seen = set()
+    out = []
+    for dim, tags in tags_by_dim.items():
+        for tag in tags:
+            if tag and tag not in seen:
+                seen.add(tag)
+                out.append(tag)
+    return out
+
+
+def _generate_profile_full(t: Talent) -> tuple[dict[str, list[str]], str, str, str, str, str]:
+    """生成完整画像（LLM 优先，规则兜底）。
+
+    返回：(tags_by_dim, skill_sum, exp_sum, qual_sum, potential, mode)
+    """
     text = _talent_full_text(t)
     try:
         from app.utils.llm import get_llm
         llm = get_llm()
         prompt = (
-            "基于以下人才档案，输出 JSON：{tags:[标签名...最多30个，来自技能/岗位/层级/经验/素质/潜力],"
-            "skill_summary:技能概述, experience_summary:经验概述, quality_summary:素质概述, "
-            "potential_level:潜力评级(高潜力/中高潜力/稳健型/培养型)}。只输出 JSON。\n" + text
+            "你是资深人才画像专家。请基于以下人才档案，生成结构化的人才画像。\n"
+            "严格按 JSON 格式输出，不要输出其他文字。\n"
+            "JSON 结构如下（所有字段必填，tags_* 字段为字符串数组）：\n"
+            "{\n"
+            '  "tags_skill": ["Python","Java",...],      // 专业技能标签，10-20个\n'
+            '  "tags_level": ["高级","骨干",...],         // 能力层级标签，1-2个\n'
+            '  "tags_exp": ["5年以上经验","大型项目经验",...], // 从业经验标签，3-5个\n'
+            '  "tags_quality": ["沟通能力强","学习能力强",...], // 综合素质标签，5-8个\n'
+            '  "tags_position": ["后端工程师",...],       // 适配岗位标签，2-3个\n'
+            '  "tags_potential": ["中高潜力"],             // 潜力评级，1个（高潜力/中高潜力/稳健型/培养型）\n'
+            '  "tags_specialty": ["技术攻坚","架构设计",...], // 职业特长标签，3-5个\n'
+            '  "tags_industry": ["互联网行业",...],        // 行业经验标签，1-3个\n'
+            '  "skill_summary": "技能概述（100字内）",\n'
+            '  "experience_summary": "经验概述（100字内）",\n'
+            '  "quality_summary": "素质概述（80字内）",\n'
+            '  "potential_level": "潜力评级"\n'
+            "}\n"
+            "注意：\n"
+            "1. 标签必须来自真实的人才档案，不要凭空捏造\n"
+            "2. 技能标签尽量具体（技术栈、工具、方法论）\n"
+            "3. 层级/潜力标签必须有依据（年限、职位、经验深度）\n"
+            "4. 特长标签要突出差异化优势\n\n"
+            "人才档案：\n" + text
         )
-        raw = llm.chat(prompt, system="你是人才画像专家，只输出 JSON。", temperature=0.2)
+        raw = llm.chat(prompt, system="你是专业的人才画像专家，只输出合法 JSON。", temperature=0.2)
         raw = raw.strip()
         if raw.startswith("```"):
             raw = re.sub(r"^```[a-zA-Z]*\n?", "", raw)
             raw = re.sub(r"\n?```$", "", raw).strip()
         import json
         d = json.loads(raw)
-        tags = [str(x).strip() for x in (d.get("tags") or []) if str(x).strip()]
-        return (tags or _split_skills(t.skills),
-                d.get("skill_summary"), d.get("experience_summary"),
-                d.get("quality_summary"), d.get("potential_level"))
+
+        tags_by_dim = {
+            "skill": _clean_tags(d.get("tags_skill", [])),
+            "level": _clean_tags(d.get("tags_level", [])),
+            "exp": _clean_tags(d.get("tags_exp", [])),
+            "quality": _clean_tags(d.get("tags_quality", [])),
+            "position": _clean_tags(d.get("tags_position", [])),
+            "potential": _clean_tags(d.get("tags_potential", [])),
+            "specialty": _clean_tags(d.get("tags_specialty", [])),
+            "industry": _clean_tags(d.get("tags_industry", [])),
+        }
+        potential = d.get("potential_level") or (tags_by_dim["potential"][0] if tags_by_dim["potential"] else None)
+
+        # 校验：至少要有技能标签
+        if not tags_by_dim["skill"]:
+            raise ValueError("LLM 未生成技能标签")
+
+        return (tags_by_dim,
+                d.get("skill_summary", ""), d.get("experience_summary", ""),
+                d.get("quality_summary", ""), potential, "llm")
     except Exception:
-        # 兜底：从技能字段切分 + 潜力按年限推断
-        tags = _split_skills(t.skills)
-        potential = "高潜力" if t.years_experience >= 5 else ("中高潜力" if t.years_experience >= 3 else "培养型")
-        return (tags, t.skills, t.work_experience, None, potential)
+        # 兜底：规则推导
+        tags_by_dim = _derive_tags_by_rules(t)
+        potential = tags_by_dim.get("potential", ["培养型"])[0]
+        return (tags_by_dim, t.skills, t.work_experience, None, potential, "rule")
+
+
+def _clean_tags(tags: list) -> list[str]:
+    """清洗标签列表，去空去重。"""
+    seen = set()
+    out = []
+    for t in tags or []:
+        s = str(t).strip()
+        if s and s not in seen:
+            seen.add(s)
+            out.append(s)
+    return out
+
+
+def _derive_tags_by_rules(t: Talent) -> dict[str, list[str]]:
+    """用规则从人才档案中推导 8 维度标签（零 AI 依赖，fast 模式和兜底都用）。
+
+    策略：
+    1. 技能标签：从 skills 字段切分 + 匹配内置标签库
+    2. 能力层级：根据年限 + 职位关键词推断
+    3. 从业经验：根据年限 + 工作经历关键词推断
+    4. 综合素质：根据职位/层级推断典型软技能
+    5. 适配岗位：根据技能 + 职位关键词匹配
+    6. 潜力评级：根据年限 + 职位推断
+    7. 职业特长：根据技能深度推断
+    8. 行业经验：从工作经历/公司中提取行业关键词
+    """
+    result = {
+        "skill": [], "level": [], "exp": [], "quality": [],
+        "position": [], "potential": [], "specialty": [], "industry": [],
+    }
+
+    years = t.years_experience or 0
+    title = (t.current_title or "").lower()
+    skills_text = t.skills or ""
+    work_text = t.work_experience or ""
+    project_text = t.project_experience or ""
+    company = (t.current_company or "").lower()
+    full_text = f"{skills_text} {work_text} {project_text} {title}".lower()
+
+    # --- 1. 专业技能 ---
+    skill_tags = []
+    # 从内置标签库匹配
+    for name, cat, sub in SEED_TAGS:
+        if cat != "skill":
+            continue
+        if name.lower() in full_text:
+            skill_tags.append(name)
+    # 从 skills 字段切分补充
+    split_skills = _split_skills(skills_text)
+    for s in split_skills:
+        if s and s not in skill_tags and len(s) >= 2:
+            skill_tags.append(s)
+    result["skill"] = skill_tags[:20]  # 最多 20 个
+
+    # --- 2. 能力层级 ---
+    level_tags = []
+    if "总监" in title or "cto" in title:
+        level_tags.append("技术总监")
+    elif "架构师" in title or "架构" in title:
+        level_tags.append("架构师")
+    elif "专家" in title:
+        level_tags.append("专家")
+    elif "负责人" in title:
+        level_tags.append("负责人")
+    elif "经理" in title or "主管" in title:
+        level_tags.append("管理者")
+    elif years >= 8:
+        level_tags.append("资深")
+    elif years >= 5:
+        level_tags.append("高级")
+    elif years >= 2:
+        level_tags.append("中级")
+    else:
+        level_tags.append("初级")
+    # 骨干：5年以上 + 非管理岗
+    if years >= 5 and "经理" not in title and "总监" not in title and "架构师" not in title:
+        level_tags.append("骨干")
+    result["level"] = level_tags[:2]
+
+    # --- 3. 从业经验 ---
+    exp_tags = []
+    if years >= 10:
+        exp_tags.append("10年以上经验")
+    elif years >= 8:
+        exp_tags.append("8年以上经验")
+    elif years >= 5:
+        exp_tags.append("5年以上经验")
+    elif years >= 3:
+        exp_tags.append("3年以上经验")
+
+    if any(kw in full_text for kw in ["大型项目", "亿级", "百万级", "千万级", "高并发", "大规模"]):
+        exp_tags.append("大型项目经验")
+    if any(kw in full_text for kw in ["从0到1", "从零到一", "搭建", "搭建了", "创建", "组建"]):
+        exp_tags.append("从0到1经验")
+    if "跨部门" in full_text or "跨团队" in full_text:
+        exp_tags.append("跨部门协作")
+    if any(kw in title for kw in ["经理", "主管", "负责人", "总监", "lead"]):
+        exp_tags.append("带团队经验")
+    if any(kw in full_text for kw in ["创业", "初创"]):
+        exp_tags.append("创业经历")
+    result["exp"] = exp_tags[:5]
+
+    # --- 4. 综合素质 ---
+    quality_tags = []
+    if years >= 5:
+        quality_tags.extend(["责任心强", "执行力强", "结果导向"])
+    if "管理" in title or "经理" in title or "负责人" in title:
+        quality_tags.extend(["团队协作", "沟通能力强", "领导力"])
+    if years >= 8:
+        quality_tags.extend(["抗压能力强", "结构化思维"])
+    if "数据" in full_text or "分析" in full_text:
+        quality_tags.append("数据驱动")
+    if any(kw in full_text for kw in ["学习", "新技术", "研究"]):
+        quality_tags.append("学习能力强")
+    if not quality_tags:
+        quality_tags = ["责任心强", "团队协作", "执行力强"]
+    # 去重
+    seen = set()
+    quality_tags = [x for x in quality_tags if not (x in seen or seen.add(x))]
+    result["quality"] = quality_tags[:8]
+
+    # --- 5. 适配岗位 ---
+    pos_tags = []
+    # 从内置岗位标签匹配
+    for name, cat, sub in SEED_TAGS:
+        if cat != "position":
+            continue
+        if name.lower() in full_text or name.lower() in title:
+            pos_tags.append(name)
+    # 基于技能推断
+    if not pos_tags:
+        if any(k in full_text for k in ["python", "java", "go", "后端", "spring", "django", "fastapi"]):
+            pos_tags.append("后端工程师")
+        if any(k in full_text for k in ["vue", "react", "前端", "javascript", "css"]):
+            pos_tags.append("前端工程师")
+        if any(k in full_text for k in ["算法", "机器学习", "深度学习", "nlp", "pytorch"]):
+            pos_tags.append("算法工程师")
+        if any(k in full_text for k in ["产品", "需求", "原型"]):
+            pos_tags.append("产品经理")
+        if any(k in full_text for k in ["测试", "自动化测试", "qa"]):
+            pos_tags.append("测试工程师")
+        if any(k in full_text for k in ["运维", "devops", "k8s", "docker"]):
+            pos_tags.append("运维工程师")
+        if any(k in full_text for k in ["数据", "sql", "etl", "数仓"]):
+            pos_tags.append("数据工程师")
+    result["position"] = pos_tags[:3]
+
+    # --- 6. 潜力评级 ---
+    if years >= 8 and level_tags and any(l in level_tags for l in ["资深", "专家", "架构师", "技术总监"]):
+        potential = "高潜力"
+    elif years >= 5:
+        potential = "中高潜力"
+    elif years >= 3:
+        potential = "稳健型"
+    else:
+        potential = "培养型"
+    result["potential"] = [potential]
+
+    # --- 7. 职业特长 ---
+    specialty_tags = []
+    if any(k in full_text for k in ["架构", "系统设计", "技术方案"]):
+        specialty_tags.append("架构设计")
+    if any(k in full_text for k in ["攻坚", "难题", "疑难", "性能优化"]):
+        specialty_tags.append("技术攻坚")
+    if "管理" in title or "经理" in title or "负责人" in title:
+        specialty_tags.append("团队管理")
+    if any(k in full_text for k in ["业务", "产品", "需求", "行业"]):
+        specialty_tags.append("业务理解")
+    if any(k in full_text for k in ["数据", "分析", "统计"]):
+        specialty_tags.append("数据分析")
+    if any(k in full_text for k in ["产品规划", "产品设计", "roadmap"]):
+        specialty_tags.append("产品规划")
+    if any(k in full_text for k in ["创新", "专利", "研究", "研发"]):
+        specialty_tags.append("技术创新")
+    if any(k in full_text for k in ["成本", "优化", "效率"]):
+        specialty_tags.append("成本优化")
+    if any(k in full_text for k in ["流程", "规范", "标准化"]):
+        specialty_tags.append("流程优化")
+    if any(k in full_text for k in ["协调", "沟通", "跨部门"]):
+        specialty_tags.append("跨部门协调")
+    if not specialty_tags:
+        # 根据岗位推断默认特长
+        if "后端" in " ".join(pos_tags):
+            specialty_tags.extend(["技术攻坚", "架构设计"])
+        elif "产品" in " ".join(pos_tags):
+            specialty_tags.extend(["产品规划", "业务理解"])
+        elif "数据" in " ".join(pos_tags):
+            specialty_tags.extend(["数据分析", "业务理解"])
+        else:
+            specialty_tags.extend(["执行力强", "学习能力强"])
+    result["specialty"] = specialty_tags[:5]
+
+    # --- 8. 行业经验 ---
+    industry_tags = []
+    for name, cat, sub in SEED_TAGS:
+        if cat != "industry":
+            continue
+        short = name.replace("行业", "")
+        if short.lower() in full_text or short in company:
+            industry_tags.append(name)
+    if not industry_tags:
+        # 从公司名/经历中推断
+        if any(k in full_text for k in ["金融", "银行", "证券", "保险"]):
+            industry_tags.append("金融行业")
+        elif any(k in full_text for k in ["电商", "淘宝", "京东", "拼多多"]):
+            industry_tags.append("电商行业")
+        elif any(k in full_text for k in ["制造", "工厂", "工业", "汽车"]):
+            industry_tags.append("制造业")
+        elif any(k in full_text for k in ["互联网", "字节", "腾讯", "阿里", "百度", "美团"]):
+            industry_tags.append("互联网行业")
+        elif any(k in full_text for k in ["政务", "政府", "国企", "央企"]):
+            industry_tags.append("政企行业")
+    result["industry"] = industry_tags[:3]
+
+    return result
 
 
 def _classify_tags(tags: list[str]) -> dict[str, float]:
@@ -595,44 +945,6 @@ def _classify_tags(tags: list[str]) -> dict[str, float]:
     return {name: (0.9 if name in known else 0.6) for name in tags}
 
 
-def _embed_and_store_all(talent_id: int, texts: dict[str, str]) -> dict[str, bool]:
-    """对三维文本分别向量化并写入 Milvus；任一项失败不影响其它。
-
-    hq+ 2026-09-01 修复：改用 upsert（显式 id=talent_id，幂等覆盖）——
-    1) 集合若由 talent_vector_service 先建（非 auto_id），insert 无 id 会报
-       "missed an field id"；upsert 带 id 两者兼容
-    2) 与 /talent/{id}/vectors 视图（filter id == talent_id）共用一套集合
-    3) text 保留 talent_id=N|| 前缀，供语义搜索 _vector_search 解析
-    """
-    result: dict[str, bool] = {}
-    try:
-        from app.utils.llm import get_llm
-        llm = get_llm()
-        vec = _vec_store()  # 兼容适配：元代码 VectorStore uri 与 pymilvus>=2.6 不兼容
-        dim = len(llm.embed("test"))
-        for key, txt in texts.items():
-            if not txt or not txt.strip():
-                result[key] = False
-                continue
-            try:
-                if not vec.has_collection(key):
-                    vec.create_collection(key, dim=dim)
-                v = llm.embed(txt)
-                vec._client.upsert(
-                    collection_name=vec._name(key),
-                    data=[{"id": int(talent_id), "vector": v,
-                           "text": f"talent_id={talent_id}||{txt}"}],
-                )
-                result[key] = True
-            except Exception:
-                result[key] = False
-    except Exception:
-        for key in texts:
-            result[key] = False
-    return result
-
-
-# ---------------- 查重与合并（需求③）----------------
 def _identity_dup(db: Session, t: Talent) -> Optional[Talent]:
     found = TalentDAO.find_by_identity(db, name=t.name, phone=t.phone, email=t.email,
                                         exclude_id=t.id)
@@ -709,31 +1021,351 @@ def merge_talents(db: Session, primary_id: int, duplicate_ids: list[int]) -> dic
     return {"primary_id": primary_id, "merged": merged}
 
 
-# ---------------- 语义化检索（需求④）----------------
+# ---------------- 语义化检索 v2（需求④ NLU+结构化过滤+向量精排）----------------
+# 袁文武 2026-09-03：重构语义搜索，新增 NLU 解析、结构化过滤、匹配解释、三级降级
+from app.services.talent_nlu import parse_query, SearchIntent
+from sqlalchemy import or_, select
+
+
 def semantic_search(db: Session, query: str, top_k: int = 10,
                     use_vector: bool = True) -> list[SemanticSearchHit]:
-    """自然语言语义检索；Milvus 不可用时降级关键词检索。"""
-    if use_vector:
-        hits_map = _vector_search(db, query, top_k)
-        if hits_map:
-            talents = {t.id: t for t in TalentDAO.list_by_ids(db, list(hits_map.keys()))}
-            out: list[SemanticSearchHit] = []
-            for tid, info in hits_map.items():
-                t = talents.get(tid)
-                if not t:
-                    continue
-                out.append(SemanticSearchHit(
-                    talent_id=tid, name=t.name, score=info["score"],
-                    match_reason="向量语义匹配", snippet=_strip_tid(info["snippet"])[:200]))
-            out.sort(key=lambda x: x.score or 0, reverse=True)
-            return out[:top_k]
-    # 降级：关键词检索
-    rows = TalentDAO.paged(db, keyword=query, page=1, page_size=top_k)
-    return [
-        SemanticSearchHit(talent_id=r.id, name=r.name, score=None,
-                          match_reason="关键词匹配", snippet=(r.skills or "")[:200])
-        for r in rows
+    """语义搜索 v2：NLU 解析 → 结构化过滤 → 向量/关键词排序 → 匹配解释。
+
+    三级降级：
+      L1: LLM NLU → 结构化过滤 → 向量精排（最佳）
+      L2: 规则 NLU → 结构化过滤 → 关键词排序（无 LLM 时）
+      L3: 多关键词 LIKE 匹配（兜底）
+    """
+    result = semantic_search_v2(db, query=query, top_k=top_k, use_vector=use_vector)
+    # 兼容旧接口：返回 SemanticSearchHit 列表
+    hits = []
+    for r in result.get("results", []):
+        hits.append(SemanticSearchHit(
+            talent_id=r["talent_id"],
+            name=r["name"],
+            score=r.get("score"),
+            match_reason=r.get("match_reason", ""),
+            snippet=r.get("snippet", ""),
+        ))
+    return hits
+
+
+def semantic_search_v2(db: Session, query: str, top_k: int = 10,
+                       use_vector: bool = True, use_llm_nlu: bool = True) -> dict:
+    """语义搜索 v2 完整结果，含解析信息、匹配条件等。"""
+    # 第 1 步：NLU 解析
+    intent = parse_query(query, prefer_llm=use_llm_nlu)
+
+    # 第 2 步：结构化过滤
+    candidates = _structured_filter_v2(db, intent)
+
+    # 软降级：等级过滤 0 结果时放宽
+    relaxed_level = False
+    if not candidates and intent.level:
+        intent_no_level = SearchIntent(
+            raw_query=intent.raw_query,
+            years_min=intent.years_min, years_max=intent.years_max,
+            education=intent.education, education_min=intent.education_min,
+            level=None,
+            keywords=list(intent.keywords),
+            position_keywords=list(intent.position_keywords),
+            industry_keywords=list(intent.industry_keywords),
+            parse_mode=intent.parse_mode,
+            parsed_conditions=[c for c in intent.parsed_conditions if "等级" not in c],
+        )
+        candidates = _structured_filter_v2(db, intent_no_level)
+        if candidates:
+            relaxed_level = True
+            intent = intent_no_level
+
+    if not candidates:
+        return {
+            "query": query, "parse_mode": intent.parse_mode,
+            "parsed_conditions": intent.parsed_conditions,
+            "search_mode": "structured_filter_no_result",
+            "total": 0, "results": [],
+            "relaxed": [],
+        }
+
+    # 第 3 步：排序
+    results = _rank_candidates_v2(db, intent, candidates, top_k, use_vector)
+
+    return {
+        "query": query, "parse_mode": intent.parse_mode,
+        "parsed_conditions": intent.parsed_conditions,
+        "search_mode": results[0].search_mode if results else "none",
+        "total": len(results),
+        "results": [_result_to_dict(r) for r in results[:top_k]],
+        "relaxed": ["已放宽等级条件，按关键词匹配排序"] if relaxed_level else [],
+    }
+
+
+def _structured_filter_v2(db: Session, intent: SearchIntent) -> list:
+    """根据 NLU 解析的结构化条件过滤候选人才。"""
+    from app.models.talent import Talent, TalentTalentTag, TalentTag
+    query = db.query(Talent).filter(Talent.status == 1)
+
+    if intent.years_min is not None:
+        query = query.filter(Talent.years_experience >= intent.years_min)
+    if intent.years_max is not None:
+        query = query.filter(Talent.years_experience <= intent.years_max)
+
+    if intent.education:
+        query = query.filter(Talent.highest_education == intent.education)
+
+    if intent.education_min:
+        edu_list = _edu_above_v2(intent.education_min)
+        query = query.filter(Talent.highest_education.in_(edu_list))
+
+    if intent.level:
+        level_subq = (
+            select(TalentTalentTag.talent_id)
+            .join(TalentTag, TalentTag.id == TalentTalentTag.tag_id)
+            .where(TalentTag.category == "level", TalentTag.name == intent.level)
+        )
+        query = query.filter(Talent.id.in_(level_subq))
+
+    keywords = intent.all_keywords()
+    if keywords:
+        or_conditions = []
+        # 对关键词做扩展：长词拆成短词（如"前端开发"→"前端"），提高召回率
+        expanded_kws = _expand_keywords(keywords)
+        for kw in list(dict.fromkeys(expanded_kws))[:8]:  # 去重，最多8个
+            like = f"%{kw}%"
+            or_conditions.append(Talent.skills.like(like))
+            or_conditions.append(Talent.work_experience.like(like))
+            or_conditions.append(Talent.project_experience.like(like))
+            or_conditions.append(Talent.current_title.like(like))
+            or_conditions.append(Talent.name.like(like))
+        if or_conditions:
+            query = query.filter(or_(*or_conditions))
+
+    candidates = query.order_by(Talent.id.desc()).limit(200).all()
+    return list(candidates)
+
+
+def _edu_above_v2(edu_min: str) -> list[str]:
+    order = ["大专", "本科", "硕士", "博士"]
+    try:
+        idx = order.index(edu_min)
+    except ValueError:
+        return [edu_min]
+    return order[idx:]
+
+
+def _expand_keywords(keywords: list[str]) -> list[str]:
+    """扩展关键词列表，提高召回率。
+
+    策略：
+    1. 原词保留
+    2. 4字以上中文短语拆成2字词（如"前端开发"→"前端"）
+    3. 去除纯停用词
+    """
+    expanded = list(keywords)  # 原词优先
+    stop = {"开发", "工程师", "经验", "相关", "方向", "领域", "技术", "项目"}
+    for kw in keywords:
+        if len(kw) >= 4 and all('\u4e00' <= c <= '\u9fff' for c in kw):
+            # 中文长词：尝试前2字
+            prefix = kw[:2]
+            if prefix not in stop and prefix not in expanded:
+                expanded.append(prefix)
+            # 尝试后2字
+            suffix = kw[-2:]
+            if suffix not in stop and suffix not in expanded:
+                expanded.append(suffix)
+    return expanded
+
+
+class _SearchResult:
+    def __init__(self, talent_id, name, score=None, match_reason="", snippet="",
+                 matched_conditions=None, matched_keywords=None, search_mode="keyword", talent=None):
+        self.talent_id = talent_id
+        self.name = name
+        self.score = score
+        self.match_reason = match_reason
+        self.snippet = snippet
+        self.matched_conditions = matched_conditions or []
+        self.matched_keywords = matched_keywords or []
+        self.search_mode = search_mode
+        self.talent = talent
+
+
+def _result_to_dict(r: _SearchResult) -> dict:
+    return {
+        "talent_id": r.talent_id, "name": r.name, "score": r.score,
+        "match_reason": r.match_reason, "snippet": r.snippet,
+        "matched_conditions": r.matched_conditions,
+        "matched_keywords": r.matched_keywords,
+        "search_mode": r.search_mode,
+        "current_title": r.talent.current_title if r.talent else None,
+        "current_company": r.talent.current_company if r.talent else None,
+        "highest_education": r.talent.highest_education if r.talent else None,
+        "years_experience": r.talent.years_experience if r.talent else None,
+        "skills": r.talent.skills if r.talent else None,
+    }
+
+
+def _rank_candidates_v2(db: Session, intent: SearchIntent, candidates: list,
+                        top_k: int, use_vector: bool) -> list[_SearchResult]:
+    if use_vector and intent.has_keywords():
+        vector_results = _vector_rank_v2(intent, candidates, top_k)
+        if vector_results:
+            for r in vector_results:
+                _enrich_match_reason_v2(r, intent, r.talent)
+            return vector_results
+    keyword_results = _keyword_rank_v2(intent, candidates, top_k)
+    for r in keyword_results:
+        _enrich_match_reason_v2(r, intent, r.talent)
+    return keyword_results
+
+
+def _vector_rank_v2(intent: SearchIntent, candidates: list, top_k: int) -> list[_SearchResult]:
+    try:
+        from app.utils.llm import get_llm
+        llm = get_llm()
+        vec = _vec_store()
+        query_text = " ".join(intent.all_keywords()) or intent.raw_query
+        qv = llm.embed(query_text)
+        candidate_ids = {t.id for t in candidates}
+        candidate_map = {t.id: t for t in candidates}
+        score_map: dict[int, float] = {}
+        snippet_map: dict[int, str] = {}
+        for key in _VECTOR_SETS:
+            if not vec.has_collection(key):
+                continue
+            try:
+                hits = vec.search(key, qv, top_k=min(50, len(candidates) * 2))
+                for h in hits:
+                    tid = _parse_tid(h.get("text", ""))
+                    if tid is None or tid not in candidate_ids:
+                        continue
+                    score = float(h.get("score", 0))
+                    if tid not in score_map or score > score_map[tid]:
+                        score_map[tid] = score
+                        snippet_map[tid] = h.get("text", "")
+            except Exception:
+                continue
+        if not score_map:
+            return []
+        sorted_ids = sorted(score_map.keys(), key=lambda x: score_map[x], reverse=True)
+        results = []
+        for tid in sorted_ids[:top_k]:
+            t = candidate_map.get(tid)
+            if not t:
+                continue
+            results.append(_SearchResult(
+                talent_id=tid, name=t.name, score=score_map[tid],
+                snippet=snippet_map.get(tid, "")[:200], search_mode="vector", talent=t,
+            ))
+        return results
+    except Exception:
+        return []
+
+
+def _keyword_rank_v2(intent: SearchIntent, candidates: list, top_k: int) -> list[_SearchResult]:
+    keywords = intent.all_keywords()
+    if not keywords:
+        sorted_candidates = sorted(candidates, key=lambda t: t.id, reverse=True)
+        return [_SearchResult(
+            talent_id=t.id, name=t.name, score=None,
+            match_reason="结构化条件匹配", search_mode="keyword", talent=t,
+        ) for t in sorted_candidates[:top_k]]
+
+    scored = []
+    for t in candidates:
+        score = 0.0
+        matched_kws = []
+        search_text = " ".join(filter(None, [
+            t.name or "", t.skills or "", t.current_title or "",
+            t.work_experience or "", t.project_experience or "",
+            t.description or "", t.tags_summary or "",
+        ])).lower()
+        for kw in keywords:
+            if kw.lower() in search_text:
+                matched_kws.append(kw)
+                if t.skills and kw.lower() in t.skills.lower():
+                    score += 2.0
+                elif t.current_title and kw.lower() in t.current_title.lower():
+                    score += 1.5
+                else:
+                    score += 1.0
+        if intent.years_min is not None and t.years_experience and t.years_experience >= intent.years_min:
+            score += 0.5
+        if intent.level:
+            score += 1.0
+        if intent.education or intent.education_min:
+            score += 0.5
+        scored.append((t, score, matched_kws))
+    scored.sort(key=lambda x: x[1], reverse=True)
+    results = []
+    for t, score, matched_kws in scored[:top_k]:
+        results.append(_SearchResult(
+            talent_id=t.id, name=t.name,
+            score=score if matched_kws else None,
+            matched_keywords=matched_kws, search_mode="keyword", talent=t,
+        ))
+    return results
+
+
+def _enrich_match_reason_v2(result: _SearchResult, intent: SearchIntent, talent):
+    reasons = []
+    conditions = []
+    if intent.years_min is not None and talent and talent.years_experience is not None:
+        if talent.years_experience >= intent.years_min:
+            reasons.append(f"年限 {talent.years_experience} 年 ≥ {intent.years_min} 年")
+            conditions.append(f"年限符合({talent.years_experience}年)")
+    if intent.education and talent and talent.highest_education == intent.education:
+        reasons.append(f"学历 {talent.highest_education}")
+        conditions.append(f"学历匹配({talent.highest_education})")
+    elif intent.education_min and talent and talent.highest_education:
+        reasons.append(f"学历 {talent.highest_education}（≥{intent.education_min}）")
+        conditions.append(f"学历达标({talent.highest_education})")
+    if intent.level:
+        reasons.append(f"{intent.level}等级")
+        conditions.append(f"等级匹配({intent.level})")
+    if result.matched_keywords:
+        kw_text = "、".join(result.matched_keywords[:5])
+        reasons.append(f"关键词命中：{kw_text}")
+        conditions.extend(result.matched_keywords[:5])
+    if result.search_mode == "vector" and result.score is not None:
+        pct = int(min(100, result.score * 100))
+        reasons.append(f"语义相似度 {pct}%")
+    if not reasons:
+        reasons.append("结构化条件匹配")
+    result.match_reason = "；".join(reasons)
+    result.matched_conditions = conditions
+    result.snippet = result.snippet or _build_snippet_v2(talent, result.matched_keywords)
+
+
+def _build_snippet_v2(talent, keywords: list[str]) -> str:
+    if not talent:
+        return ""
+    texts = [
+        ("技能", talent.skills),
+        ("职位", talent.current_title),
+        ("工作经历", talent.work_experience),
+        ("项目经验", talent.project_experience),
+        ("简介", talent.description),
     ]
+    snippets = []
+    for label, text in texts:
+        if not text:
+            continue
+        for kw in keywords:
+            idx = text.lower().find(kw.lower())
+            if idx >= 0:
+                start = max(0, idx - 20)
+                end = min(len(text), idx + len(kw) + 50)
+                snippet = text[start:end]
+                if start > 0:
+                    snippet = "..." + snippet
+                if end < len(text):
+                    snippet = snippet + "..."
+                snippets.append(f"【{label}】{snippet}")
+                break
+        if len(snippets) >= 2:
+            break
+    return " ".join(snippets) if snippets else (talent.skills or "")[:200]
 
 
 def _vector_search(db: Session, query: str, top_k: int) -> dict[int, dict]:

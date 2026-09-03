@@ -1,5 +1,5 @@
 <script setup>
-import { computed, nextTick, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
+import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import { User, View, Sunny, Refresh } from '@element-plus/icons-vue'
@@ -158,14 +158,27 @@ function disposeRadar() {
   if (radarChart) { try { radarChart.dispose() } catch { /* noop */ } radarChart = null }
 }
 
+// 抽屉完全展开后再绘制雷达，避免动画中途容器尺寸为 0 导致绘图异常 / 与列表不同步
+function onDrawerOpened() {
+  renderRadar()
+}
+// 维度数据变化（切换记录 / 刷新解释）时，若抽屉已展开则立即重绘，保证雷达与维度得分同步
+watch(
+  () => drawer.dims,
+  () => { if (drawer.visible && radarEl.value) renderRadar() },
+)
+function onResize() {
+  if (radarChart) radarChart.resize()
+}
+onMounted(() => window.addEventListener('resize', onResize))
+
 async function openExplain(row) {
   drawer.id = row.id
   drawer.explain = row.explain || ''
   drawer.dims = parseDims(row.dimension_json)
   drawer.visible = true
-  // 抽屉渲染完成后画雷达
-  await nextTick()
-  setTimeout(() => renderRadar(), 80)
+  // 雷达在抽屉 @opened 后绘制；drawer.dims 变化由 watch 触发重绘（见下方），
+  // 解决切换记录时雷达与维度得分不同步的问题。
   // 已有解释直接展示，否则调用 /explain 生成（依赖 LLM，不可用时后端降级为规则解释）
   if (!drawer.explain) {
     drawer.loading = true
@@ -365,7 +378,7 @@ function viewReversePosition(row) {
   load()
 }
 
-onBeforeUnmount(() => disposeRadar())
+onBeforeUnmount(() => { disposeRadar(); window.removeEventListener('resize', onResize) })
 
 // 从预警页「查看该人才」跳入时（/matching/result?talent_id=N），自动按人才过滤
 watch(
@@ -596,7 +609,7 @@ onMounted(async () => {
   <FollowDialog v-model="showFollow" :row="followTarget" @success="onFollowSuccess" />
 
   <!-- 解释详情抽屉 -->
-  <el-drawer v-model="drawer.visible" title="匹配解释详情" size="460px" @closed="disposeRadar">
+  <el-drawer v-model="drawer.visible" title="匹配解释详情" size="460px" @opened="onDrawerOpened" @closed="disposeRadar">
     <div v-loading="drawer.loading">
       <el-descriptions :column="2" border size="small">
         <el-descriptions-item label="记录ID">{{ drawer.id }}</el-descriptions-item>
