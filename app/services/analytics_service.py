@@ -28,23 +28,55 @@ def overview(db: Session) -> dict:
     )
 
 
-def trend(db: Session, metric: str, days: int = 30) -> list[dict]:
-    """趋势序列（D-1 折线图）。metric: talent_new / training_new / match_new / assess_done。"""
+def _trend_payload(db, model_key: str, days: int,
+                   compare: str, start, end) -> dict:
+    """计算趋势双序列：本期 current + 对比期 previous（compare!=none 时）。"""
+    if start is not None and end is not None:
+        current = analytics_dao.daily_new_counts(db, model_key, days, start=start, end=end)
+    else:
+        current = analytics_dao.daily_new_counts(db, model_key, days)
+    previous = None
+    if compare != "none":
+        if start is not None and end is not None:
+            prev_start, prev_end = _shift_period(start, end, compare)
+        else:
+            e = date.today()
+            s = e - timedelta(days=days - 1)
+            prev_start, prev_end = _shift_period(s, e, compare)
+        previous = analytics_dao.daily_new_counts(
+            db, model_key, days, start=prev_start, end=prev_end)
+    return {"current": current, "previous": previous, "compare": compare}
+
+
+def trend(db: Session, metric: str, days: int = 30,
+          compare: str = "none",
+          start: date | None = None, end: date | None = None) -> dict:
+    """趋势序列（D-1 折线图）+ 同比/环比对比（层B 完整闭环）。
+
+    返回 {current, previous, compare}：
+      - current：本期每日新增序列
+      - previous：对比期序列（compare=none 时为 None）
+      - compare：none / yoy（同比） / mom（环比）
+    metric: talent_new / training_new / match_new / assess_done。
+    """
+    if compare not in ("none", "yoy", "mom"):
+        compare = "none"
     _METRIC_MAP = {
-        "talent_new": "talent", # 人才新增
-        "assess_done": "asm_result", # 测评完成
-        "training_new": "training_plan", # 培训新增
-        "match_new": "match_result", # 匹配新增
+        "talent_new": "talent",       # 人才新增
+        "assess_done": "asm_result",  # 测评完成
+        "training_new": "training_plan",  # 培训新增
+        "match_new": "match_result",  # 匹配新增
     }
     key = _METRIC_MAP.get(metric)
     if not key:
         logger.warning("trend 未知 metric=%s，返回空", metric)
-        return []
+        return {"current": [], "previous": None, "compare": compare}
+    cache_key = f"trend:{key}:{days}:{compare}:{start}:{end}"
     return get_redis_service().cached_json(
         "analytics",
-        f"trend:{key}:{days}",
+        cache_key,
         get_settings().REDIS_ANALYTICS_TTL,
-        lambda: analytics_dao.daily_new_counts(db, key, days),
+        lambda: _trend_payload(db, key, days, compare, start, end),
     )
 
 

@@ -43,7 +43,16 @@
       </el-col>
       <el-col :span="12">
         <el-card shadow="never">
-          <template #header>人才趋势</template>
+          <template #header>
+            <div style="display:flex;justify-content:space-between;align-items:center;width:100%">
+              <span>人才趋势</span>
+              <el-select v-model="trendCompare" size="small" style="width:104px" @change="reloadTrend">
+                <el-option label="本期" value="none" />
+                <el-option label="同比" value="yoy" />
+                <el-option label="环比" value="mom" />
+              </el-select>
+            </div>
+          </template>
           <EChart :option="trendOption" />
         </el-card>
       </el-col>
@@ -99,6 +108,7 @@ const recentResults = ref([])
 const recentMessages = ref([])
 const degreeOption = ref({})
 const trendOption = ref({})
+const trendCompare = ref('none')
 
 // 按登录人权限码过滤首页可见内容（无权限码的 KPI/区块不渲染，也不请求接口，避免 403 弹错）
 const can = (perm) => userStore.hasPerm(perm)
@@ -132,6 +142,37 @@ function statusText(s) {
   return { 0: '未答', 1: '答题中', 2: '已交卷', 3: '已完成' }[s] || s
 }
 
+// 趋势折线：本期 current + 对比期 previous（层B 同比/环比，完整闭环）
+function updateTrendOption(t) {
+  const current = (t && t.current) || []
+  const previous = (t && t.previous) || null
+  const series = [{
+    name: '本期', type: 'line', smooth: true,
+    data: current.map(i => i.count), areaStyle: { opacity: 0.15 }
+  }]
+  if (previous) {
+    series.push({
+      name: '上期', type: 'line', smooth: true,
+      data: previous.map(i => i.count),
+      lineStyle: { type: 'dashed' }, itemStyle: { color: '#909399' }
+    })
+  }
+  trendOption.value = {
+    tooltip: { trigger: 'axis' },
+    legend: { top: 0, data: previous ? ['本期', '上期'] : ['本期'] },
+    grid: { left: 40, right: 20, top: 30, bottom: 30 },
+    xAxis: { type: 'category', data: current.map(i => i.date) },
+    yAxis: { type: 'value' },
+    series,
+  }
+}
+async function reloadTrend() {
+  try {
+    const r = await getTrend({ compare: trendCompare.value })
+    updateTrendOption(r.data || {})
+  } catch { /* 首页趋势对比失败不阻塞 */ }
+}
+
 async function load() {
   loading.value = true
   try {
@@ -151,7 +192,7 @@ async function load() {
     calls2.push(listMyMessages({ page: 1, page_size: 5 }).then(r => ({ k: 'msgs', v: r.data?.items || r.data || [] })))
     if (showCharts) {
       calls2.push(getDistribution({ dimension: 'degree' }).then(r => ({ k: 'dist', v: r.data || [] })))
-      calls2.push(getTrend().then(r => ({ k: 'trend', v: r.data || [] })))
+      calls2.push(getTrend({ compare: trendCompare.value }).then(r => ({ k: 'trend', v: r.data || {} })))
     }
     const [results, results2] = await Promise.all([
       Promise.all(calls.map(p => p.catch(() => null))),
@@ -193,14 +234,7 @@ async function load() {
           label: { fontSize: 12 },
         }],
       }
-      const tData = map2.trend?.v || []
-      trendOption.value = {
-        tooltip: { trigger: 'axis' },
-        grid: { left: 40, right: 20, top: 30, bottom: 30 },
-        xAxis: { type: 'category', data: tData.map(i => i.label || i.month || i.date) },
-        yAxis: { type: 'value' },
-        series: [{ type: 'line', smooth: true, data: tData.map(i => i.value || i.count || 0), areaStyle: { opacity: 0.15 } }],
-      }
+      updateTrendOption(map2.trend?.v || {})
     }
   } catch (e) {
     /* 首页接口失败不阻塞 */

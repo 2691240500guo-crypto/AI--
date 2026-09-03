@@ -7,7 +7,21 @@
     </el-row>
 
     <el-row :gutter="16" class="charts">
-      <el-col :span="12"><el-card><template #header>增量趋势</template><EChart :option="trendOption" /></el-card></el-col>
+      <el-col :span="12">
+        <el-card>
+          <template #header>
+            <div style="display:flex;justify-content:space-between;align-items:center;width:100%">
+              <span>增量趋势</span>
+              <el-select v-model="trendCompare" size="small" style="width:104px" @change="reloadTrend">
+                <el-option label="本期" value="none" />
+                <el-option label="同比" value="yoy" />
+                <el-option label="环比" value="mom" />
+              </el-select>
+            </div>
+          </template>
+          <EChart :option="trendOption" />
+        </el-card>
+      </el-col>
       <el-col :span="12"><el-card><template #header>状态分布</template><EChart :option="pieOption" /></el-card></el-col>
       <el-col :span="12"><el-card><template #header>部门分布</template><EChart :option="barOption" /></el-card></el-col>
       <el-col :span="12"><el-card><template #header>等级分布</template><EChart :option="levelOption" /></el-card></el-col>
@@ -24,6 +38,7 @@ import { ElMessage } from 'element-plus'
 const loading = ref(false)
 const kpis = ref([])
 const charts = ref({})
+const trendCompare = ref('none')
 
 async function load() {
   loading.value = true
@@ -32,7 +47,7 @@ async function load() {
     const [overviewRes, deptRes, trendRes] = await Promise.all([
       getOverview(),
       getDistribution({ dimension: 'dept' }),
-      getTrend({ metric: 'talent_new', days: 30 }),
+      getTrend({ metric: 'talent_new', days: 30, compare: trendCompare.value }),
     ])
     const ov = overviewRes.data
     kpis.value = [
@@ -46,19 +61,42 @@ async function load() {
     const level = Object.entries(ov.talent_by_level || {}).map(([name, value]) => ({ name, value }))
     // 部门分布（柱图数据源）：走后端 /distribution?dimension=dept（真实部门，2026-09-02 修正原误用学历数据）
     const dept = deptRes.data || []
-    // 趋势折线（近30天新增）
-    const trend = trendRes.data || []
+    // 趋势折线（近30天新增，含同比/环比对比，层B 完整闭环）
+    const trend = trendRes.data || {}
     charts.value = { degree, level, dept, trend_line: trend }
   } catch { ElMessage.error('看板加载失败') } finally { loading.value = false }
 }
 
 
-const trendOption = computed(() => ({
-  tooltip: { trigger: 'axis' },
-  xAxis: { type: 'category', data: (charts.value.trend_line || []).map(i => i.date) },
-  yAxis: { type: 'value' },
-  series: [{ type: 'line', smooth: true, data: (charts.value.trend_line || []).map(i => i.count) }]
-}))
+const trendOption = computed(() => {
+  const trend = charts.value.trend_line || {}
+  const current = trend.current || []
+  const previous = trend.previous || null
+  const series = [{
+    name: '本期', type: 'line', smooth: true,
+    data: current.map(i => i.count), areaStyle: { opacity: 0.12 }
+  }]
+  if (previous) {
+    series.push({
+      name: '上期', type: 'line', smooth: true,
+      data: previous.map(i => i.count),
+      lineStyle: { type: 'dashed' }, itemStyle: { color: '#909399' }
+    })
+  }
+  return {
+    tooltip: { trigger: 'axis' },
+    legend: { top: 0, data: previous ? ['本期', '上期'] : ['本期'] },
+    xAxis: { type: 'category', data: current.map(i => i.date) },
+    yAxis: { type: 'value' },
+    series
+  }
+})
+async function reloadTrend() {
+  try {
+    const trendRes = await getTrend({ metric: 'talent_new', days: 30, compare: trendCompare.value })
+    charts.value = { ...charts.value, trend_line: trendRes.data || {} }
+  } catch { ElMessage.error('趋势加载失败') }
+}
 const pieOption = computed(() => ({
   tooltip: { trigger: 'item' }, legend: { bottom: 0 },
   series: [{ type: 'pie', radius: '55%', data: charts.value.degree || [] }]

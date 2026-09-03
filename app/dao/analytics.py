@@ -85,11 +85,33 @@ def match_avg_score(db: Session) -> float:
 # 只允许通过这份字典取出模型列对象；用户输入永远只当「值」用，绝不当「列名/SQL片段」用。
 # key = 请求参数名（对前端暴露），value = (模型字段名, 匹配方式)
 _TALENT_COLUMNS: dict[str, tuple[str, str]] = {
-    "dept_id": ("dept_id", "eq"),      # 精确匹配
-    "level": ("level", "eq"),          # 精确匹配，如 S/A/B/C
-    "position": ("position", "like"),  # 模糊匹配，如 "算法"
+    "dept_id": ("dept_id", "eq"),        # 精确匹配
+    "level": ("level", "eq"),            # 精确匹配，如 S/A/B/C
+    "position_id": ("position_id", "eq"),# 精确匹配岗位ID（tal_talent.position_id 是真实外键列，不再误用不存在的 position 文本列）
+    # 注：岗位名称模糊（position 参数）不走白名单，由 _apply_position_name_filter 单独 JOIN pos_position 处理
 }
 _TIME_COLUMN = "created_at"            # 时间范围统一走该列（与 P2 确认列名后一致即可）
+
+
+def _apply_position_name_filter(query, filters):
+    """岗位名称模糊匹配：需 JOIN pos_position（tal_talent 只存 position_id，不存名称文本）。
+
+    - filters 里 "position" 参数（岗位名）非空 → JOIN pos_position 并按名称模糊过滤；
+    - "position_id" 由白名单精确处理，不走这里（无需额外 JOIN）。
+    模型未合入/字段缺失时降级跳过，不硬崩、不拖垮其他筛选条件。
+    """
+    name = (filters or {}).get("position")
+    if name in (None, ""):
+        return query
+    try:
+        from app.models.talent import Talent
+        from app.models.matching import PosPosition
+    except Exception as exc:
+        logger.warning("岗位名称筛选依赖模型未就绪，忽略: %s", exc)
+        return query
+    query = query.join(PosPosition, Talent.position_id == PosPosition.id)
+    query = query.where(PosPosition.name.like(f"%{name}%"))
+    return query
 
 
 def talent_filter(db: Session, filters) -> int:
@@ -136,16 +158,21 @@ def talent_filter(db: Session, filters) -> int:
             ))
 
         # ---- 3. 执行：无条件时也返回全量计数（conds 为空 => 只 count）----
-        return db.scalar(select(func.count(Talent.id)).where(*conds)) or 0
+        # 岗位名称模糊需 JOIN pos_position
+        query = select(func.count(Talent.id))
+        query = _apply_position_name_filter(query, f)
+        return db.scalar(query.where(*conds)) or 0
     except Exception as exc:                      # 表未建 / 字段不符等一律降级
         logger.warning("talent_filter 降级: %s", exc)
         return 0
 
-def daily_new_counts(db: Session, model_key: str, days: int = 30) -> list[dict]:
+def daily_new_counts(db: Session, model_key: str, days: int = 30,
+                     start: date | None = None, end: date | None = None) -> list[dict]:
     """近 N 天每日新增计数（按 created_at 分组，无数据的天补 0，保证折线连续）。
 
     模型白名单：model_key 只取这里定义的键，防止任意传参。
     talent/asm_result 模型未合入时走降级返回空，不阻塞其他指标。
+    时间窗口：显式传 start/end 优先；否则按 days 往前推（默认近 N 天）。
     """
     import importlib
     _MODELS = {
@@ -166,18 +193,30 @@ def daily_new_counts(db: Session, model_key: str, days: int = 30) -> list[dict]:
         return []
 
     col = getattr(Model, time_col)
-    today = date.today()
-    start = today - timedelta(days=days - 1)
-    rows = db.execute(
-        select(func.date(col).label("d"), func.count(Model.id))
-        .where(col >= datetime.combine(start, time.min))
-        .group_by(func.date(col))
-    ).all()
+    # 时间窗口：显式 start/end 优先，否则按 days 往前推
+    if start is not None and end is not None:
+        window_start, window_end = start, end
+        rows = db.execute(
+            select(func.date(col).label("d"), func.count(Model.id))
+            .where(col.between(datetime.combine(start, time.min),
+                              datetime.combine(end, time.max)))
+            .group_by(func.date(col))
+        ).all()
+    else:
+        today = date.today()
+        window_start = today - timedelta(days=days - 1)
+        window_end = today
+        rows = db.execute(
+            select(func.date(col).label("d"), func.count(Model.id))
+            .where(col >= datetime.combine(window_start, time.min))
+            .group_by(func.date(col))
+        ).all()
     by_day = {str(d): c for d, c in rows}
     # 补零：缺的天也返回 0，前端折线图才连续
-    return [{"date": (start + timedelta(days=i)).strftime("%Y-%m-%d"),
-             "count": by_day.get((start + timedelta(days=i)).strftime("%Y-%m-%d"), 0)}
-            for i in range(days)]
+    span = (window_end - window_start).days + 1
+    return [{"date": (window_start + timedelta(days=i)).strftime("%Y-%m-%d"),
+             "count": by_day.get((window_start + timedelta(days=i)).strftime("%Y-%m-%d"), 0)}
+            for i in range(span)]
 
 def distribution_items(db: Session, dimension: str) -> list[dict]:
     """分布数据（饼图数据源）：[{name, value}]。dimension 走白名单分发。
@@ -281,19 +320,81 @@ def talent_rows(db: Session, filters: dict | None = None,
                 datetime.combine(end, time.max),
             ))
         # 3. 取行（列与 REPORT_DEFS["talent"] 表头对应：ID/姓名/学历/等级/部门ID）
-        rows = db.execute(
-            select(Talent.id, Talent.name, Talent.degree,
-                   Talent.level, Talent.dept_id)
-            .where(*conds)
-            .limit(limit)
-        ).all()
+        # 岗位名称模糊需 JOIN pos_position
+        query = select(Talent.id, Talent.name, Talent.degree,
+                       Talent.level, Talent.dept_id)
+        query = _apply_position_name_filter(query, f)
+        rows = db.execute(query.where(*conds).limit(limit)).all()
         return [list(r) for r in rows]
     except Exception as exc:
         logger.warning("talent_rows 降级: %s", exc)
         return []
 
+def _join_talent_if_filtered(query, Model, filters):
+    """①②③④ 统一处理人才维度筛选 + 双时间锚。
+
+    ① 部门口径：统一走 tal_talent.dept_id（不再用 match_result 计数）。
+    ② 等级口径：统一走 tal_talent.level（S/A/B/C）。
+    ③ 时间口径（两个指标都保留、分开命名）：
+       - time_anchor="result"（默认）：用子域自身 created_at（记录产生时间）
+         → 即「近30天测评记录数/匹配新增/培训新增」，无需 JOIN。
+       - time_anchor="talent_entry"：用 tal_talent.created_at（人才入职时间，产品词典约定）
+         → 即「近30天入职人才测评/匹配/培训」，需 JOIN tal_talent。
+    ④ 悬空关联：仅当存在人才维度条件（dept/level/talent_entry 时间）时才 JOIN，
+       无筛选时直接统计/导出子域表全量，保留 talent_id 关联不到 tal_talent 的悬空行。
+    """
+    from app.models.talent import Talent
+
+    def _as_date(v):
+        """兼容 date 对象与 JSON 字符串（导出 filters 是裸 dict，日期为字符串）。"""
+        if v is None:
+            return None
+        if isinstance(v, datetime):
+            return v.date()
+        if isinstance(v, date):
+            return v
+        try:
+            return date.fromisoformat(str(v)[:10])
+        except Exception:
+            return None
+
+    f = filters or {}
+    talent_conds = []   # 需 JOIN tal_talent 的人才维度条件
+    model_conds = []    # 子域自身条件（无需 JOIN）
+
+    # ①② 部门 / 等级 / 岗位：统一走 tal_talent
+    if f.get("dept_id") not in (None, ""):
+        talent_conds.append(Talent.dept_id == f["dept_id"])
+    if f.get("level") not in (None, ""):
+        talent_conds.append(Talent.level == f["level"])
+    if f.get("position_id") not in (None, ""):
+        talent_conds.append(Talent.position_id == f["position_id"])
+
+    # ③ 时间：双锚点
+    start, end = _as_date(f.get("start_date")), _as_date(f.get("end_date"))
+    if start is not None and end is not None:
+        lo, hi = datetime.combine(start, time.min), datetime.combine(end, time.max)
+        if f.get("time_anchor") == "talent_entry":
+            # 人才入职时间 → 必须 JOIN tal_talent
+            talent_conds.append(Talent.created_at.between(lo, hi))
+        else:
+            # 子域记录产生时间 → 不 JOIN（默认口径）
+            model_conds.append(Model.created_at.between(lo, hi))
+
+    if talent_conds:
+        query = query.join(Talent, Model.talent_id == Talent.id)
+        query = query.where(*talent_conds)
+    if model_conds:
+        query = query.where(*model_conds)
+    return query
+
+
 def assess_rows(db: Session, filters: dict | None = None, limit: int = 50_000) -> list[list]:
-    """测评结果导出取数（A 域 asm_result，负责人 P4）。"""
+    """测评结果导出取数（A 域 asm_result，负责人 P4）。
+
+    ④ 悬空关联处理：部门/等级等人才维度筛选才 JOIN tal_talent；无筛选则不 JOIN，
+    保留 talent_id 关联不到人才的悬空行（全量）。
+    """
     try:
         from app.models.assessment import AssessmentResult
     except Exception as exc:
@@ -304,18 +405,24 @@ def assess_rows(db: Session, filters: dict | None = None, limit: int = 50_000) -
         conds = []
         if f.get("talent_id"):
             conds.append(AssessmentResult.talent_id == f["talent_id"])
-        rows = db.execute(
-            select(AssessmentResult.id, AssessmentResult.talent_id,
-                   AssessmentResult.status, AssessmentResult.score)
-            .where(*conds).limit(limit)
-        ).all()
+        query = select(
+            AssessmentResult.id, AssessmentResult.talent_id,
+            AssessmentResult.status, AssessmentResult.score,
+        )
+        if conds:
+            query = query.where(*conds)
+        query = _join_talent_if_filtered(query, AssessmentResult, f)
+        rows = db.execute(query.limit(limit)).all()
         return [[r[0], r[1], r[2], float(r[3]) if r[3] is not None else None] for r in rows]
     except Exception as exc:
         logger.warning("assess_rows 降级: %s", exc)
         return []
 
 def match_rows(db: Session, filters: dict | None = None, limit: int = 50_000) -> list[list]:
-    """匹配结果导出取数（M 域 match_result，负责人 P6）。"""
+    """匹配结果导出取数（M 域 match_result，负责人 P6）。
+
+    ④ 悬空关联处理：人才维度筛选才 JOIN tal_talent；无筛选则不 JOIN 保留全量。
+    """
     try:
         from app.models.matching import MatchResult
     except Exception as exc:
@@ -326,18 +433,24 @@ def match_rows(db: Session, filters: dict | None = None, limit: int = 50_000) ->
         conds = []
         if f.get("talent_id"):
             conds.append(MatchResult.talent_id == f["talent_id"])
-        rows = db.execute(
-            select(MatchResult.id, MatchResult.talent_id,
-                   MatchResult.position_id, MatchResult.score)
-            .where(*conds).limit(limit)
-        ).all()
+        query = select(
+            MatchResult.id, MatchResult.talent_id,
+            MatchResult.position_id, MatchResult.score,
+        )
+        if conds:
+            query = query.where(*conds)
+        query = _join_talent_if_filtered(query, MatchResult, f)
+        rows = db.execute(query.limit(limit)).all()
         return [[r[0], r[1], r[2], float(r[3]) if r[3] is not None else None] for r in rows]
     except Exception as exc:
         logger.warning("match_rows 降级: %s", exc)
         return []
 
 def training_rows(db: Session, filters: dict | None = None, limit: int = 50_000) -> list[list]:
-    """培训计划导出取数（TR 域 trn_training_plan，负责人 P8）。"""
+    """培训计划导出取数（TR 域 trn_training_plan，负责人 P8）。
+
+    ④ 悬空关联处理：人才维度筛选才 JOIN tal_talent；无筛选则不 JOIN 保留全量。
+    """
     try:
         from app.models.training import TrainingPlan
     except Exception as exc:
@@ -348,11 +461,14 @@ def training_rows(db: Session, filters: dict | None = None, limit: int = 50_000)
         conds = []
         if f.get("talent_id"):
             conds.append(TrainingPlan.talent_id == f["talent_id"])
-        rows = db.execute(
-            select(TrainingPlan.id, TrainingPlan.talent_id,
-                   TrainingPlan.title, TrainingPlan.status)
-            .where(*conds).limit(limit)
-        ).all()
+        query = select(
+            TrainingPlan.id, TrainingPlan.talent_id,
+            TrainingPlan.title, TrainingPlan.status,
+        )
+        if conds:
+            query = query.where(*conds)
+        query = _join_talent_if_filtered(query, TrainingPlan, f)
+        rows = db.execute(query.limit(limit)).all()
         # status: 0未开始 1进行中 2已完成（替代 REPORT_DEFS 里的"进度"列）
         _ST = {0: "未开始", 1: "进行中", 2: "已完成"}
         return [[r[0], r[1], r[2], _ST.get(r[3], str(r[3]))] for r in rows]

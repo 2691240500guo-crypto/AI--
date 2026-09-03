@@ -30,11 +30,11 @@ def overview(db: Session = Depends(get_db),
 
 
 @router.get("/trend")
-def trend(metric: str = "talent_new", days: int = 30,
+def trend(metric: str = "talent_new", days: int = 30, compare: str = "none",
           db: Session = Depends(get_db),
           _=Depends(require_permission("analytics:list"))):
-    """趋势（折线图）。"""
-    return ok(analytics_service.trend(db, metric, days))
+    """趋势（折线图），支持同比/环比对比（compare: none/yoy/mom）。"""
+    return ok(analytics_service.trend(db, metric, days, compare))
 
 
 @router.get("/distribution")
@@ -112,13 +112,14 @@ async def nl2sql(req: NL2SQLRequest,
         "question": req.question,
         "chart_type": req.chart_type or "bar",
     })
-    # 契约出参：sql/columns/rows/chart_json/status
+    # 契约出参：sql/columns/rows/chart_json/answer/status
     out = {
         "question": req.question,
         "sql": result.get("sql"),
         "columns": result.get("columns", []),
         "rows": result.get("rows", []),
         "chart_json": result.get("chart_json"),
+        "answer": result.get("answer"),
         "status": result.get("status", "failed"),
     }
     # Agent⑤ 落库：ai_agent_task + ai_conversation（失败不阻塞回复）

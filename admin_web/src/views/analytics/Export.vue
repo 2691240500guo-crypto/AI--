@@ -20,6 +20,12 @@
         <el-form-item label="时间">
           <el-date-picker v-model="form.dateRange" type="daterange" value-format="YYYY-MM-DD" />
         </el-form-item>
+        <el-form-item label="时间口径">
+          <el-select v-model="form.filters.time_anchor" style="width:260px">
+            <el-option label="记录时间（近30天测评/匹配/培训记录）" value="result" />
+            <el-option label="入职时间（近30天入职人才的测评/匹配/培训）" value="talent_entry" />
+          </el-select>
+        </el-form-item>
         <el-button type="primary" :loading="loading" @click="doExport">立即导出</el-button>
       </el-form>
     </el-card>
@@ -84,7 +90,7 @@ function clearHistory() {
   localStorage.removeItem(HISTORY_KEY)
 }
 
-const form = ref({ report_type: 'talent', filters: { dept_id: null, level: null }, dateRange: null })
+const form = ref({ report_type: 'talent', filters: { dept_id: null, level: null, time_anchor: 'result' }, dateRange: null })
 
 async function doExport() {
   loading.value = true
