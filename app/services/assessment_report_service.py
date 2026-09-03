@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timedelta
 from decimal import Decimal
 
 from sqlalchemy.orm import Session
@@ -149,3 +149,45 @@ class AssessmentReportService:
         link.retry_count += 1
         db.flush()
         return AssessmentReportService.run_training_graph(db, result, force_notify=True)
+
+    @staticmethod
+    def deliver_training_plan(
+        db: Session,
+        result: AssessmentResult,
+        link: AssessmentTrainingOutbox,
+        training_plan: dict,
+    ) -> AssessmentTrainingOutbox:
+        """通过培训域公开 service 落地计划；失败时保留可重试的 outbox。"""
+        if link.status == "sent":
+            return link
+        try:
+            from sqlalchemy import select
+
+            from app.models.training import Course
+            from app.services.training_service import PlanService
+
+            weaknesses = list(link.weak_dimensions or [])
+            courses = list(db.scalars(select(Course).where(Course.status == 1)).all())
+            course_ids = [
+                course.id for course in courses
+                if any(dimension in (course.allow_tags or "") for dimension in weaknesses)
+            ][:3]
+            plan = PlanService.create(
+                db,
+                talent_id=result.talent_id,
+                title=training_plan.get("title") or "测评短板提升计划",
+                course_ids=course_ids,
+                deadline=datetime.now() + timedelta(days=30),
+                generated_by="assessment",
+                weakness_tags=weaknesses,
+            )
+            link.training_plan_json = {**training_plan, "plan_id": plan.id, "course_ids": course_ids}
+            link.status = "sent"
+            link.error_message = None
+            link.processed_at = datetime.now()
+        except Exception as exc:
+            link.status = "pending"
+            link.error_message = f"培训计划创建失败，可重试：{str(exc)[:900]}"
+            link.processed_at = None
+        db.flush()
+        return link

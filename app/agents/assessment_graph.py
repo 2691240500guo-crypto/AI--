@@ -13,6 +13,7 @@ from app.agents.training_agent import TrainingAgent
 from app.core.config import get_settings
 from app.dao.agent import AgentTaskDAO
 from app.models.assessment import AssessmentResult
+from app.models.talent import Talent
 from app.models.user import User
 from app.services.message_service import MessageService
 
@@ -114,13 +115,15 @@ class AssessmentGraphRunner:
             return wrapped
 
         def load_context(state: AssessmentAgentState) -> dict[str, Any]:
-            talent = db.get(User, result.talent_id)
+            talent = db.get(Talent, result.talent_id)
+            account = db.get(User, result.user_id)
             paper = result.paper
             return {
                 "talent_context": {
                     "talent_id": result.talent_id,
-                    "nickname": talent.nickname if talent else None,
-                    "username": talent.username if talent else None,
+                    "name": talent.name if talent else None,
+                    "level": talent.level if talent else None,
+                    "username": account.username if account else None,
                 },
                 "capability_context": {
                     "paper_id": result.paper_id,
@@ -183,14 +186,21 @@ class AssessmentGraphRunner:
 
         def sync_talent_level(state: AssessmentAgentState) -> dict[str, Any]:
             report = dict(state["report"])
-            reason = "当前仓库未提供人才档案公开 service，等级保存在测评报告中等待回写。"
-            report["level_sync_status"] = "pending"
-            report["level_sync_reason"] = reason
+            talent = db.get(Talent, result.talent_id)
+            if not talent:
+                reason = "人才档案不存在，等级回写待重试。"
+                report["level_sync_status"] = "pending"
+                report["level_sync_reason"] = reason
+            else:
+                talent.level = report.get("rating") or talent.level
+                reason = None
+                report["level_sync_status"] = "synced"
+                report["level_sync_reason"] = None
             result.report_json = report
             db.flush()
             return {
                 "report": report,
-                "level_sync_status": "pending",
+                "level_sync_status": report["level_sync_status"],
                 "level_sync_reason": reason,
             }
 
@@ -222,10 +232,13 @@ class AssessmentGraphRunner:
                 task.id,
                 state.get("training_error"),
             )
+            link = AssessmentReportService.deliver_training_plan(
+                db, result, link, state.get("training_plan") or {}
+            )
             return {
                 "training_link_id": link.id,
                 "training_link_status": link.status,
-                "notify_required": created or state.get("force_notify", False),
+                "notify_required": link.status == "sent" and (created or state.get("force_notify", False)),
             }
 
         def notify(state: AssessmentAgentState) -> dict[str, Any]:
@@ -242,7 +255,7 @@ class AssessmentGraphRunner:
                         title="测评培训计划已生成",
                         content=course_text or "请查看测评短板提升计划。",
                         sender_id=None,
-                        receiver_ids=[result.talent_id],
+                        receiver_ids=[result.user_id],
                         biz_type="assessment_training",
                         biz_id=result.id,
                     )

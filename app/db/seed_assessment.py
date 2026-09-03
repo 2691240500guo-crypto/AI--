@@ -20,6 +20,7 @@ from app.models.assessment import (
     QuestionBank,
 )
 from app.models.user import User
+from app.models.talent import Talent
 from app.services.assessment_report_service import AssessmentReportService
 
 
@@ -29,6 +30,30 @@ DEMO_PAPER_TITLE = "本地演示综合测评"
 TEST_USERNAME_PREFIX = "c_demo_"
 TEST_BANK_PREFIX = "C智能测评演示题库"
 TEST_PAPER_PREFIX = "C智能测评演示试卷"
+
+
+def _ensure_employee_identity(db: Session, user: User, *, name: str) -> Talent:
+    """为演示员工补齐人才档案与账号锚点，兼容已经存在的旧种子账号。"""
+    talent = db.get(Talent, user.talent_id) if user.talent_id else None
+    if talent is None:
+        talent = db.scalar(select(Talent).where(Talent.name == name, Talent.phone == user.phone)) if user.phone else None
+    if talent is None:
+        talent = Talent(
+            name=name,
+            phone=user.phone,
+            email=user.email,
+            dept_id=user.dept_id,
+            status=1,
+            resume_source="seed",
+            data_quality="good",
+        )
+        db.add(talent)
+        db.flush()
+    user.talent_id = talent.id
+    user.user_type = "employee"
+    if not user.emp_no:
+        user.emp_no = user.username
+    return talent
 
 TEST_QUESTIONS = [
     {
@@ -127,6 +152,7 @@ def seed_assessment(db: Session) -> None:
         )
         db.add(demo_user)
         db.flush()
+    _ensure_employee_identity(db, demo_user, name="测评演示人才")
 
     bank = db.scalar(select(QuestionBank).where(QuestionBank.name == DEMO_BANK_NAME))
     if not bank:
@@ -246,6 +272,7 @@ def _seed_test_data(db: Session) -> None:
             )
             db.add(user)
             db.flush()
+        _ensure_employee_identity(db, user, name=f"测评演示人才{index:02d}")
         users.append(user)
 
         bank_name = f"{TEST_BANK_PREFIX}{index:02d}"
@@ -327,9 +354,14 @@ def _seed_test_data(db: Session) -> None:
 
     for index, (user, paper, question) in enumerate(zip(users, papers, questions), start=1):
         result = db.scalar(select(AssessmentResult).where(
-            AssessmentResult.talent_id == user.id,
+            AssessmentResult.talent_id == user.talent_id,
             AssessmentResult.paper_id == paper.id,
         ))
+        if result is None:
+            result = db.scalar(select(AssessmentResult).where(
+                AssessmentResult.user_id == user.id,
+                AssessmentResult.paper_id == paper.id,
+            ))
         if result:
             if result.batch_id is None:
                 result.batch_id = db.scalar(select(AssessmentBatch.id).where(
@@ -340,7 +372,8 @@ def _seed_test_data(db: Session) -> None:
         status = (index - 1) % 4
         started_at = now - timedelta(minutes=index * 3)
         result = AssessmentResult(
-            talent_id=user.id,
+            talent_id=user.talent_id,
+            user_id=user.id,
             paper_id=paper.id,
             batch_id=db.scalar(select(AssessmentBatch.id).where(
                 AssessmentBatch.batch_no == f"C-DEMO-BATCH-{index:02d}"
@@ -429,6 +462,7 @@ def _seed_role_assessments(db: Session) -> None:
             )
             db.add(user)
             db.flush()
+        talent = _ensure_employee_identity(db, user, name=f"{role_data['role_name']}岗位演示人才")
 
         bank = db.scalar(select(QuestionBank).where(QuestionBank.name == role_data["bank_name"]))
         if not bank:
@@ -534,7 +568,7 @@ def _seed_role_assessments(db: Session) -> None:
             db.flush()
 
         result = db.scalar(select(AssessmentResult).where(
-            AssessmentResult.talent_id == user.id,
+            AssessmentResult.talent_id == talent.id,
             AssessmentResult.paper_id == paper.id,
         ))
         if result:
@@ -542,7 +576,8 @@ def _seed_role_assessments(db: Session) -> None:
 
         started_at = now - timedelta(hours=2)
         result = AssessmentResult(
-            talent_id=user.id,
+            talent_id=talent.id,
+            user_id=user.id,
             paper_id=paper.id,
             batch_id=batch.id,
             status=3,
