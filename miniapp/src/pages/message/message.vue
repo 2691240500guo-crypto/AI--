@@ -8,6 +8,7 @@ import {
   markAllMessagesRead,
   markMessageRead
 } from '@/api'
+import UiState from '@/components/UiState.vue'
 
 const loading = ref(false)
 const failed = ref(false)
@@ -47,7 +48,6 @@ async function load() {
     ])
     if (listResult.status === 'rejected') throw listResult.reason
     messages.value = (listResult.value.data?.items || []).map(normalizeMessage)
-    // unread_only=true 时 meta.total 是未读总数，不能覆盖“全部”标签的总数。
     if (activeTab.value === 'all') {
       total.value = Number(listResult.value.data?.meta?.total ?? messages.value.length)
     }
@@ -145,17 +145,17 @@ function normalizeMessage(row = {}) {
 
 function typeText(type) {
   const dict = {
-    system: '系统公告',
-    assess: '测评提醒',
-    assessment: '测评提醒',
-    train: '培训通知',
-    training: '培训通知',
-    approve: '审批消息',
-    recommend: '推荐消息',
-    matching: '岗位匹配',
-    match: '岗位匹配'
+    system: '系统',
+    assess: '测评',
+    assessment: '测评',
+    train: '培训',
+    training: '培训',
+    approve: '审批',
+    recommend: 'AI 推荐',
+    matching: '岗位',
+    match: '岗位'
   }
-  return dict[type] || '平台消息'
+  return dict[type] || '平台'
 }
 
 function typeClass(type) {
@@ -166,24 +166,39 @@ function typeClass(type) {
   return 'tag-system'
 }
 
+function actionFor(item) {
+  const type = item?.type_code
+  if (type === 'assess' || type === 'assessment') return { text: '去测评', url: '/pages/assessment/assessment', tab: true }
+  if (type === 'train' || type === 'training') return { text: '继续学习', url: '/pages/study/study', tab: true }
+  if (type === 'matching' || type === 'match' || type === 'recommend') return { text: '看岗位', url: '/pages/matching/agent' }
+  return null
+}
+
+function goAction(item) {
+  const action = actionFor(item)
+  if (!action) return
+  closeDetail()
+  if (action.tab) {
+    uni.switchTab({ url: action.url })
+    return
+  }
+  uni.navigateTo({ url: action.url })
+}
+
 function formatTime(value) {
   if (!value) return ''
   const text = String(value).replace('T', ' ')
   return text.length > 16 ? text.slice(0, 16) : text
 }
-
-function goStudy() {
-  closeDetail()
-  uni.switchTab({ url: '/pages/study/study' })
-}
 </script>
 
 <template>
-  <view class="wrap">
-    <view class="hero">
+  <view class="app-page message-page">
+    <view class="hero surface">
       <view>
-        <view class="hero-title">消息中心</view>
-        <view class="hero-sub">{{ unread ? `${unread} 条未读消息` : '消息已全部读完' }}</view>
+        <text class="eyebrow">成长事件</text>
+        <text class="hero-title">消息中心</text>
+        <text class="hero-sub">{{ unread ? `${unread} 条未读消息等待处理` : '当前没有未读成长事件' }}</text>
       </view>
       <button class="read-all" :disabled="!hasUnread || readingAll" :loading="readingAll" @click="readAll">
         全部已读
@@ -203,20 +218,19 @@ function goStudy() {
       </view>
     </view>
 
-    <view v-if="loading" class="state">加载中...</view>
-    <view v-else-if="failed" class="state failed">
-      <text>消息加载失败</text>
-      <button class="retry" @click="load">重试</button>
-    </view>
-    <view v-else-if="!messages.length" class="state">
-      <text>{{ activeTab === 'unread' ? '暂无未读消息' : '暂无消息' }}</text>
-    </view>
+    <UiState v-if="loading" tone="loading" title="正在加载消息" hint="正在同步测评、学习和岗位事件。" />
+    <UiState v-else-if="failed" tone="error" title="消息加载失败" hint="请检查网络或稍后重试。" action-text="重试" @action="load" />
+    <UiState
+      v-else-if="!messages.length"
+      :title="activeTab === 'unread' ? '暂无未读消息' : '暂无消息'"
+      hint="测评、学习、培训和岗位相关事件会显示在这里。"
+    />
 
     <view v-else class="list">
       <view
         v-for="item in messages"
         :key="item.id"
-        class="message"
+        class="message surface"
         :class="{ read: item.is_read }"
         @click="openMessage(item)"
       >
@@ -231,8 +245,9 @@ function goStudy() {
             <text v-if="item.biz_type">{{ item.biz_type }}</text>
           </view>
         </view>
-        <view class="tag" :class="typeClass(item.type_code)">
-          {{ typeText(item.type_code) }}
+        <view class="message-side">
+          <view class="tag" :class="typeClass(item.type_code)">{{ typeText(item.type_code) }}</view>
+          <view v-if="actionFor(item)" class="next" @click.stop="goAction(item)">{{ actionFor(item).text }}</view>
         </view>
       </view>
     </view>
@@ -246,252 +261,295 @@ function goStudy() {
           </view>
           <view class="close" @click="closeDetail">关闭</view>
         </view>
-        <view class="detail-tag" :class="typeClass(selected.type_code)">
-      <view v-if="selected.type_code === 'train' || selected.type_code === 'training'" class="detail-action" @click="goStudy">去学习</view>
-          {{ typeText(selected.type_code) }}
-        </view>
+        <view class="detail-tag" :class="typeClass(selected.type_code)">{{ typeText(selected.type_code) }}</view>
         <view class="detail-content">{{ selected.content || '暂无消息内容' }}</view>
+        <button v-if="actionFor(selected)" class="detail-action" @click="goAction(selected)">{{ actionFor(selected).text }}</button>
       </view>
     </view>
   </view>
 </template>
 
 <style lang="scss" scoped>
-.wrap {
-  min-height: 100vh;
-  padding: 24rpx 24rpx 48rpx;
-  background: #f6f7f9;
-  box-sizing: border-box;
+.message-page {
+  padding-bottom: 72rpx;
 }
+
 .hero {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 24rpx;
   padding: 30rpx;
-  border-radius: 24rpx;
-  background: #fff;
-  box-shadow: 0 4rpx 16rpx rgba(16, 24, 40, 0.05);
 }
-.hero-title {
-  color: #111827;
-  font-size: 36rpx;
-  font-weight: 700;
-  line-height: 1.3;
-}
+
+.eyebrow,
+.hero-title,
 .hero-sub {
+  display: block;
+}
+
+.eyebrow {
+  color: var(--color-coral);
+  font-size: 22rpx;
+  font-weight: 800;
+}
+
+.hero-title {
   margin-top: 8rpx;
-  color: #6b7280;
+  color: var(--color-text);
+  font-size: 42rpx;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.hero-sub {
+  margin-top: 10rpx;
+  color: var(--color-muted);
   font-size: 24rpx;
 }
+
 .read-all {
+  flex-shrink: 0;
   width: 172rpx;
-  height: 64rpx;
-  line-height: 64rpx;
+  height: 62rpx;
   margin: 0;
-  padding: 0;
-  border-radius: 12rpx;
-  background: #2563eb;
   color: #fff;
+  background: var(--color-brand);
+  border-radius: var(--radius-sm);
   font-size: 24rpx;
+  line-height: 62rpx;
 }
+
 .read-all[disabled] {
-  background: #d7dce4;
+  color: #A7B7C0;
+  background: #EAF2F6;
 }
+
 .tabs {
   display: flex;
   gap: 14rpx;
   margin: 24rpx 0;
 }
+
 .tab {
-  min-width: 154rpx;
-  height: 64rpx;
-  padding: 0 24rpx;
-  border-radius: 12rpx;
-  background: #fff;
-  color: #6b7280;
-  font-size: 24rpx;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 10rpx;
+  min-width: 154rpx;
+  height: 64rpx;
+  padding: 0 24rpx;
+  color: var(--color-muted);
+  background: #EEF7FA;
+  border: 1rpx solid transparent;
+  border-radius: var(--radius-sm);
+  font-size: 24rpx;
+  box-sizing: border-box;
 }
+
 .tab.active {
-  background: #111827;
-  color: #fff;
+  color: var(--color-brand);
+  background: #fff;
+  border-color: rgba(23, 126, 173, .25);
+  font-weight: 700;
 }
+
 .tab-count {
   min-width: 34rpx;
   height: 34rpx;
-  line-height: 34rpx;
+  padding: 0 8rpx;
+  color: inherit;
+  background: rgba(23, 126, 173, .1);
   border-radius: 17rpx;
-  text-align: center;
   font-size: 20rpx;
-  background: rgba(148, 163, 184, 0.18);
+  line-height: 34rpx;
+  text-align: center;
 }
+
 .list {
   display: flex;
   flex-direction: column;
   gap: 18rpx;
 }
+
 .message {
   display: flex;
   align-items: flex-start;
   gap: 20rpx;
-  padding: 26rpx;
-  border-radius: 18rpx;
-  background: #fff;
-  box-shadow: 0 4rpx 16rpx rgba(16, 24, 40, 0.04);
+  padding: 24rpx;
 }
+
 .message.read {
-  opacity: 0.78;
+  opacity: .74;
 }
+
 .message-main {
-  flex: 1;
   min-width: 0;
+  flex: 1;
 }
+
 .message-title {
   display: flex;
   align-items: center;
   gap: 10rpx;
 }
+
 .title-text {
-  max-width: 430rpx;
+  max-width: 420rpx;
   overflow: hidden;
+  color: var(--color-text);
+  font-size: 29rpx;
+  font-weight: 750;
   text-overflow: ellipsis;
   white-space: nowrap;
-  color: #111827;
-  font-size: 29rpx;
-  font-weight: 650;
 }
+
 .dot {
   width: 12rpx;
   height: 12rpx;
-  border-radius: 50%;
-  background: #ef4444;
   flex-shrink: 0;
+  background: var(--color-coral);
+  border-radius: 50%;
 }
+
 .message-content {
   margin-top: 10rpx;
-  color: #6b7280;
+  overflow: hidden;
+  color: var(--color-muted);
   font-size: 24rpx;
   line-height: 1.5;
-  overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
 .message-meta {
   display: flex;
   gap: 18rpx;
   margin-top: 14rpx;
-  color: #a1a7b3;
+  color: #9AAAB2;
   font-size: 21rpx;
 }
-.tag,
-.detail-tag {
-  min-width: 104rpx;
-  height: 42rpx;
-  line-height: 42rpx;
-  border-radius: 10rpx;
-  text-align: center;
-  font-size: 21rpx;
+
+.message-side {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 12rpx;
   flex-shrink: 0;
 }
-.tag-assessment {
-  background: #fef3c7;
-  color: #a16207;
-}
-.tag-training {
-  background: #dcfce7;
-  color: #15803d;
-}
-.tag-matching {
-  background: #e0e7ff;
-  color: #3730a3;
-}
-.tag-approve {
-  background: #fee2e2;
-  color: #b91c1c;
-}
-.tag-system {
-  background: #e5e7eb;
-  color: #374151;
-}
-.state {
-  min-height: 360rpx;
-  padding-top: 120rpx;
-  color: #9ca3af;
+
+.tag,
+.detail-tag {
+  min-width: 92rpx;
+  height: 42rpx;
+  padding: 0 12rpx;
+  border-radius: var(--radius-sm);
+  font-size: 21rpx;
+  line-height: 42rpx;
   text-align: center;
-  font-size: 26rpx;
   box-sizing: border-box;
 }
-.failed {
-  color: #ef4444;
+
+.tag-assessment {
+  color: var(--color-coral);
+  background: var(--color-coral-soft);
 }
-.retry {
-  width: 168rpx;
-  height: 64rpx;
-  line-height: 64rpx;
-  margin-top: 22rpx;
-  border-radius: 12rpx;
-  background: #111827;
-  color: #fff;
-  font-size: 24rpx;
+
+.tag-training {
+  color: var(--color-success);
+  background: #E9F8F3;
 }
+
+.tag-matching {
+  color: var(--color-brand);
+  background: var(--color-brand-soft);
+}
+
+.tag-approve {
+  color: var(--color-danger);
+  background: #FFF1EF;
+}
+
+.tag-system {
+  color: var(--color-muted);
+  background: #EEF4F7;
+}
+
+.next {
+  color: var(--color-brand);
+  font-size: 22rpx;
+  font-weight: 700;
+}
+
 .detail-mask {
   position: fixed;
-  left: 0;
-  right: 0;
-  top: 0;
-  bottom: 0;
+  inset: 0;
   z-index: 20;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 32rpx;
-  background: rgba(17, 24, 39, 0.38);
+  background: rgba(32, 49, 60, .38);
   box-sizing: border-box;
 }
+
 .detail {
   width: 100%;
   max-width: 680rpx;
   max-height: 72vh;
   padding: 32rpx 30rpx;
-  border-radius: 24rpx;
   overflow-y: auto;
   background: #fff;
+  border-radius: var(--radius-lg);
   box-sizing: border-box;
 }
+
 .detail-head {
   display: flex;
   justify-content: space-between;
   gap: 24rpx;
 }
+
 .detail-title {
-  color: #111827;
+  color: var(--color-text);
   font-size: 32rpx;
-  font-weight: 700;
+  font-weight: 750;
   line-height: 1.35;
 }
+
 .detail-time {
   margin-top: 8rpx;
-  color: #9ca3af;
+  color: var(--color-muted);
   font-size: 22rpx;
 }
+
 .close {
   width: 96rpx;
-  color: #2563eb;
+  color: var(--color-brand);
   font-size: 24rpx;
   text-align: right;
 }
+
 .detail-tag {
+  display: inline-block;
   margin-top: 24rpx;
 }
+
 .detail-content {
   margin-top: 22rpx;
-  color: #374151;
+  color: var(--color-text);
   font-size: 27rpx;
   line-height: 1.75;
   white-space: pre-wrap;
+}
+
+.detail-action {
+  height: 76rpx;
+  margin-top: 28rpx;
+  color: #fff;
+  background: var(--color-coral);
+  border-radius: var(--radius-md);
+  font-size: 26rpx;
+  line-height: 76rpx;
 }
 </style>

@@ -1,32 +1,76 @@
 <script setup>
-import { ref, onMounted } from 'vue'
+import { computed, onMounted, ref } from 'vue'
+import { currentTalentId } from '@/api'
+import GrowthPath from '@/components/GrowthPath.vue'
 import request from '@/utils/request'
 
 const user = ref({})
-// 数据卡（来自 M 域实时接口：在招岗位/匹配记录/储备预警）
+const growth = ref(72)
 const stats = ref([
-  { label: '在招岗位', value: '-', color: '#2563eb', icon: '💼' },
-  { label: '匹配记录', value: '-', color: '#16a34a', icon: '🎯' },
-  { label: '储备预警', value: '-', color: '#f59e0b', icon: '🔔' },
+  { key: 'messages', label: '未读消息', value: '-', mark: '息', tone: 'blue' },
+  { key: 'assessment', label: '待完成测评', value: '-', mark: '测', tone: 'coral' },
+  { key: 'study', label: '学习计划', value: '-', mark: '学', tone: 'green' }
 ])
-// 技能概览（T 域档案未交付前为静态占位）
-const skills = ref([
-  { name: 'AI', score: 85 },
-  { name: 'Python', score: 92 },
-  { name: 'Java', score: 78 },
-])
-const growth = ref(88)
 
-// 快捷入口（对齐 design/app-prototype.html 基准）
+const skills = ref([
+  { name: 'AI 应用', score: 85 },
+  { name: 'Python', score: 92 },
+  { name: '项目协同', score: 78 }
+])
+
 const entries = [
-  { name: '我的档案', icon: '🧑‍💼', url: '/pages/profile/profile' },
-  { name: '在线测评', icon: '📝', url: '/pages/assessment/assessment' },
-  { name: '在线学习', icon: '🎓', url: '/pages/study/study' },
-  { name: 'AI 助手', icon: '💬', url: '/pages/ai/ai' },
+  { name: '我的档案', desc: '查看数字人才画像', mark: '档', url: '/pages/profile/profile' },
+  { name: '在线测评', desc: '发现能力短板', mark: '测', url: '/pages/assessment/assessment' },
+  { name: '在线学习', desc: '继续提升能力', mark: '学', url: '/pages/study/study' },
+  { name: 'AI 助手', desc: '询问成长建议', mark: 'AI', url: '/pages/ai/ai' }
 ]
 
+const unreadCount = computed(() => numberOf(stats.value[0].value))
+const todoCount = computed(() => numberOf(stats.value[1].value))
+const planCount = computed(() => numberOf(stats.value[2].value))
+
+const nextAction = computed(() => {
+  if (todoCount.value > 0) {
+    return {
+      title: '完成待测评',
+      desc: `还有 ${todoCount.value} 项测评等待完成，先诊断能力现状。`,
+      button: '去测评',
+      url: '/pages/assessment/assessment'
+    }
+  }
+  if (planCount.value > 0) {
+    return {
+      title: '继续学习计划',
+      desc: `已有 ${planCount.value} 个学习计划，可继续推进成长节点。`,
+      button: '继续学习',
+      url: '/pages/study/study'
+    }
+  }
+  if (unreadCount.value > 0) {
+    return {
+      title: '查看成长事件',
+      desc: `${unreadCount.value} 条消息可能包含测评、学习或岗位提醒。`,
+      button: '看消息',
+      url: '/pages/message/message'
+    }
+  }
+  return {
+    title: '完善数字人才画像',
+    desc: '查看档案、技能标签和成长记录，让推荐更准确。',
+    button: '看画像',
+    url: '/pages/profile/profile'
+  }
+})
+
+const growthSteps = computed(() => [
+  { label: '档案', mark: '档', status: 'done', caption: '画像已建立' },
+  { label: '测评', mark: '测', status: todoCount.value > 0 ? 'current' : 'done', caption: todoCount.value > 0 ? '等待完成' : '能力已诊断' },
+  { label: '诊断', mark: '诊', status: todoCount.value > 0 ? 'todo' : 'done', caption: '识别优势短板' },
+  { label: '学习', mark: '学', status: planCount.value > 0 ? 'current' : 'todo', caption: '推进提升计划' },
+  { label: '适配', mark: '岗', status: 'todo', caption: '岗位匹配推荐' }
+])
+
 onMounted(async () => {
-  // token 守卫：未登录跳登录页
   if (!uni.getStorageSync('token')) {
     uni.reLaunch({ url: '/pages/login/login' })
     return
@@ -40,12 +84,19 @@ async function loadStats() {
     const [msg, todo, plans] = await Promise.all([
       request({ url: '/messages/unread-count' }),
       request({ url: '/assessment/todo', data: { talent_id: currentTalentId() } }),
-      request({ url: '/training/plans', data: { talent_id: currentTalentId() } }),
+      request({ url: '/training/plans', data: { talent_id: currentTalentId() } })
     ])
     stats.value[0].value = msg.data?.unread ?? 0
     stats.value[1].value = Array.isArray(todo.data) ? todo.data.length : (todo.data?.items?.length ?? 0)
     stats.value[2].value = Array.isArray(plans.data) ? plans.data.length : (plans.data?.items?.length ?? 0)
-  } catch (e) { /* 接口异常不阻塞页面 */ }
+  } catch (e) {
+    stats.value = stats.value.map((item) => ({ ...item, value: item.value === '-' ? 0 : item.value }))
+  }
+}
+
+function numberOf(value) {
+  const n = Number(value)
+  return Number.isFinite(n) ? n : 0
 }
 
 function go(url) {
@@ -63,10 +114,6 @@ function go(url) {
   uni.navigateTo({ url })
 }
 
-function goTab(url) {
-  uni.switchTab({ url })
-}
-
 function logout() {
   uni.removeStorageSync('token')
   uni.removeStorageSync('refresh_token')
@@ -76,96 +123,386 @@ function logout() {
 </script>
 
 <template>
-  <view class="wrap">
-    <!-- 顶部品牌渐变 bar -->
-    <view class="bar">
-      <view class="hello">
-        <text class="hi">你好，{{ user.nickname || user.username || '同学' }} 👋</text>
-        <text class="role">{{ user.dept_id ? '部门 ' + user.dept_id : '欢迎使用人才平台' }}</text>
+  <view class="app-page home-page">
+    <view class="hero surface">
+      <view class="hero-top">
+        <view>
+          <text class="brand">智链成长</text>
+          <text class="hello">你好，{{ user.nickname || user.username || '同学' }}</text>
+        </view>
+        <view class="logout" @click="logout">退出</view>
       </view>
-      <view class="out" @click="logout">退出</view>
+      <text class="hero-title">我的人才成长工作台</text>
+      <text class="hero-sub">看见当前位置，明确下一步行动。</text>
+
+      <view class="progress-panel">
+        <view>
+          <text class="stage-label">当前成长完成度</text>
+          <text class="stage-value">{{ growth }}%</text>
+        </view>
+        <view class="ring">
+          <text>{{ todoCount > 0 ? '待测' : '成长' }}</text>
+        </view>
+      </view>
+      <GrowthPath :steps="growthSteps" />
     </view>
 
-    <!-- 技能概览 -->
-    <view class="card">
-      <view class="cap">技能概览</view>
-      <view class="chips">
-        <text v-for="s in skills" :key="s.name" class="chip">{{ s.name }} {{ s.score }}</text>
-        <text class="chip chip-g">骨干人才</text>
+    <view class="next-action surface" @click="go(nextAction.url)">
+      <view class="action-copy">
+        <text class="action-kicker">下一步建议</text>
+        <text class="action-title">{{ nextAction.title }}</text>
+        <text class="action-desc">{{ nextAction.desc }}</text>
       </view>
-      <view class="progress"><view class="progress-i" :style="{ width: growth + '%' }" /></view>
-      <view class="muted grow-row"><text>能力成长度</text><text>{{ growth }}%</text></view>
+      <view class="action-button">{{ nextAction.button }}</view>
     </view>
 
-    <!-- 数据卡片 -->
-    <view class="stat-row">
-      <view v-for="s in stats" :key="s.label" class="stat-card">
-        <view class="stat-ico">{{ s.icon }}</view>
-        <view class="stat-num" :style="{ color: s.color }">{{ s.value }}</view>
-        <view class="stat-label">{{ s.label }}</view>
+    <view class="stat-grid">
+      <view v-for="item in stats" :key="item.key" class="stat surface" :class="item.tone">
+        <text class="stat-mark">{{ item.mark }}</text>
+        <text class="stat-value">{{ item.value }}</text>
+        <text class="stat-label">{{ item.label }}</text>
       </view>
     </view>
 
-    <!-- 快捷入口 -->
-    <view class="card">
-      <view class="cap">快捷入口</view>
-      <view class="grid">
-        <view v-for="e in entries" :key="e.name" class="cell" @click="go(e.url)">
-          <view class="cell-icon">{{ e.icon }}</view>
-          <view class="cell-name">{{ e.name }}</view>
+    <view class="section-head">
+      <text class="section-title">能力画像</text>
+      <text class="section-note">本阶段概览</text>
+    </view>
+    <view class="skill-card surface">
+      <view v-for="skill in skills" :key="skill.name" class="skill-row">
+        <view class="skill-head">
+          <text>{{ skill.name }}</text>
+          <text>{{ skill.score }}</text>
+        </view>
+        <view class="skill-track">
+          <view class="skill-fill" :style="{ width: skill.score + '%' }"></view>
         </view>
       </view>
     </view>
 
-
-    <view class="footer">岗位智能匹配 · 数据基于岗位匹配域实时接口</view>
+    <view class="section-head">
+      <text class="section-title">常用入口</text>
+      <text class="section-note">围绕成长闭环</text>
+    </view>
+    <view class="entry-grid">
+      <view v-for="entry in entries" :key="entry.name" class="entry surface" @click="go(entry.url)">
+        <view class="entry-mark">{{ entry.mark }}</view>
+        <view class="entry-copy">
+          <text class="entry-name">{{ entry.name }}</text>
+          <text class="entry-desc">{{ entry.desc }}</text>
+        </view>
+      </view>
+    </view>
   </view>
 </template>
 
 <style lang="scss" scoped>
-.wrap { padding-bottom: 40rpx; min-height: 100vh; background: #f6f7f9; }
-/* 顶部品牌渐变 bar */
-.bar { display: flex; justify-content: space-between; align-items: center;
-  padding: 60rpx 32rpx 44rpx; background: linear-gradient(135deg, #2563eb, #4f8df9);
-  border-radius: 0 0 24rpx 24rpx; }
-.hello { display: flex; flex-direction: column; }
-.hi { font-size: 34rpx; font-weight: 700; color: #fff; }
-.role { font-size: 24rpx; color: rgba(255,255,255,.9); margin-top: 8rpx; }
-.out { font-size: 24rpx; color: #fff; padding: 10rpx 24rpx; background: rgba(255,255,255,.18);
-  border-radius: 28rpx; }
-/* 卡片 */
-.card { background: #fff; border-radius: 32rpx; padding: 28rpx; margin: 24rpx 24rpx 0;
-  box-shadow: 0 2rpx 10rpx rgba(16,24,40,.04); }
-.cap { font-size: 28rpx; font-weight: 600; color: #1f2937; margin-bottom: 20rpx; }
-/* 技能概览 */
-.chips { display: flex; gap: 12rpx; flex-wrap: wrap; }
-.chip { font-size: 22rpx; padding: 6rpx 18rpx; border-radius: 40rpx; background: #eaf0ff;
-  color: #2563eb; }
-.chip-g { background: #e8f7ee; color: #1c8a4c; }
-.progress { height: 14rpx; border-radius: 10rpx; background: #eef2f7; overflow: hidden; margin: 22rpx 0 12rpx; }
-.progress-i { display: block; height: 100%; background: #2563eb; border-radius: 10rpx; }
-.muted { font-size: 22rpx; color: #9ca3af; }
-.grow-row { display: flex; justify-content: space-between; }
-/* 数据卡 */
-.stat-row { display: flex; gap: 18rpx; padding: 24rpx 24rpx 0; }
-.stat-card { flex: 1; background: #fff; border-radius: 32rpx; padding: 26rpx 0; text-align: center;
-  box-shadow: 0 2rpx 10rpx rgba(16,24,40,.04); }
-.stat-ico { font-size: 40rpx; }
-.stat-num { font-size: 48rpx; font-weight: 700; margin: 10rpx 0 4rpx; }
-.stat-label { font-size: 22rpx; color: #9ca3af; }
-/* 快捷入口 */
-.grid { display: flex; flex-wrap: wrap; gap: 20rpx; }
-.cell { width: calc(50% - 10rpx); text-align: center; padding: 30rpx 0; border-radius: 24rpx;
-  background: #f6f7f9; }
-.cell-icon { font-size: 44rpx; }
-.cell-name { font-size: 26rpx; color: #1f2937; margin-top: 10rpx; }
-/* Agent 横幅 */
-.agent-banner { margin: 24rpx 24rpx 0; border-radius: 32rpx; padding: 28rpx 32rpx;
-  background: linear-gradient(135deg, #2563eb, #4f8df9); display: flex; align-items: center;
-  justify-content: space-between; }
-.agent-left { display: flex; flex-direction: column; }
-.agent-title { color: #fff; font-size: 30rpx; font-weight: 700; }
-.agent-sub { color: rgba(255,255,255,.85); font-size: 22rpx; margin-top: 6rpx; }
-.agent-arrow { color: #fff; font-size: 44rpx; }
-.footer { text-align: center; color: #b1b5bd; font-size: 22rpx; margin-top: 36rpx; }
+.home-page {
+  padding-bottom: 72rpx;
+}
+
+.hero {
+  position: relative;
+  overflow: hidden;
+  padding: 34rpx 30rpx 30rpx;
+  border-color: rgba(23, 126, 173, .16);
+}
+
+.hero::after {
+  position: absolute;
+  top: -80rpx;
+  right: -88rpx;
+  width: 240rpx;
+  height: 240rpx;
+  border: 28rpx solid rgba(255, 127, 120, .12);
+  border-radius: 50%;
+  content: '';
+}
+
+.hero-top,
+.progress-panel,
+.stat,
+.entry {
+  display: flex;
+  align-items: center;
+}
+
+.hero-top {
+  position: relative;
+  z-index: 1;
+  justify-content: space-between;
+  gap: 24rpx;
+}
+
+.brand,
+.hello,
+.hero-title,
+.hero-sub,
+.stage-label,
+.stage-value {
+  display: block;
+}
+
+.brand {
+  color: var(--color-brand);
+  font-size: 23rpx;
+  font-weight: 700;
+}
+
+.hello {
+  margin-top: 8rpx;
+  color: var(--color-muted);
+  font-size: 24rpx;
+}
+
+.logout {
+  flex-shrink: 0;
+  padding: 10rpx 18rpx;
+  color: var(--color-muted);
+  background: #F2F8FB;
+  border-radius: var(--radius-sm);
+  font-size: 22rpx;
+}
+
+.hero-title {
+  position: relative;
+  z-index: 1;
+  margin-top: 36rpx;
+  color: var(--color-text);
+  font-size: 46rpx;
+  font-weight: 800;
+  line-height: 1.18;
+}
+
+.hero-sub {
+  position: relative;
+  z-index: 1;
+  margin-top: 12rpx;
+  color: var(--color-muted);
+  font-size: 25rpx;
+}
+
+.progress-panel {
+  position: relative;
+  z-index: 1;
+  justify-content: space-between;
+  margin: 34rpx 0 30rpx;
+  padding: 24rpx;
+  background: linear-gradient(135deg, #F0FAFD, #FFF5F3);
+  border: 1rpx solid rgba(221, 236, 242, .9);
+  border-radius: var(--radius-md);
+}
+
+.stage-label {
+  color: var(--color-muted);
+  font-size: 22rpx;
+}
+
+.stage-value {
+  margin-top: 4rpx;
+  color: var(--color-brand);
+  font-size: 52rpx;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.ring {
+  width: 110rpx;
+  height: 110rpx;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--color-coral);
+  border: 12rpx solid rgba(255, 127, 120, .24);
+  border-top-color: var(--color-coral);
+  border-radius: 50%;
+  font-size: 24rpx;
+  font-weight: 700;
+}
+
+.next-action {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 24rpx;
+  margin-top: 22rpx;
+  padding: 26rpx;
+  border-color: rgba(255, 127, 120, .28);
+}
+
+.action-copy {
+  min-width: 0;
+  flex: 1;
+}
+
+.action-kicker,
+.action-title,
+.action-desc {
+  display: block;
+}
+
+.action-kicker {
+  color: var(--color-coral);
+  font-size: 21rpx;
+  font-weight: 700;
+}
+
+.action-title {
+  margin-top: 7rpx;
+  color: var(--color-text);
+  font-size: 31rpx;
+  font-weight: 750;
+}
+
+.action-desc {
+  margin-top: 8rpx;
+  color: var(--color-muted);
+  font-size: 23rpx;
+  line-height: 1.45;
+}
+
+.action-button {
+  flex-shrink: 0;
+  min-width: 132rpx;
+  height: 62rpx;
+  padding: 0 18rpx;
+  color: #fff;
+  background: var(--color-coral);
+  border-radius: var(--radius-sm);
+  font-size: 24rpx;
+  font-weight: 700;
+  line-height: 62rpx;
+  text-align: center;
+}
+
+.stat-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 14rpx;
+  margin-top: 22rpx;
+}
+
+.stat {
+  min-width: 0;
+  flex-direction: column;
+  padding: 22rpx 8rpx;
+}
+
+.stat-mark {
+  width: 48rpx;
+  height: 48rpx;
+  color: var(--color-brand);
+  background: var(--color-brand-soft);
+  border-radius: 16rpx;
+  font-size: 21rpx;
+  font-weight: 800;
+  line-height: 48rpx;
+  text-align: center;
+}
+
+.stat.coral .stat-mark {
+  color: var(--color-coral);
+  background: var(--color-coral-soft);
+}
+
+.stat.green .stat-mark {
+  color: var(--color-success);
+  background: #E9F8F3;
+}
+
+.stat-value {
+  margin-top: 14rpx;
+  color: var(--color-text);
+  font-size: 38rpx;
+  font-weight: 800;
+  line-height: 1;
+}
+
+.stat-label {
+  margin-top: 9rpx;
+  color: var(--color-muted);
+  font-size: 21rpx;
+}
+
+.skill-card {
+  padding: 26rpx;
+}
+
+.skill-row + .skill-row {
+  margin-top: 22rpx;
+}
+
+.skill-head {
+  display: flex;
+  justify-content: space-between;
+  color: var(--color-text);
+  font-size: 24rpx;
+  font-weight: 650;
+}
+
+.skill-head text:last-child {
+  color: var(--color-brand);
+}
+
+.skill-track {
+  height: 12rpx;
+  margin-top: 12rpx;
+  overflow: hidden;
+  background: #ECF4F7;
+  border-radius: 8rpx;
+}
+
+.skill-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--color-brand), var(--color-coral));
+  border-radius: 8rpx;
+}
+
+.entry-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16rpx;
+}
+
+.entry {
+  gap: 18rpx;
+  min-height: 126rpx;
+  padding: 22rpx;
+}
+
+.entry-mark {
+  width: 58rpx;
+  height: 58rpx;
+  flex-shrink: 0;
+  color: var(--color-brand);
+  background: var(--color-brand-soft);
+  border-radius: 18rpx;
+  font-size: 22rpx;
+  font-weight: 800;
+  line-height: 58rpx;
+  text-align: center;
+}
+
+.entry-copy {
+  min-width: 0;
+}
+
+.entry-name,
+.entry-desc {
+  display: block;
+}
+
+.entry-name {
+  color: var(--color-text);
+  font-size: 27rpx;
+  font-weight: 700;
+}
+
+.entry-desc {
+  margin-top: 6rpx;
+  color: var(--color-muted);
+  font-size: 21rpx;
+  line-height: 1.35;
+}
 </style>
