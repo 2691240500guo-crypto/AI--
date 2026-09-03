@@ -6,6 +6,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, require_any_perm, require_client
+from app.core.config import get_settings
+from app.core.redis_client import get_redis_service
 from app.db.session import get_db
 from app.dao.training import CourseDAO, LessonDAO, PlanDAO, ExamDAO, ExamResultDAO, RecordDAO
 from app.models.talent import Talent
@@ -138,6 +140,7 @@ def create_plan(body: PlanCreate, db: Session = Depends(get_db)):
     plan = PlanService.create(db, talent_id=body.talent_id, title=body.title,
                               course_ids=body.course_ids, deadline=body.deadline,
                               weakness_tags=body.weakness_tags,
+                              source=body.source,
                               generated_by=body.generated_by or "manual")
     # 管理端补充字段（可选）
     if body.status is not None:
@@ -293,7 +296,12 @@ def agent_recommend(body: AgentRecommend, db: Session = Depends(get_db)):
 # ---------- 效果分析（E05）----------
 @router.get("/effects", dependencies=[Depends(require_client("admin"))])
 def effects(db: Session = Depends(get_db)):
-    return ok(EffectService.overview(db))
+    return ok(get_redis_service().cached_json(
+        "analytics",
+        "training-effects",
+        get_settings().REDIS_HOME_TTL,
+        lambda: EffectService.overview(db),
+    ))
 
 
 @router.get("/effects/full", dependencies=[Depends(require_client("admin"))])
@@ -355,6 +363,8 @@ def update_plan(pid: int, body: PlanUpdate, db: Session = Depends(get_db)):
         p.generated_by = body.generated_by
     if body.improvement is not None:
         p.improvement = body.improvement
+    if body.source is not None:
+        p.source = body.source
     db.commit()
     return ok(PlanOut.model_validate(p))
 

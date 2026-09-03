@@ -50,6 +50,8 @@ from app.services.assessment_import_service import AssessmentImportService
 from app.services.assessment_service import AssessmentService
 from app.utils.pagination import paged_result
 from app.utils.response import ok
+from app.core.config import get_settings
+from app.core.redis_client import enforce_rate_limit, get_redis_service
 
 router = APIRouter()
 
@@ -506,20 +508,26 @@ def list_results(
     page_size: int = Query(20, ge=1, le=200),
     db: Session = Depends(get_db),
 ):
-    rows, total = AssessmentService.list_results(
-        db, talent_id=talent_id, paper_id=paper_id, batch_id=batch_id, status=status,
-        page=page, page_size=page_size,
-    )
-    items = [AssessmentResultListOut(
-        **AssessmentResultOut.model_validate(result).model_dump(),
-        talent_name=talent_name,
-        paper_title=paper_title,
-        paper_total_score=result.paper.total_score,
-        question_count=len(result.paper.question_links),
-        batch_no=batch_no,
-        batch_name=batch_name,
-    ) for result, talent_name, paper_title, batch_no, batch_name in rows]
-    return ok(paged_result(items, page, page_size, total))
+    def load_result_page() -> dict:
+        rows, total = AssessmentService.list_results(
+            db, talent_id=talent_id, paper_id=paper_id, batch_id=batch_id, status=status,
+            page=page, page_size=page_size,
+        )
+        items = [AssessmentResultListOut(
+            **AssessmentResultOut.model_validate(result).model_dump(),
+            talent_name=talent_name,
+            paper_title=paper_title,
+            paper_total_score=result.paper.total_score,
+            question_count=len(result.paper.question_links),
+            batch_no=batch_no,
+            batch_name=batch_name,
+        ).model_dump(mode="json") for result, talent_name, paper_title, batch_no, batch_name in rows]
+        return paged_result(items, page, page_size, total)
+
+    cache_name = f"assessment-results:{talent_id}:{paper_id}:{batch_id}:{status}:{page}:{page_size}"
+    return ok(get_redis_service().cached_json(
+        "analytics", cache_name, get_settings().REDIS_HOME_TTL, load_result_page
+    ))
 
 
 @router.get("/results/statistics", dependencies=[Depends(require_permission("assessment:stat"))])
@@ -529,8 +537,16 @@ def result_statistics(
     batch_id: int | None = Query(default=None, gt=0),
     db: Session = Depends(get_db),
 ):
-    return ok(AssessmentStatisticsOut.model_validate(
-        AssessmentService.statistics(db, talent_id=talent_id, paper_id=paper_id, batch_id=batch_id)
+    def load_statistics() -> dict:
+        return AssessmentStatisticsOut.model_validate(
+            AssessmentService.statistics(
+                db, talent_id=talent_id, paper_id=paper_id, batch_id=batch_id
+            )
+        ).model_dump(mode="json")
+
+    cache_name = f"assessment-statistics:{talent_id}:{paper_id}:{batch_id}"
+    return ok(get_redis_service().cached_json(
+        "analytics", cache_name, get_settings().REDIS_HOME_TTL, load_statistics
     ))
 
 
@@ -643,6 +659,13 @@ def get_report(result_id: int, user: User = Depends(require_client(["admin", "ap
 
 @router.post("/result/{result_id}/report", dependencies=[Depends(require_client(["admin", "app"]))])
 def generate_report(result_id: int, user: User = Depends(require_client(["admin", "app"])), db: Session = Depends(get_db)):
+    settings = get_settings()
+    enforce_rate_limit(
+        "assessment-report",
+        str(user.id),
+        limit=settings.REDIS_AI_RATE_LIMIT,
+        window=settings.REDIS_AI_RATE_WINDOW,
+    )
     try:
         report = AssessmentService.get_report(db, result_id, user)
         db.commit()

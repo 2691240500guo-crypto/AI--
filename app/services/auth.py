@@ -55,16 +55,24 @@ class AuthService:
 
     @staticmethod
     def refresh(db: Session, refresh_token: str) -> tuple[str, str]:
-        from app.core.security import decode_token
+        from app.core.security import decode_token, is_token_revoked, revoke_token
         payload = decode_token(refresh_token)
-        if not payload or payload.get("type") != "refresh" or not payload.get("sub"):
+        if (
+            not payload
+            or payload.get("type") != "refresh"
+            or not payload.get("sub")
+            or is_token_revoked(payload)
+        ):
             raise BusinessError(401, "续期凭证无效")
         user = UserDAO.get(db, int(payload["sub"]))
         if not user or user.status != 1:
             raise BusinessError(401, "用户不存在或已禁用")
         client_type = payload.get("client_type") or "admin"
-        return (create_access_token(str(user.id), client_type=client_type),
-                create_refresh_token(str(user.id), client_type=client_type))
+        tokens = (create_access_token(str(user.id), client_type=client_type),
+                  create_refresh_token(str(user.id), client_type=client_type))
+        # Refresh Token 旋转：新凭证签发后，旧凭证进入黑名单直至原过期时间。
+        revoke_token(refresh_token)
+        return tokens
 
     @staticmethod
     def wechat_login(db: Session, openid: str) -> User:

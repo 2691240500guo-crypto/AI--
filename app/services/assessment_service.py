@@ -48,6 +48,9 @@ from app.schemas.assessment import (
     RandomPaperRule,
 )
 from app.services.message_service import MessageService
+from app.core.config import get_settings
+from app.core.redis_client import get_redis_service
+from app.utils.response import BusinessError
 from app.services.assessment_report_service import AssessmentReportService
 
 
@@ -789,7 +792,17 @@ class AssessmentService:
             raise ValueError("测评尚未交卷，不能生成报告")
         if result.report_json:
             return result.report_json
-        return AssessmentReportService.generate(db, result)
+        with get_redis_service().lock(
+            f"assessment-report:{result_id}",
+            ttl=get_settings().REDIS_LOCK_TTL,
+        ) as acquired:
+            if not acquired:
+                raise BusinessError(409, "测评报告正在生成，请稍后重试")
+            # 获取锁后再次检查，避免等待期间另一实例已经生成报告。
+            db.refresh(result)
+            if result.report_json:
+                return result.report_json
+            return AssessmentReportService.generate(db, result)
 
     @staticmethod
     def link_training(db: Session, result_id: int, user: User | None = None):

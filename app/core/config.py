@@ -33,7 +33,25 @@ class Settings(BaseSettings):
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     ALLOWED_ORIGINS: str = "http://localhost:5173,http://localhost:8080"
+    REDIS_ENABLED: bool = False
     REDIS_URL: str = "redis://localhost:6379/0"
+    REDIS_KEY_PREFIX: str = "ai_talent:dev"
+    REDIS_MAX_CONNECTIONS: int = 20
+    REDIS_CONNECT_TIMEOUT: float = 2.0
+    REDIS_SOCKET_TIMEOUT: float = 2.0
+    REDIS_HEALTH_CHECK_INTERVAL: int = 30
+    REDIS_RETRY_COUNT: int = 2
+    REDIS_ANALYTICS_TTL: int = 600
+    REDIS_DISTRIBUTION_TTL: int = 1800
+    REDIS_AUTH_TTL: int = 1800
+    REDIS_NAVIGATION_TTL: int = 3600
+    REDIS_HOME_TTL: int = 60
+    REDIS_MESSAGE_TTL: int = 15
+    REDIS_LOCK_TTL: int = 60
+    REDIS_LOGIN_RATE_LIMIT: int = 10
+    REDIS_LOGIN_RATE_WINDOW: int = 300
+    REDIS_AI_RATE_LIMIT: int = 10
+    REDIS_AI_RATE_WINDOW: int = 60
 
     @property
     def cors_origins(self) -> list[str]:

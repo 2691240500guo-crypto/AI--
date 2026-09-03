@@ -2,7 +2,7 @@
 
 职责边界：
 - 仅操作岗位匹配域表（pos_position / match_rule / match_result / match_push_log）
-- 人才数据（tal_talent / talent_vec）属 T 域，此处**只读复用**，绝不创建/修改
+- 人才数据（tal_talent / 人才四维向量集合）属 T 域，此处**只读复用**，绝不创建/修改
 - AI 底座（Ollama/Milvus）通过 app.utils 惰性调用，不可用时给出明确业务错误
 """
 from __future__ import annotations
@@ -26,7 +26,9 @@ logger = logging.getLogger("matching")
 
 # Milvus 集合名（VectorStore 会自动加前缀，如 talent_position_vec）
 POSITION_VEC_COLLECTION = "position_vec"
-TALENT_VEC_COLLECTION = "talent_vec"
+# 2026-09-03：人才向量统一读四维 resume 维（含【人才id|学历|经验|技能】meta 头 + 简历原文，
+# 由 upsert_talent_vectors 实时写入），批处理 talent_vec 集合已退役
+TALENT_VEC_COLLECTION = "resume"
 
 # 默认匹配规则权重（skill/degree/years/quality）
 # 精度优化 2026-09-02：skill 升到 0.5（关键词命中话语权），degree/years 各降 0.05，
@@ -149,7 +151,7 @@ class MatchingService:
             raise BusinessError(500, f"AI 底座不可用（检查 Ollama/Milvus 服务与依赖）：{e}")
 
         if not vec.has_collection(TALENT_VEC_COLLECTION):
-            raise BusinessError(400, "人才向量集合 talent_vec 未就绪（需 T 域先写入人才画像向量）")
+            raise BusinessError(400, "人才画像向量未就绪：请先创建/更新人才档案触发画像向量化（或执行 scripts/vectorize_talents.py 回灌存量）")
         if not vec.has_collection(POSITION_VEC_COLLECTION):
             raise BusinessError(400, "岗位向量集合 position_vec 未就绪，请先执行岗位画像向量化")
 
