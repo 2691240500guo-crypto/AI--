@@ -45,3 +45,12 @@ export function reportCourseProgress(courseId, position, duration) {
 export function getMyCourseProgress() {
   return http.get('/course/progress')
 }
+
+// 全员学习进度（管理端监控，2026-09-03）
+export function getCourseProgressOverview(params = {}) {
+  return http.get('/course/progress/overview', { params })
+}
+// 指定学员的逐课程进度（管理端穿透查看）
+export function getUserCourseProgress(userId) {
+  return http.get(`/course/progress/user/${userId}`)
+}

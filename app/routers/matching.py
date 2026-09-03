@@ -18,6 +18,8 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.deps import require_any_perm
+from app.core.config import get_settings
+from app.core.redis_client import get_redis_service
 from app.dao.matching import MatchPushLogDAO, MatchResultDAO, MatchRuleDAO, PosPositionDAO
 from app.db.session import get_db
 from app.models.matching import MatchResult, PosPosition, MatchRule, MatchPushLog
@@ -65,18 +67,25 @@ def list_positions(
     page: PageParams = Depends(PageParams),
     db: Session = Depends(get_db),
 ):
-    where = []
-    if keyword:
-        like = f"%{keyword}%"
-        where.append(PosPosition.name.like(like) | PosPosition.code.like(like))
-    if dept_id is not None:
-        where.append(PosPosition.dept_id == dept_id)
-    if status is not None:
-        where.append(PosPosition.status == status)
-    total = count_rows(db, PosPosition, *where)
-    rows = PosPositionDAO.list(db, *where, offset=(page.page - 1) * page.page_size,
-                               limit=page.page_size, order_by=PosPosition.id.desc())
-    return ok(paged_result([PositionOut.model_validate(r) for r in rows], page.page, page.page_size, total))
+    def load_position_page() -> dict:
+        where = []
+        if keyword:
+            like = f"%{keyword}%"
+            where.append(PosPosition.name.like(like) | PosPosition.code.like(like))
+        if dept_id is not None:
+            where.append(PosPosition.dept_id == dept_id)
+        if status is not None:
+            where.append(PosPosition.status == status)
+        total = count_rows(db, PosPosition, *where)
+        rows = PosPositionDAO.list(db, *where, offset=(page.page - 1) * page.page_size,
+                                   limit=page.page_size, order_by=PosPosition.id.desc())
+        items = [PositionOut.model_validate(row).model_dump(mode="json") for row in rows]
+        return paged_result(items, page.page, page.page_size, total)
+
+    cache_name = f"positions:{keyword or ''}:{dept_id}:{status}:{page.page}:{page.page_size}"
+    return ok(get_redis_service().cached_json(
+        "analytics", cache_name, get_settings().REDIS_HOME_TTL, load_position_page
+    ))
 
 
 @router.post("/positions")
@@ -106,6 +115,16 @@ def update_position(pid: int, body: PositionUpdate, db: Session = Depends(get_db
     fields = body.model_dump(exclude_unset=True)
     PosPositionDAO.update(db, p, **fields)
     db.commit()
+    # 岗位编制/到岗变更后自动触发空缺预警（需求4「实时监控」最后一块）：
+    # 仅当变更涉及 headcount/filled 才触发；24h 去重由 auto_push_vacancy 内部保证，
+    # 失败仅告警、不影响岗位保存返回。
+    if "headcount" in fields or "filled" in fields:
+        try:
+            auto = MatchingService.auto_push_vacancy(db, [pid])
+            if auto:
+                logger.info("[alerts] 岗位 %s 编制/到岗变更后自动推送空缺预警 %d 条", pid, len(auto))
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[alerts] 岗位变更后自动预警失败（忽略）: %s", e)
     return ok(PositionOut.model_validate(p))
 
 
@@ -203,7 +222,7 @@ def list_results(
     status: int | None = Query(None, ge=0, le=2, description="匹配状态 0候选 1推荐 2录用"),
     warm_level: int | None = Query(None, ge=0, le=3, description="保温等级 0无 1低 2中 3高"),
     need_follow_up_days: int | None = Query(None, ge=1, description="保温中且超过 N 天未跟进"),
-    sort_by: str | None = Query(None, description="排序：score|level|years|skill|degree|quality"),
+    sort_by: str | None = Query(None, description="排序：score|rank|level|exp_years|quality_score|skill|degree|years|quality"),
     page: PageParams = Depends(PageParams),
     db: Session = Depends(get_db),
 ):
@@ -237,8 +256,25 @@ def list_results(
     from sqlalchemy import Numeric as sa_Numeric
 
     sort_key = (sort_by or "score").strip()
+    # 需 JOIN 档案/研判表的三类排序（DAO.list 不支持 join，这里 inline）：
+    #   level=S/A/B/C(字典序=等级序)、exp_years=真实从业年限、quality_score=研判综合分
+    if sort_key in ("exp_years", "quality_score"):
+        from sqlalchemy import select as sa_select
+        from app.models.talent import Talent
+        from app.models.talent_report import TalentReport
+        # 键名白名单已在上方约束（仅两值），col 为三元常量不注入
+        col = ("COALESCE(tal_talent.years_experience,0)" if sort_key == "exp_years"
+               else "COALESCE(tal_talent_report.composite_score,0)")
+        stmt = (sa_select(MatchResult)
+                .outerjoin(Talent, MatchResult.talent_id == Talent.id)
+                .outerjoin(TalentReport, TalentReport.talent_id == Talent.id)
+                .where(*where)
+                .order_by(sa_text(f"{col} DESC, match_result.score DESC, match_result.id DESC"))
+                .offset((page.page - 1) * page.page_size)
+                .limit(page.page_size))
+        row = [MatchResultOut.model_validate(r) for r in db.scalars(stmt).all()]
     # 能力等级排序需要 LEFT JOIN tal_talent.level（DAO.list 不支持 join，这里 inline）
-    if sort_key == "level":
+    elif sort_key == "level":
         from sqlalchemy import select as sa_select
         from app.models.talent import Talent
         stmt = (sa_select(MatchResult)

@@ -1,29 +1,32 @@
 <template>
-  <view class="wrap">
-    <!-- 自然语言输入 -->
-    <view class="card">
-      <view class="card-title">Agent 智能匹配</view>
-      <view class="card-sub">自然语言描述招聘/匹配需求，AI 自动拆解 → 向量语义检索 → 双重打分</view>
+  <view class="app-page match-page">
+    <view class="hero surface">
+      <text class="eyebrow">岗位适配</text>
+      <text class="hero-title">Agent 智能匹配</text>
+      <text class="hero-sub">用自然语言描述需求，系统拆解条件并给出人才匹配结果。</text>
+    </view>
+
+    <view class="card surface">
+      <view class="card-title">匹配需求</view>
       <textarea
         class="ta"
         v-model="queryText"
         :disabled="loading"
-        placeholder="例如：找一个 3年以上 Python 后端经验、本科的人才；招一个 AI 工程师，硕士，5年经验。"
+        placeholder="例如：找一个 3 年以上 Python 后端经验、本科的人才。"
         maxlength="500"
       />
       <view class="ta-count">{{ queryText.length }} / 500</view>
       <view class="examples">
-        <view class="examples-label">试试：</view>
+        <view class="examples-label">快速填入</view>
         <view v-for="(t, i) in examples" :key="i" class="example-chip" @click="setExample(t)">{{ t }}</view>
       </view>
       <button class="btn" :disabled="loading || !queryText.trim()" :loading="loading" @click="runMatch">
-        🤖 开始 Agent 智能匹配
+        开始智能匹配
       </button>
     </view>
 
-    <!-- AI 需求解析卡片 -->
-    <view v-if="parsed" class="card parsed-card">
-      <view class="card-title">🤖 AI 需求解析</view>
+    <view v-if="parsed" class="card parsed-card surface">
+      <view class="card-title">AI 需求解析</view>
       <view class="req-row">
         <text class="req-key">核心职责</text>
         <view class="req-val">
@@ -47,8 +50,8 @@
       <view class="req-row">
         <text class="req-key">门槛条件</text>
         <view class="req-val">
-          <text v-if="parsed.min_education" class="tag tag-orange">{{ parsed.min_education }}学历</text>
-          <text v-if="parsed.min_years" class="tag tag-orange">{{ parsed.min_years }}年经验</text>
+          <text v-if="parsed.min_education" class="tag tag-coral">{{ parsed.min_education }}学历</text>
+          <text v-if="parsed.min_years" class="tag tag-coral">{{ parsed.min_years }}年经验</text>
           <text v-if="!parsed.min_education && !parsed.min_years" class="req-empty">—</text>
         </view>
       </view>
@@ -60,8 +63,7 @@
       </view>
     </view>
 
-    <!-- 匹配结果 -->
-    <view v-if="results.length" class="card">
+    <view v-if="results.length" class="card surface">
       <view class="card-title">匹配结果（{{ results.length }} 人）</view>
       <view v-for="r in results" :key="r.talent_id" class="res" @click="toggle(r.talent_id)">
         <view class="res-head">
@@ -79,15 +81,16 @@
         </view>
       </view>
     </view>
-    <view v-else-if="done && !parsed" class="empty">
-      <view class="empty-ico">🔍</view>
+
+    <view v-else-if="done && !parsed" class="empty surface">
+      <view class="empty-mark">查</view>
       <view>暂无结果</view>
-      <view class="empty-tip">请在上方输入招聘/匹配需求后点击匹配</view>
+      <view class="empty-tip">请在上方输入招聘或匹配需求后点击匹配。</view>
     </view>
-    <view v-else-if="done && parsed" class="empty">
-      <view class="empty-ico">🔍</view>
+    <view v-else-if="done && parsed" class="empty surface">
+      <view class="empty-mark">空</view>
       <view>未匹配到符合需求的人才</view>
-      <view class="empty-tip">人才向量库当前为空，需 T 域先写入人才画像向量</view>
+      <view class="empty-tip">人才向量库当前为空，需 T 域先写入人才画像向量。</view>
     </view>
   </view>
 </template>
@@ -110,14 +113,12 @@ const examples = [
   '找一个 3年以上 Python 后端经验、本科的人才',
   '招 AI 算法工程师，硕士，5年以上经验',
   '高级前端工程师，3年 Vue3 经验',
-  '数据分析师，硕士，3年经验，会 Python/SQL',
+  '数据分析师，硕士，3年经验，会 Python/SQL'
 ]
 
 function setExample(t) { queryText.value = t }
 
-onLoad(() => {
-  // 无需加载岗位列表：用户用自然语言描述需求，由 LLM 解析
-})
+onLoad(() => {})
 
 async function runMatch() {
   const q = queryText.value.trim()
@@ -136,7 +137,6 @@ async function runMatch() {
     results.value = d.results || []
     parsed.value = d.query_requirement || null
   } catch (e) {
-    // request 已统一 toast 错误信息
   } finally {
     loading.value = false
     done.value = true
@@ -149,47 +149,279 @@ function toggle(id) {
 </script>
 
 <style lang="scss" scoped>
-.wrap { padding: 32rpx 32rpx 60rpx; min-height: 100vh; background: #f5f7fa; }
-.card { background: #fff; border-radius: 20rpx; padding: 32rpx; margin-bottom: 24rpx;
-  box-shadow: 0 2rpx 10rpx rgba(16,24,40,.04); }
-.parsed-card { background: #f0f7ff; border: 2rpx solid #d4e6fb; }
-.card-title { font-size: 30rpx; font-weight: 600; color: #1f2937; }
-.card-sub { font-size: 24rpx; color: #6b7280; margin-top: 8rpx; line-height: 1.6; }
-.ta { width: 100%; min-height: 180rpx; margin-top: 24rpx; padding: 20rpx; font-size: 28rpx;
-  background: #f5f7fa; border-radius: 14rpx; box-sizing: border-box; }
-.ta-count { text-align: right; color: #9ca3af; font-size: 22rpx; margin-top: 8rpx; }
-.examples { margin-top: 20rpx; display: flex; flex-wrap: wrap; gap: 14rpx; align-items: center; }
-.examples-label { font-size: 24rpx; color: #6b7280; }
-.example-chip { font-size: 22rpx; color: #2563eb; background: #e6f1fb; padding: 8rpx 20rpx;
-  border-radius: 999rpx; }
-.btn { margin-top: 28rpx; background: #2563eb; color: #fff; border-radius: 14rpx; font-size: 30rpx;
-  height: 88rpx; line-height: 88rpx; }
-.btn[disabled] { opacity: .6; background: #93c5fd; }
-.req-row { display: flex; gap: 16rpx; margin-top: 18rpx; align-items: flex-start; }
-.req-key { flex-shrink: 0; width: 130rpx; color: #6b7280; font-size: 26rpx; padding-top: 4rpx; }
-.req-val { flex: 1; display: flex; flex-wrap: wrap; gap: 12rpx; line-height: 1.7; font-size: 26rpx; color: #1f2937; }
-.req-empty { color: #9ca3af; }
-.tag { display: inline-block; padding: 6rpx 20rpx; border-radius: 999rpx; font-size: 24rpx; }
-.tag-blue { background: #e6f1fb; color: #185fa5; }
-.tag-green { background: #eaf3de; color: #3b6d11; }
-.tag-orange { background: #faeeda; color: #854f0b; }
-.tag-grey { background: #f1efe8; color: #444441; }
-.res { border-top: 2rpx solid #f0f2f5; padding: 24rpx 0; }
-.res-head { display: flex; align-items: center; gap: 16rpx; }
-.rank { color: #9ca3af; font-size: 24rpx; }
-.talent { flex: 1; color: #1f2937; font-size: 28rpx; }
-.score { font-size: 28rpx; font-weight: 700; }
-.hi { color: #16a34a; }
-.mid { color: #f59e0b; }
-.lo { color: #ef4444; }
-.res-detail { margin-top: 20rpx; background: #fff; border-radius: 14rpx; padding: 24rpx; }
-.dim { display: flex; align-items: center; gap: 14rpx; margin-bottom: 14rpx; }
-.dim-label { width: 80rpx; color: #6b7280; font-size: 24rpx; }
-.bar { flex: 1; height: 16rpx; background: #e5e7eb; border-radius: 8rpx; overflow: hidden; }
-.bar-fill { height: 100%; background: #2563eb; border-radius: 8rpx; }
-.dim-val { width: 70rpx; text-align: right; color: #1f2937; font-size: 24rpx; }
-.explain { color: #374151; font-size: 26rpx; line-height: 1.7; margin-top: 16rpx; }
-.empty { text-align: center; color: #9ca3af; padding: 80rpx 0; }
-.empty-ico { font-size: 64rpx; margin-bottom: 16rpx; }
-.empty-tip { font-size: 22rpx; margin-top: 10rpx; }
+.match-page {
+  padding-bottom: 72rpx;
+}
+
+.hero,
+.card {
+  padding: 30rpx;
+  margin-bottom: 22rpx;
+}
+
+.eyebrow,
+.hero-title,
+.hero-sub {
+  display: block;
+}
+
+.eyebrow {
+  color: var(--color-coral);
+  font-size: 22rpx;
+  font-weight: 800;
+}
+
+.hero-title {
+  margin-top: 8rpx;
+  color: var(--color-text);
+  font-size: 42rpx;
+  font-weight: 800;
+}
+
+.hero-sub {
+  margin-top: 10rpx;
+  color: var(--color-muted);
+  font-size: 24rpx;
+  line-height: 1.55;
+}
+
+.card-title {
+  color: var(--color-text);
+  font-size: 30rpx;
+  font-weight: 750;
+}
+
+.ta {
+  width: 100%;
+  min-height: 184rpx;
+  margin-top: 24rpx;
+  padding: 20rpx;
+  background: #F9FCFD;
+  border: 1rpx solid var(--color-border);
+  border-radius: var(--radius-md);
+  box-sizing: border-box;
+  color: var(--color-text);
+  font-size: 28rpx;
+}
+
+.ta-count {
+  margin-top: 8rpx;
+  color: var(--color-muted);
+  font-size: 22rpx;
+  text-align: right;
+}
+
+.examples {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 14rpx;
+  margin-top: 20rpx;
+}
+
+.examples-label {
+  color: var(--color-muted);
+  font-size: 24rpx;
+}
+
+.example-chip {
+  padding: 8rpx 16rpx;
+  color: var(--color-brand);
+  background: var(--color-brand-soft);
+  border-radius: var(--radius-sm);
+  font-size: 22rpx;
+}
+
+.btn {
+  height: 88rpx;
+  margin-top: 28rpx;
+  color: #fff;
+  background: var(--color-brand);
+  border-radius: var(--radius-md);
+  font-size: 30rpx;
+  font-weight: 700;
+  line-height: 88rpx;
+}
+
+.btn[disabled] {
+  color: #A7B7C0;
+  background: #EAF2F6;
+}
+
+.parsed-card {
+  background: linear-gradient(135deg, #FFFFFF, #F1FAFD);
+}
+
+.req-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 16rpx;
+  margin-top: 18rpx;
+}
+
+.req-key {
+  width: 130rpx;
+  flex-shrink: 0;
+  padding-top: 4rpx;
+  color: var(--color-muted);
+  font-size: 26rpx;
+}
+
+.req-val {
+  display: flex;
+  flex: 1;
+  flex-wrap: wrap;
+  gap: 12rpx;
+  color: var(--color-text);
+  font-size: 26rpx;
+  line-height: 1.7;
+}
+
+.req-empty {
+  color: var(--color-muted);
+}
+
+.tag {
+  display: inline-block;
+  padding: 6rpx 16rpx;
+  border-radius: var(--radius-sm);
+  font-size: 24rpx;
+}
+
+.tag-blue {
+  color: var(--color-brand);
+  background: var(--color-brand-soft);
+}
+
+.tag-green {
+  color: var(--color-success);
+  background: #E9F8F3;
+}
+
+.tag-coral {
+  color: var(--color-coral);
+  background: var(--color-coral-soft);
+}
+
+.tag-grey {
+  color: var(--color-muted);
+  background: #EEF4F7;
+}
+
+.res {
+  padding: 24rpx 0;
+  border-top: 1rpx solid var(--color-border);
+}
+
+.res:first-of-type {
+  border-top: 0;
+}
+
+.res-head {
+  display: flex;
+  align-items: center;
+  gap: 16rpx;
+}
+
+.rank {
+  color: var(--color-muted);
+  font-size: 24rpx;
+}
+
+.talent {
+  flex: 1;
+  color: var(--color-text);
+  font-size: 28rpx;
+  font-weight: 700;
+}
+
+.score {
+  font-size: 28rpx;
+  font-weight: 800;
+}
+
+.hi {
+  color: var(--color-success);
+}
+
+.mid {
+  color: var(--color-warning);
+}
+
+.lo {
+  color: var(--color-danger);
+}
+
+.res-detail {
+  margin-top: 20rpx;
+  padding: 24rpx;
+  background: #F9FCFD;
+  border: 1rpx solid var(--color-border);
+  border-radius: var(--radius-md);
+}
+
+.dim {
+  display: flex;
+  align-items: center;
+  gap: 14rpx;
+  margin-bottom: 14rpx;
+}
+
+.dim-label {
+  width: 80rpx;
+  color: var(--color-muted);
+  font-size: 24rpx;
+}
+
+.bar {
+  height: 16rpx;
+  flex: 1;
+  overflow: hidden;
+  background: #ECF4F7;
+  border-radius: 8rpx;
+}
+
+.bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--color-brand), var(--color-coral));
+  border-radius: 8rpx;
+}
+
+.dim-val {
+  width: 70rpx;
+  color: var(--color-text);
+  font-size: 24rpx;
+  text-align: right;
+}
+
+.explain {
+  margin-top: 16rpx;
+  color: var(--color-text);
+  font-size: 26rpx;
+  line-height: 1.7;
+}
+
+.empty {
+  padding: 72rpx 24rpx;
+  color: var(--color-muted);
+  text-align: center;
+}
+
+.empty-mark {
+  width: 64rpx;
+  height: 64rpx;
+  margin: 0 auto 16rpx;
+  color: var(--color-coral);
+  background: var(--color-coral-soft);
+  border-radius: 50%;
+  font-size: 24rpx;
+  font-weight: 800;
+  line-height: 64rpx;
+}
+
+.empty-tip {
+  margin-top: 10rpx;
+  font-size: 22rpx;
+  line-height: 1.45;
+}
 </style>

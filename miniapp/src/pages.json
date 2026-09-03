@@ -13,8 +13,8 @@
     { "path": "pages/matching/agent", "style": { "navigationBarTitleText": "Agent 智能匹配" } }
   ],
   "tabBar": {
-    "color": "#9ca3af",
-    "selectedColor": "#2563eb",
+    "color": "#708692",
+    "selectedColor": "#55BCEB",
     "backgroundColor": "#ffffff",
     "list": [
       { "pagePath": "pages/index/index", "text": "首页", "iconPath": "static/tabbar/home.png", "selectedIconPath": "static/tabbar/home_active.png" },
@@ -26,7 +26,7 @@
   },
   "globalStyle": {
     "navigationBarTextStyle": "white",
-    "navigationBarBackgroundColor": "#2563eb",
-    "backgroundColor": "#f6f7f9"
+    "navigationBarBackgroundColor": "#55BCEB",
+    "backgroundColor": "#F7FBFD"
   }
 }

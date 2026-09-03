@@ -1,4 +1,4 @@
-﻿# ============================================================
+# ============================================================
 # AI 数字化人才平台 · Python 依赖清单
 # 安装：pip install -r requirements.txt
 # 说明：按区块区分【必需 / 按需】，AI 引擎依赖默认不装（规避冲突，按需启用）
@@ -32,11 +32,11 @@ bcrypt==4.1.*             # passlib 的 bcrypt 后端
 
 # ---------- 业务工具 ----------
 openpyxl==3.1.*            # Excel 批量导入/导出（人才/测评）
-# redis==5.0.*             # 缓存/限流/会话（config 已配 REDIS_URL，尚未接入，可选）
+redis>=6.0,<7.0            # 可降级缓存、限流、Token 黑名单与分布式锁（5.x 不兼容）
 
 # ---------- AI 引擎（必需：岗位匹配/人才向量化/简历上传/报表导出依赖）----------
 # ollama>=0.3.0            # 已弃用（大模型统一走硅基流动），不安装
-pymilvus>=2.4.0           # 向量数据库（app/utils/vector_store.py，Milvus 2.6）
+pymilvus>=2.6.9           # 向量数据库（app/utils/vector_store.py，Milvus 2.6）
 minio>=7.2.0              # 对象存储（app/utils/object_storage.py，简历/报表附件）
 # langchain>=0.3.0         # 可选：复杂 Agent / RAG 编排（当前未使用）
 langgraph>=0.2.0,<1.0     # LangGraph 协同图编排（app/ai/graph.py）

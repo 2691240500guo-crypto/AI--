@@ -437,6 +437,15 @@ async function handleChat() {
     }
     persistCurrentConv()
     saveConversations()
+  } catch (err) {
+    // 后端/网络异常（500、超时、Ollama 不可用等）时，await 抛错会跳过 try 体直接到 finally，
+    // 必须在这里显式清掉 loading，否则"思考中…"气泡永久卡住且无任何错误提示。
+    agentMsg.loading = false
+    const detail = err?.response?.data?.message || err?.message || '未知错误'
+    agentMsg.reply = `请求失败：${detail}`
+    ElMessage.error(`对话请求失败：${detail}`)
+    persistCurrentConv()
+    saveConversations()
   } finally {
     nlpLoading.value = false
     scrollToBottom()

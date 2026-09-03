@@ -21,13 +21,13 @@
     </el-card>
 
     <!-- 区块 1：🔥 岗位空缺（卡片式，补位清单默认展开） -->
-    <el-card shadow="never" class="section">
+    <el-card v-if="showVacancy" shadow="never" class="section">
       <template #header>
         <div class="sec-header">
           <span class="sec-title danger">🔥 岗位空缺</span>
           <el-tag type="danger" effect="dark" size="small">共 {{ vacancyRows.length }} 条</el-tag>
           <span class="sec-trigger">
-            <b>触发条件：</b>编制未满（headcount &gt; filled）时，系统自动检测缺口并按匹配分推荐 Top3 储备人才清单（24h 内同清单不重推）
+            <b>触发条件：</b>岗位编制数大于实际到岗数（编制 > 到岗）时，系统自动检测缺口并按匹配分推荐 Top3 储备人才清单（24h 内同清单不重推）
           </span>
         </div>
       </template>
@@ -86,7 +86,7 @@
     </el-card>
 
     <!-- 区块 2：🟡 人才储备（紧凑列表） -->
-    <el-card shadow="never" class="section">
+    <el-card v-if="showReserve" shadow="never" class="section">
       <template #header>
         <div class="sec-header">
           <span class="sec-title warning">🟡 人才储备</span>
@@ -155,6 +155,10 @@ const positions = ref([])
 // 按类型分桶（自动响应 rows 变化）
 const vacancyRows = computed(() => rows.value.filter((r) => r.type === 'vacancy'))
 const reserveRows = computed(() => rows.value.filter((r) => r.type === 'reserve'))
+
+// 区块显隐：选具体类型时只显示对应区块；"全部类型"则两个都显示
+const showVacancy = computed(() => !typeFilter.value || typeFilter.value === 'vacancy')
+const showReserve = computed(() => !typeFilter.value || typeFilter.value === 'reserve')
 
 // 岗位额外信息（编制/到岗/code）—— 来自 loadPositions 列表，构建索引
 const positionMap = computed(() => {

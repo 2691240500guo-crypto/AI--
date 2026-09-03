@@ -11,6 +11,8 @@ import {
   reportOnlineCourseProgress,
   updateLearningProgress
 } from '@/api'
+import GrowthPath from '@/components/GrowthPath.vue'
+import UiState from '@/components/UiState.vue'
 
 const loading = ref(false)
 const lessonLoading = ref(false)
@@ -65,6 +67,13 @@ const summary = computed(() => {
     : 0
   return { total, completed, learnedMinutes, avgProgress }
 })
+
+const learningSteps = computed(() => [
+  { label: '诊断', mark: '诊', status: summary.value.total ? 'done' : 'todo', caption: '识别短板' },
+  { label: '推荐', mark: '荐', status: summary.value.total ? 'done' : 'todo', caption: '匹配课程' },
+  { label: '学习', mark: '学', status: activeCourse.value?.progress > 0 ? 'current' : 'todo', caption: activeCourse.value?.status_label || '待开始' },
+  { label: '提升', mark: '升', status: summary.value.completed ? 'current' : 'todo', caption: '形成节点' }
+])
 
 const activeCourse = computed(() => {
   return courseCards.value.find((course) => course.key === selectedKey.value) || courseCards.value[0] || null
@@ -498,10 +507,10 @@ function selectNextLesson() {
 }
 
 function statusColor(course) {
-  if (!course.plan_id && course.source !== 'online') return '#64748b'
-  if (course.progress >= 100) return '#16a34a'
-  if (course.progress > 0) return '#2563eb'
-  return '#f59e0b'
+  if (!course.plan_id && course.source !== 'online') return '#708692'
+  if (course.progress >= 100) return '#FF7F78'
+  if (course.progress > 0) return '#55BCEB'
+  return '#D98C23'
 }
 
 function courseInitial(title) {
@@ -525,6 +534,13 @@ function planStatusLabel(status) {
   return planStatusText[status] || ''
 }
 
+function courseReason(course) {
+  if (!course) return '围绕当前成长阶段推荐'
+  if (course.plan_title && course.plan_title !== '课程库') return `来自 ${course.plan_title}`
+  if (course.source === 'online') return '在线视频课程，可记录学习进度'
+  return `${course.category || '能力'}方向课程`
+}
+
 onMounted(load)
 onPullDownRefresh(async () => {
   await load()
@@ -533,17 +549,21 @@ onPullDownRefresh(async () => {
 </script>
 
 <template>
-  <view class="page">
-    <view class="header">
+  <view class="app-page study-page">
+    <view class="header surface">
       <view>
-        <text class="eyebrow">智能培训</text>
+        <text class="eyebrow">提升能力</text>
         <text class="title">在线学习</text>
         <text class="subtitle">{{ headerSub }}</text>
       </view>
       <view class="talent">人才ID {{ currentTalentId() }}</view>
     </view>
 
-    <view class="summary">
+    <view class="growth-card surface">
+      <GrowthPath :steps="learningSteps" compact />
+    </view>
+
+    <view class="summary surface">
       <view class="summary-item">
         <text class="summary-num">{{ summary.avgProgress }}%</text>
         <text class="summary-label">平均进度</text>
@@ -558,11 +578,12 @@ onPullDownRefresh(async () => {
       </view>
     </view>
 
-    <view v-if="loading" class="state">加载中...</view>
-    <view v-else-if="!courseCards.length" class="empty">
-      <text class="empty-title">暂无可学习课程</text>
-      <text class="empty-hint">请先在管理端上传视频并生成课程，或给当前人才分配学习计划</text>
-    </view>
+    <UiState v-if="loading" tone="loading" title="正在加载课程" hint="正在同步在线课程和学习计划。" />
+    <UiState
+      v-else-if="!courseCards.length"
+      title="暂无可学习课程"
+      hint="请先在管理端上传视频并生成课程，或给当前人才分配学习计划。"
+    />
 
     <template v-else>
       <view class="section-title">我的课程</view>
@@ -585,6 +606,7 @@ onPullDownRefresh(async () => {
                 <text class="status" :style="{ background: statusColor(course) }">{{ course.status_label }}</text>
               </view>
               <text class="course-title">{{ course.title }}</text>
+              <text class="course-reason">{{ courseReason(course) }}</text>
               <text class="course-intro">{{ course.intro }}</text>
               <view class="meta">
                 <text>{{ course.lessons.length || course.lesson_count }} 课节</text>
@@ -642,7 +664,7 @@ onPullDownRefresh(async () => {
         <view class="actions">
           <button class="action" :disabled="!activeLesson" @click="selectNextLesson">下一节</button>
           <button class="action primary" :loading="updating" :disabled="!canTrackProgress || !activeLesson" @click="markLessonDone">
-            完成本课节
+            继续学习
           </button>
           <button class="action success" :loading="updating" :disabled="!canTrackProgress || !activeLessons.length" @click="markCourseDone">
             整课完成
@@ -676,17 +698,15 @@ onPullDownRefresh(async () => {
 </template>
 
 <style scoped>
-.page {
-  min-height: 100vh;
-  padding: 32rpx 28rpx 80rpx;
-  background: #f5f7fa;
+.study-page {
+  padding-bottom: 84rpx;
 }
 .header {
   display: flex;
   justify-content: space-between;
   align-items: flex-start;
   gap: 24rpx;
-  padding: 10rpx 0 26rpx;
+  padding: 30rpx;
 }
 .eyebrow,
 .subtitle,
@@ -694,88 +714,74 @@ onPullDownRefresh(async () => {
   display: block;
 }
 .eyebrow {
-  color: #2563eb;
+  color: var(--color-coral);
   font-size: 24rpx;
-  font-weight: 600;
+  font-weight: 800;
 }
 .title {
   margin-top: 4rpx;
-  color: #1f2937;
+  color: var(--color-text);
   font-size: 44rpx;
-  font-weight: 700;
+  font-weight: 800;
 }
 .subtitle {
   margin-top: 8rpx;
-  color: #6b7280;
+  color: var(--color-muted);
   font-size: 24rpx;
+  line-height: 1.5;
 }
 .talent {
   flex-shrink: 0;
   padding: 10rpx 18rpx;
-  color: #64748b;
+  color: var(--color-brand);
   font-size: 22rpx;
-  background: #fff;
-  border-radius: 28rpx;
+  background: var(--color-brand-soft);
+  border-radius: var(--radius-sm);
+}
+.growth-card {
+  margin-top: 18rpx;
+  padding: 24rpx;
 }
 .summary {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
   gap: 14rpx;
+  margin-top: 18rpx;
   margin-bottom: 28rpx;
+  padding: 14rpx;
 }
 .summary-item {
   min-width: 0;
-  padding: 24rpx 10rpx;
+  padding: 12rpx 8rpx;
   text-align: center;
-  background: #fff;
-  border-radius: 18rpx;
-  box-shadow: 0 2rpx 10rpx rgba(16, 24, 40, .04);
 }
 .summary-num {
   display: block;
-  color: #2563eb;
+  color: var(--color-brand);
   font-size: 34rpx;
-  font-weight: 700;
+  font-weight: 800;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
 .summary-num.green {
-  color: #16a34a;
+  color: var(--color-success);
 }
 .summary-num.amber {
-  color: #d97706;
+  color: var(--color-coral);
   font-size: 30rpx;
 }
 .summary-label {
   display: block;
   margin-top: 8rpx;
-  color: #9ca3af;
+  color: var(--color-muted);
   font-size: 22rpx;
-}
-.state,
-.empty {
-  padding: 90rpx 24rpx;
-  color: #9ca3af;
-  text-align: center;
-}
-.empty-title {
-  display: block;
-  color: #374151;
-  font-size: 30rpx;
-  font-weight: 600;
-}
-.empty-hint {
-  display: block;
-  margin-top: 14rpx;
-  color: #9ca3af;
-  font-size: 24rpx;
 }
 .section-title {
   margin: 4rpx 0 18rpx;
-  color: #1f2937;
+  color: var(--color-text);
   font-size: 30rpx;
-  font-weight: 700;
+  font-weight: 750;
 }
 .section-title.inner {
   margin-top: 30rpx;
@@ -793,21 +799,21 @@ onPullDownRefresh(async () => {
 .course-card {
   display: inline-flex;
   width: 560rpx;
-  min-height: 238rpx;
+  min-height: 258rpx;
   overflow: hidden;
   vertical-align: top;
   background: #fff;
   border: 2rpx solid transparent;
-  border-radius: 18rpx;
-  box-shadow: 0 2rpx 12rpx rgba(16, 24, 40, .05);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
 }
 .course-card.active {
-  border-color: #2563eb;
+  border-color: rgba(255, 127, 120, .55);
 }
 .cover {
   width: 180rpx;
-  min-height: 238rpx;
-  background: #e5e7eb;
+  min-height: 258rpx;
+  background: #EAF4F8;
 }
 .placeholder {
   display: flex;
@@ -816,7 +822,7 @@ onPullDownRefresh(async () => {
   color: #fff;
   font-size: 58rpx;
   font-weight: 700;
-  background: linear-gradient(135deg, #2563eb, #14b8a6);
+  background: linear-gradient(135deg, var(--color-brand), var(--color-sky));
 }
 .course-body {
   flex: 1;
@@ -844,8 +850,8 @@ onPullDownRefresh(async () => {
   border-radius: 18rpx;
 }
 .tag {
-  color: #2563eb;
-  background: #eff6ff;
+  color: var(--color-brand);
+  background: var(--color-brand-soft);
 }
 .status {
   color: #fff;
@@ -853,9 +859,18 @@ onPullDownRefresh(async () => {
 .course-title {
   display: block;
   margin-top: 14rpx;
-  color: #111827;
+  color: var(--color-text);
   font-size: 30rpx;
-  font-weight: 700;
+  font-weight: 750;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.course-reason {
+  display: block;
+  margin-top: 8rpx;
+  color: var(--color-coral);
+  font-size: 22rpx;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -865,7 +880,7 @@ onPullDownRefresh(async () => {
   height: 66rpx;
   margin-top: 8rpx;
   overflow: hidden;
-  color: #6b7280;
+  color: var(--color-muted);
   font-size: 23rpx;
   line-height: 33rpx;
   white-space: normal;
@@ -875,32 +890,33 @@ onPullDownRefresh(async () => {
 .meta {
   gap: 14rpx;
   margin-top: 12rpx;
-  color: #64748b;
+  color: var(--color-muted);
   font-size: 22rpx;
 }
 .progress-line {
   gap: 12rpx;
   margin-top: 14rpx;
-  color: #2563eb;
+  color: var(--color-brand);
   font-size: 22rpx;
 }
 .progress-bar {
   flex: 1;
   height: 10rpx;
   overflow: hidden;
-  background: #e5e7eb;
+  background: #ECF4F7;
   border-radius: 999rpx;
 }
 .progress-fill {
   height: 100%;
-  background: #2563eb;
+  background: linear-gradient(90deg, var(--color-brand), var(--color-coral));
   border-radius: 999rpx;
 }
 .player-panel {
   padding: 28rpx;
   background: #fff;
-  border-radius: 20rpx;
-  box-shadow: 0 2rpx 12rpx rgba(16, 24, 40, .05);
+  border: 1rpx solid var(--color-border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-soft);
 }
 .player-head {
   justify-content: space-between;
@@ -912,9 +928,9 @@ onPullDownRefresh(async () => {
 }
 .player-title {
   display: block;
-  color: #111827;
+  color: var(--color-text);
   font-size: 34rpx;
-  font-weight: 700;
+  font-weight: 750;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -922,7 +938,7 @@ onPullDownRefresh(async () => {
 .player-sub {
   display: block;
   margin-top: 8rpx;
-  color: #6b7280;
+  color: var(--color-muted);
   font-size: 24rpx;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -930,16 +946,16 @@ onPullDownRefresh(async () => {
 }
 .player-progress {
   flex-shrink: 0;
-  color: #2563eb;
+  color: var(--color-coral);
   font-size: 34rpx;
-  font-weight: 700;
+  font-weight: 800;
 }
 .video {
   width: 100%;
   height: 390rpx;
   overflow: hidden;
-  background: #111827;
-  border-radius: 14rpx;
+  background: #20313C;
+  border-radius: var(--radius-md);
 }
 .empty-video {
   display: flex;
@@ -953,23 +969,23 @@ onPullDownRefresh(async () => {
 }
 .lesson-title {
   display: block;
-  color: #111827;
+  color: var(--color-text);
   font-size: 30rpx;
-  font-weight: 600;
+  font-weight: 700;
 }
 .lesson-time {
   display: block;
   margin-top: 8rpx;
-  color: #64748b;
+  color: var(--color-muted);
   font-size: 24rpx;
 }
 .notice {
   margin: 16rpx 0 8rpx;
   padding: 16rpx 20rpx;
-  color: #92400e;
+  color: var(--color-warning);
   font-size: 24rpx;
-  background: #fffbeb;
-  border-radius: 14rpx;
+  background: #FFF7E8;
+  border-radius: var(--radius-sm);
 }
 .actions {
   gap: 14rpx;
@@ -979,31 +995,33 @@ onPullDownRefresh(async () => {
   flex: 1;
   height: 78rpx;
   margin: 0;
-  color: #374151;
+  color: var(--color-text);
   font-size: 25rpx;
   line-height: 78rpx;
   background: #fff;
-  border: 2rpx solid #e5e7eb;
-  border-radius: 40rpx;
+  border: 2rpx solid var(--color-border);
+  border-radius: var(--radius-md);
 }
 .action.primary {
   color: #fff;
-  background: #2563eb;
-  border-color: #2563eb;
+  background: var(--color-brand);
+  border-color: var(--color-brand);
+  font-weight: 700;
 }
 .action.success {
   color: #fff;
-  background: #16a34a;
-  border-color: #16a34a;
+  background: var(--color-coral);
+  border-color: var(--color-coral);
+  font-weight: 700;
 }
 .action[disabled] {
-  color: #9ca3af;
-  background: #f3f4f6;
-  border-color: #eef1f5;
+  color: #A7B7C0;
+  background: #F2F7F9;
+  border-color: #EAF2F6;
 }
 .lesson-loading {
   padding: 24rpx 0;
-  color: #9ca3af;
+  color: var(--color-muted);
   text-align: center;
   font-size: 24rpx;
 }
@@ -1011,19 +1029,19 @@ onPullDownRefresh(async () => {
   gap: 18rpx;
   min-height: 94rpx;
   padding: 18rpx 0;
-  border-top: 1rpx solid #eef1f5;
+  border-top: 1rpx solid var(--color-border);
 }
 .lesson-row.active .lesson-name {
-  color: #2563eb;
+  color: var(--color-brand);
 }
 .lesson-row.done .lesson-dot {
-  background: #16a34a;
+  background: var(--color-coral);
 }
 .lesson-dot {
   width: 18rpx;
   height: 18rpx;
   flex-shrink: 0;
-  background: #cbd5e1;
+  background: #BED5DE;
   border-radius: 50%;
 }
 .lesson-info {
@@ -1032,7 +1050,7 @@ onPullDownRefresh(async () => {
 }
 .lesson-name {
   display: block;
-  color: #1f2937;
+  color: var(--color-text);
   font-size: 28rpx;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1041,12 +1059,12 @@ onPullDownRefresh(async () => {
 .lesson-meta {
   display: block;
   margin-top: 6rpx;
-  color: #9ca3af;
+  color: var(--color-muted);
   font-size: 22rpx;
 }
 .lesson-state {
   flex-shrink: 0;
-  color: #64748b;
+  color: var(--color-muted);
   font-size: 23rpx;
 }
 </style>

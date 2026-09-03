@@ -8,7 +8,10 @@ from app.db.session import get_db
 from app.services import analytics_service
 from fastapi import Request
 from fastapi.responses import StreamingResponse
+from starlette.concurrency import run_in_threadpool
 from app.utils.response import ok
+from app.core.config import get_settings
+from app.core.redis_client import enforce_rate_limit
 import io
 from app.schemas.analytics import (ApiResp, DimFilterQuery, DimFilterOut,
                                    ExportRequest, ExportOut,
@@ -95,6 +98,14 @@ def download_report(object_name: str,
 async def nl2sql(req: NL2SQLRequest,
                  user=Depends(require_permission("analytics:nl2sql"))):
     """Agent⑤ 问数入口（D2：真实调用引擎，返回 SQL+数据+图表）。"""
+    settings = get_settings()
+    await run_in_threadpool(
+        enforce_rate_limit,
+        "analytics-nl2sql",
+        str(user.id),
+        limit=settings.REDIS_AI_RATE_LIMIT,
+        window=settings.REDIS_AI_RATE_WINDOW,
+    )
     from app.ai.agents.query_agent import get_query_agent
     from app.services.agent_log_service import log_agent_task, log_conversation
     result = await get_query_agent().run({

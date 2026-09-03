@@ -18,6 +18,20 @@ from app.schemas.talent import (
 )
 from app.services import talent_service as svc
 from app.services.talent_service import talent_to_out, _mask_phone
+from sqlalchemy import text as sa_text
+
+
+def _assert_title_in_positions(db: Session, title: str | None) -> None:
+    """严格规则：人才职位（current_title）必须在岗位管理（pos_position.name）里。"""
+    if not title:
+        return
+    exists = db.scalar(sa_text("SELECT 1 FROM pos_position WHERE name=:t LIMIT 1"),
+                        {"t": title})
+    if not exists:
+        raise HTTPException(
+            400,
+            f"职位「{title}」不在岗位管理中，请先在「岗位管理」中添加该岗位，或选择已登记的职位",
+        )
 from app.utils.pagination import paged_result
 from app.utils.response import ok
 
@@ -28,6 +42,7 @@ router = APIRouter()
 @router.post("", dependencies=[Depends(require_permission("talent:manage"))])
 def create_talent(body: TalentCreate, db: Session = Depends(get_db),
                   current=Depends(get_current_user)):
+    _assert_title_in_positions(db, body.current_title)
     return ok(svc.create_talent(db, body, operator_id=current.id))
 
 
@@ -542,6 +557,8 @@ def update_talent(tid: int, body: TalentUpdate, db: Session = Depends(get_db)):
         raise HTTPException(404, "人才不存在")
     data = body.model_dump(exclude_unset=True)
     tag_names = data.pop("tag_names", None)
+    # 严格规则：若更新带职位，必须在岗位管理中
+    _assert_title_in_positions(db, data.get("current_title"))
     for k, v in data.items():
         if v is not None:
             setattr(t, k, v)
