@@ -1,7 +1,7 @@
 page {
-  --color-brand: #177EAD;
+  --color-brand: #55BCEB;
   --color-brand-soft: #E3F4FA;
-  --color-sky: #3FA7D6;
+  --color-sky: #7CCEF2;
   --color-coral: #FF7F78;
   --color-coral-soft: #FFF0EE;
   --color-coral-pale: #FFAAA5;
@@ -13,7 +13,7 @@ page {
   --color-success: #28A982;
   --color-warning: #D98C23;
   --color-danger: #D9564D;
-  --shadow-soft: 0 8rpx 28rpx rgba(23, 126, 173, .08);
+  --shadow-soft: 0 8rpx 28rpx rgba(85, 188, 235, .08);
   --radius-lg: 24rpx;
   --radius-md: 18rpx;
   --radius-sm: 12rpx;
@@ -28,7 +28,7 @@ page {
   min-height: 100vh;
   padding: 28rpx 24rpx 56rpx;
   background:
-    linear-gradient(180deg, rgba(63, 167, 214, .12) 0, rgba(247, 251, 253, 0) 360rpx),
+    linear-gradient(180deg, rgba(124, 206, 242, .12) 0, rgba(247, 251, 253, 0) 360rpx),
     var(--color-bg);
   box-sizing: border-box;
 }

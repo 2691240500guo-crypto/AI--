@@ -350,7 +350,7 @@ function formatTime(value) {
 .tab.active {
   color: var(--color-brand);
   background: #fff;
-  border-color: rgba(23, 126, 173, .25);
+  border-color: rgba(85, 188, 235, .25);
   font-weight: 700;
 }
 
@@ -359,7 +359,7 @@ function formatTime(value) {
   height: 34rpx;
   padding: 0 8rpx;
   color: inherit;
-  background: rgba(23, 126, 173, .1);
+  background: rgba(85, 188, 235, .1);
   border-radius: 17rpx;
   font-size: 20rpx;
   line-height: 34rpx;

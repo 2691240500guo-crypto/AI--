@@ -63,7 +63,7 @@ function wechatLogin() {
   min-height: 100vh;
   padding: 120rpx 48rpx 48rpx;
   background:
-    linear-gradient(180deg, rgba(63, 167, 214, .2) 0, rgba(247, 251, 253, 0) 420rpx),
+    linear-gradient(180deg, rgba(124, 206, 242, .2) 0, rgba(247, 251, 253, 0) 420rpx),
     var(--color-bg);
   box-sizing: border-box;
 }

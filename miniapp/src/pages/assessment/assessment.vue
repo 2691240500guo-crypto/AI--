@@ -282,7 +282,7 @@ onShow(() => load(!todos.value.length && !results.value.length))
 .tab.active {
   color: var(--color-brand);
   background: #fff;
-  border-color: rgba(23, 126, 173, .25);
+  border-color: rgba(85, 188, 235, .25);
   font-weight: 700;
 }
 
@@ -411,7 +411,7 @@ onShow(() => load(!todos.value.length && !results.value.length))
   padding: 0 20rpx;
   color: var(--color-brand);
   background: #fff;
-  border: 1rpx solid rgba(23, 126, 173, .32);
+  border: 1rpx solid rgba(85, 188, 235, .32);
   border-radius: var(--radius-sm);
   font-size: 24rpx;
   line-height: 62rpx;

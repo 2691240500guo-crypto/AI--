@@ -73,7 +73,7 @@ async function ask(text) {
   min-height: 100vh;
   padding: 24rpx 24rpx 40rpx;
   background:
-    linear-gradient(180deg, rgba(63, 167, 214, .16) 0, rgba(247, 251, 253, 0) 340rpx),
+    linear-gradient(180deg, rgba(124, 206, 242, .16) 0, rgba(247, 251, 253, 0) 340rpx),
     var(--color-bg);
   box-sizing: border-box;
 }

@@ -387,7 +387,7 @@ onLoad(async (options) => {
 .back-button {
   color: var(--color-brand);
   background: #fff;
-  border: 2rpx solid rgba(23, 126, 173, .28);
+  border: 2rpx solid rgba(85, 188, 235, .28);
 }
 
 .answer-item {

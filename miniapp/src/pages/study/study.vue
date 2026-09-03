@@ -509,7 +509,7 @@ function selectNextLesson() {
 function statusColor(course) {
   if (!course.plan_id && course.source !== 'online') return '#708692'
   if (course.progress >= 100) return '#FF7F78'
-  if (course.progress > 0) return '#177EAD'
+  if (course.progress > 0) return '#55BCEB'
   return '#D98C23'
 }
 

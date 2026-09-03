@@ -128,23 +128,23 @@ async function submit(auto = false) {
 
         <radio-group v-if="currentQuestion.type === 'single'" class="options" @change="(event) => setAnswer(event.detail.value)">
           <label v-for="option in (currentQuestion.options || [])" :key="optionValue(option)" class="option" :class="{ selected: answers[currentQuestion.question_id] === optionValue(option) }">
-            <radio :value="String(optionValue(option))" :checked="answers[currentQuestion.question_id] === optionValue(option)" color="#177EAD" />
+            <radio :value="String(optionValue(option))" :checked="answers[currentQuestion.question_id] === optionValue(option)" color="#55BCEB" />
             <text>{{ optionText(option) }}</text>
           </label>
         </radio-group>
         <checkbox-group v-else-if="currentQuestion.type === 'multi'" class="options" @change="(event) => setAnswer(event.detail.value)">
           <label v-for="option in (currentQuestion.options || [])" :key="optionValue(option)" class="option" :class="{ selected: (answers[currentQuestion.question_id] || []).includes(optionValue(option)) }">
-            <checkbox :value="String(optionValue(option))" :checked="(answers[currentQuestion.question_id] || []).includes(optionValue(option))" color="#177EAD" />
+            <checkbox :value="String(optionValue(option))" :checked="(answers[currentQuestion.question_id] || []).includes(optionValue(option))" color="#55BCEB" />
             <text>{{ optionText(option) }}</text>
           </label>
         </checkbox-group>
         <radio-group v-else class="options" @change="(event) => setAnswer(event.detail.value)">
           <label class="option" :class="{ selected: answers[currentQuestion.question_id] === '正确' }">
-            <radio value="正确" :checked="answers[currentQuestion.question_id] === '正确'" color="#177EAD" />
+            <radio value="正确" :checked="answers[currentQuestion.question_id] === '正确'" color="#55BCEB" />
             <text>正确</text>
           </label>
           <label class="option" :class="{ selected: answers[currentQuestion.question_id] === '错误' }">
-            <radio value="错误" :checked="answers[currentQuestion.question_id] === '错误'" color="#177EAD" />
+            <radio value="错误" :checked="answers[currentQuestion.question_id] === '错误'" color="#55BCEB" />
             <text>错误</text>
           </label>
         </radio-group>
@@ -342,7 +342,7 @@ async function submit(auto = false) {
 .option.selected {
   color: var(--color-brand);
   background: #F0FAFD;
-  border-color: rgba(23, 126, 173, .45);
+  border-color: rgba(85, 188, 235, .45);
 }
 
 .answer-sheet {
@@ -388,7 +388,7 @@ async function submit(auto = false) {
 .sheet-num.done {
   color: var(--color-brand);
   background: var(--color-brand-soft);
-  border-color: rgba(23, 126, 173, .35);
+  border-color: rgba(85, 188, 235, .35);
 }
 
 .sheet-num.current {
@@ -408,7 +408,7 @@ async function submit(auto = false) {
   padding: 20rpx 30rpx calc(20rpx + env(safe-area-inset-bottom));
   background: #fff;
   border-top: 1rpx solid var(--color-border);
-  box-shadow: 0 -8rpx 24rpx rgba(23, 126, 173, .08);
+  box-shadow: 0 -8rpx 24rpx rgba(85, 188, 235, .08);
 }
 
 .nav-button {

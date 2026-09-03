@@ -205,7 +205,7 @@ function logout() {
   position: relative;
   overflow: hidden;
   padding: 34rpx 30rpx 30rpx;
-  border-color: rgba(23, 126, 173, .16);
+  border-color: rgba(85, 188, 235, .16);
 }
 
 .hero::after {
