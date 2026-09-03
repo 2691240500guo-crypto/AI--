@@ -321,6 +321,15 @@ def _build_sub_records(db: Session, t: Talent, payload: TalentCreate) -> None:
             db.add(TalentTalentTag(talent_id=t.id, tag_id=tag.id, source="manual"))
 
 
+def _auto_match_after_create(db: Session, t) -> None:
+    """建档成功后的 M 域联动钩子：自动为该人才生成岗位匹配结果（失败只记日志不影响建档）。"""
+    try:
+        from app.services.matching import MatchingService
+        MatchingService.auto_match_new_talent(db, int(t.id))
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[talent] 建档后自动匹配失败（不影响建档）: %s", e)
+
+
 def create_talent(db: Session, payload: TalentCreate, operator_id: int | None = None) -> dict:
     """手动录入人才（需求① 多源数据智能入库）。"""
     t = Talent(name=payload.name, gender=payload.gender, phone=payload.phone,
@@ -339,6 +348,7 @@ def create_talent(db: Session, payload: TalentCreate, operator_id: int | None = 
     build_profile(db, t, fast=True)  # 写路径用快速画像，避免被 LLM 阻塞
     db.commit()
     db.refresh(t)
+    _auto_match_after_create(db, t)   # M 域联动：建档后自动生成匹配结果（失败不影响建档）
     return _to_out(t)
 
 
@@ -411,6 +421,7 @@ def parse_resume_file(db: Session, filename: str, content: bytes,
             upsert_talent_vectors(t)
         except Exception as e:
             logger.warning("[hq] 解析后自动向量化失败（不影响入库）：%s", e)
+        _auto_match_after_create(db, t)   # M 域联动：新档案自动出匹配结果
         return _to_out(t)
     except Exception as e:
         db.rollback()

@@ -143,5 +143,13 @@ class ResumeUploadService:
         except Exception as e:
             logger.warning("[hq] 上传后自动向量化失败（不影响入库）：%s", e)
 
+        # hq+  2026-09-03：新档案自动出岗位匹配结果（M 域联动，失败不影响上传流程）
+        try:
+            from app.services.matching import MatchingService
+            result = MatchingService.auto_match_new_talent(db, int(obj.id))
+            logger.info("[hq] 上传建档后自动匹配 talent_id=%s: %s", obj.id, result)
+        except Exception as e:
+            logger.warning("[hq] 上传后自动匹配失败（不影响入库）：%s", e)
+
         db.refresh(obj)
         return obj, duplicate

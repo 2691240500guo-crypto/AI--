@@ -377,3 +377,19 @@ def talent_by_level(db: Session) -> dict[str, int]:
     except Exception as exc:
         logger.warning("talent_by_level 降级: %s", exc)
         return {}
+
+
+def vacancy_position_count(db: Session) -> int:
+    """空缺岗位数（M 域 pos_position，负责人 P6）：
+    启用（status=1）且 filled < headcount 的岗位数量；用于首页"在招岗位"卡片。
+    """
+    try:
+        from app.models.matching import PosPosition
+        return db.scalar(
+            select(func.count(PosPosition.id))
+            .where(PosPosition.status == 1)
+            .where(PosPosition.filled < PosPosition.headcount)
+        ) or 0
+    except Exception as exc:
+        logger.warning("vacancy_position_count 降级: %s", exc)
+        return 0

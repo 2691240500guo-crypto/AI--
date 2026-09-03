@@ -95,6 +95,76 @@ class MatchAgent:
         db.commit()
         return result
 
+    @classmethod
+    def parse_jd(cls, db: Session, text: str, *, position_id: int | None = None,
+                 title_hint: str | None = None) -> dict[str, Any]:
+        """自由文本岗位需求/岗位说明书解析（需求1：手动录入/导入 JD → 标准化岗位需求标签）。
+
+        与 parse_requirement 的区别：不要求该岗位已建档，直接把用户粘贴的需求文本/说明书
+        拆解为 核心要求/技能标准/经验门槛/学历/综合素质/标签。position_id 存在时结果同步落库。
+        """
+        body = (text or "").strip()
+        if not body:
+            raise BusinessError(400, "未提供岗位需求/说明书文本")
+        pname = title_hint or ""
+        pid = None
+        if position_id:
+            p = PosPositionDAO.get(db, position_id)
+            if p:
+                pname = pname or p.name
+                pid = p.id
+                if p.description:
+                    body = f"{pname}\n{p.description}" if pname not in body else body
+        if not pname:
+            pname = "自定义岗位需求"
+
+        prompt = (
+            "你是资深岗位分析师。请把用户粘贴的岗位需求/岗位说明书拆解成标准化标签体系，"
+            "输出**纯 JSON**（不要 markdown 代码块），格式：\n"
+            '{"position_name":"岗位名称（从文本推断，推断不出则 null）",'
+            '"core_requirements":["核心职责/要求，2-4条"],"skill_standards":["技能标准，如 Python"],'
+            '"experience_threshold":{"years":3,"text":"3年以上"},"degree_threshold":"本科",'
+            '"quality_dimensions":["综合素质维度，2-3个"],"tags":["标准化标签，5-10个"]}\n'
+            "注意：经验年限用数字；学历阈值用 博士/硕士/本科/大专/不限；信息不足的字段填空值。\n"
+            f"岗位名称（已知）：{pname}\n岗位需求/说明书文本：\n{body[:3000]}"
+        )
+        parsed: dict[str, Any] | None = None
+        try:
+            from app.utils.llm import get_llm
+            raw = get_llm().chat(prompt, system="只输出合法 JSON，不要任何解释文字。")
+            parsed = cls._extract_json(raw)
+        except Exception:  # noqa: BLE001
+            parsed = None
+
+        if not parsed:
+            # LLM 不可用 → 规则化兜底（复用岗位解析规则，用轻量命名空间对象）
+            class _P:  # noqa: D106
+                name = pname
+                code = ""
+                description = body
+            parsed = cls._rule_based_parse(_P())
+
+        llm_name = str(parsed.get("position_name") or "").strip()
+        result = {
+            "position_id": pid,
+            "title": llm_name or pname,
+            "code": "",
+            "source": "free-text" if pid is None else "position",
+            "core_requirements": parsed.get("core_requirements", []),
+            "skill_standards": parsed.get("skill_standards", []),
+            "experience_threshold": parsed.get("experience_threshold", {"years": 0, "text": "不限"}),
+            "degree_threshold": parsed.get("degree_threshold", "不限"),
+            "quality_dimensions": parsed.get("quality_dimensions", []),
+            "tags": parsed.get("tags", []),
+        }
+        if pid:
+            try:
+                p.parsed_json = json.dumps(result, ensure_ascii=False)
+                db.commit()
+            except Exception:  # noqa: BLE001
+                db.rollback()
+        return result
+
     @staticmethod
     def _extract_json(raw: str) -> dict[str, Any] | None:
         """从 LLM 输出中稳健提取 JSON（容忍 markdown 代码块/前后噪音）。"""
@@ -710,6 +780,152 @@ class MatchAgent:
             parts.append(f"{worst[0]}稍弱（{worst[1]:.0f} 分）")
         return "，".join(parts) + "。"
 
+    # ==================== 智能筛选排序（需求3） ====================
+
+    RANK_SORT_MAP = {
+        "score": "match_result.score",
+        "level": "CASE WHEN tal_talent.level IS NULL OR tal_talent.level = '' THEN '0' ELSE tal_talent.level END",
+        "exp_years": "COALESCE(tal_talent.years_experience,0)",
+        "quality_score": "COALESCE(tal_talent_report.composite_score,0)",
+    }
+    RANK_SORT_CN = {
+        "score": "匹配度", "level": "能力等级", "exp_years": "从业经验", "quality_score": "综合评分",
+    }
+
+    @classmethod
+    def rank_talents(cls, db: Session, *, position_id: int,
+                     sort_by: str = "score", top_n: int = 5,
+                     status: int | None = None, min_score: float | None = None,
+                     keyword: str | None = None) -> dict[str, Any]:
+        """智能筛选排序（需求3）：对某岗位已有匹配结果按 匹配度/能力等级/从业经验/综合评分 排序。
+
+        读侧只读复用 T 域 tal_talent / tal_talent_report 做 JOIN，不落库。
+        返回 {total, sort_by, rows:[{match_id, talent_id, talent_name, current_title, score, ...}]}
+        """
+        sort_key = (sort_by or "score").strip()
+        if sort_key not in cls.RANK_SORT_MAP:
+            sort_key = "score"
+        if top_n < 1 or top_n > 50:
+            top_n = 10
+        from sqlalchemy import select as sa_select, and_, or_, text as sa_text
+        from app.models.matching import MatchResult
+        from app.models.talent import Talent
+        from app.models.talent_report import TalentReport
+
+        conds = [MatchResult.position_id == position_id]
+        if status is not None:
+            conds.append(MatchResult.status == status)
+        if min_score is not None:
+            conds.append(MatchResult.score >= min_score)
+        if keyword:
+            kw = f"%{keyword.strip()}%"
+            conds.append(or_(Talent.name.like(kw), Talent.current_title.like(kw),
+                             Talent.skills.like(kw)))
+        order_expr = sa_text(f"{cls.RANK_SORT_MAP[sort_key]} DESC, match_result.score DESC, match_result.id DESC")
+        stmt = (sa_select(MatchResult)
+                .outerjoin(Talent, MatchResult.talent_id == Talent.id)
+                .outerjoin(TalentReport, TalentReport.talent_id == Talent.id)
+                .where(and_(*conds))
+                .order_by(order_expr)
+                .limit(top_n))
+        mrs = db.scalars(stmt).all()
+        tids = [mr.talent_id for mr in mrs]
+        t_map: dict[int, Any] = {}
+        r_map: dict[int, Any] = {}
+        if tids:
+            t_map = {x.id: x for x in db.scalars(
+                sa_select(Talent).where(Talent.id.in_(tids))).all()}
+            r_map = {x.talent_id: x for x in db.scalars(
+                sa_select(TalentReport).where(TalentReport.talent_id.in_(tids))).all()}
+        rows: list[dict[str, Any]] = []
+        for mr in mrs:
+            t = t_map.get(mr.talent_id)
+            rep = r_map.get(mr.talent_id)
+            rows.append({
+                "match_id": mr.id,
+                "talent_id": mr.talent_id,
+                "talent_name": (t.name if t else None) or f"人才{mr.talent_id}",
+                "current_title": t.current_title if t else None,
+                "degree": (t.highest_education if t else None) or "学历未知",
+                "level": t.level if t else None,
+                "exp_years": t.years_experience if t else None,
+                "quality_score": float(rep.composite_score) if rep and rep.composite_score is not None else None,
+                "score": float(mr.score or 0),
+                "dimension_json": mr.dimension_json,
+                "status": mr.status,
+                "warm_level": mr.warm_level,
+            })
+        return {"total": len(rows), "sort_by": sort_key, "sort_label": cls.RANK_SORT_CN.get(sort_key, sort_key),
+                "rows": rows}
+
+    # ==================== 一键查看人才档案/测评/履历（需求3） ====================
+
+    @classmethod
+    def talent_profile(cls, db: Session, talent_id: int) -> dict[str, Any]:
+        """读人才完整档案 + AI 测评报告 + 履历要点（只读，不落库）。
+
+        返回 {talent_id, name, base{...}, report{...}, resume_snippet}
+        """
+        from sqlalchemy import select as sa_select
+        from app.models.talent import Talent
+        from app.models.talent_report import TalentReport
+
+        t = db.scalars(sa_select(Talent).where(Talent.id == talent_id)).first()
+        if not t:
+            raise BusinessError(404, f"人才不存在: talent_id={talent_id}")
+        rep = db.scalars(sa_select(TalentReport).where(
+            TalentReport.talent_id == talent_id).limit(1)).first()
+
+        # 手机/邮箱脱敏
+        def _mask_phone(p: str | None) -> str:
+            p = (p or "").strip()
+            return p if len(p) < 7 else f"{p[:3]}****{p[-4:]}"
+
+        def _mask_email(e: str | None) -> str | None:
+            e = (e or "").strip()
+            if not e or "@" not in e:
+                return e or None
+            name, _, domain = e.partition("@")
+            shown = name[:2] + "****" if len(name) > 2 else name + "****"
+            return f"{shown}@{domain}"
+
+        base = {
+            "name": t.name,
+            "gender": t.gender,
+            "degree": t.highest_education,
+            "school": getattr(t, "school", None),
+            "major": getattr(t, "major", None),
+            "years": t.years_experience,
+            "current_title": t.current_title,
+            "current_company": t.current_company,
+            "level": getattr(t, "level", None),
+            "skills": (t.skills or "")[:300],
+            "phone_masked": _mask_phone(t.phone),
+            "email_masked": _mask_email(t.email),
+        }
+        report = None
+        if rep:
+            def _jlist(v):
+                try:
+                    lst = json.loads(v or "[]")
+                    return lst if isinstance(lst, list) else []
+                except Exception:  # noqa: BLE001
+                    return []
+            report = {
+                "ability_level": getattr(rep, "ability_level", None),
+                "composite_score": rep.composite_score,
+                "potential": getattr(rep, "potential", None),
+                "experience_summary": getattr(rep, "experience_summary", None),
+                "summary_report": (getattr(rep, "summary_report", None) or "")[:1200],
+                "skills": _jlist(getattr(rep, "skills", None))[:15],
+                "highlights": _jlist(getattr(rep, "highlights", None))[:5],
+                "shortcomings": _jlist(getattr(rep, "shortcomings", None))[:3],
+                "fit_positions": _jlist(getattr(rep, "fit_positions", None))[:5],
+            }
+        resume_snippet = (t.resume_text or "")[:800]
+        return {"talent_id": talent_id, "name": t.name, "base": base, "report": report,
+                "resume_snippet": resume_snippet}
+
     # ==================== 自然语言操作（NL → 意图 → 执行 → 回复） ====================
 
     @classmethod
@@ -717,12 +933,15 @@ class MatchAgent:
         """自然语言操作入口：意图识别 → 参数抽取 → 实体映射 → 执行 → 自然语言回复。
 
         支持意图：
-        - parse    解析岗位需求（"分析XX岗位的要求"）
-        - match    岗位→人才匹配（"找适合XX的人才，要求…"）
-        - reverse  人才→岗位反向匹配（"人才X适合什么岗位"）
-        - explain  匹配依据解释（"为什么人才X排第一" / "人才X和岗位Y的匹配原因"）
-        - chart    图表生成（"生成XX岗位的柱状图/折线图/饼图"）
-        - unknown  无法理解 → 返回帮助文案
+        - parse         岗位需求智能解析（"分析XX岗位的要求"/直接粘贴岗位需求或说明书文本）
+        - match         岗位→人才匹配（"找适合XX的人才，要求…"）
+        - reverse       人才→岗位反向匹配（"人才X适合什么岗位"）
+        - rank          智能筛选排序（"XX岗位按综合评分排前5"）
+        - profile       一键查看人才档案/测评报告/履历（"看下张三的档案/测评/履历"）
+        - explain       匹配依据解释（"为什么人才X排第一" / "人才X和岗位Y的匹配原因"）
+        - chart         图表生成（"生成XX岗位的柱状图/折线图/饼图"）
+        - update_status 状态修改（"把张三推荐到XX岗位"/"录用XX岗位的李四"）
+        - unknown       无法理解 → 返回帮助文案
         """
         from app.utils.llm import get_llm
 
@@ -739,7 +958,7 @@ class MatchAgent:
         tid = talent["id"] if talent else None
 
         # 2.5 岗位名规则兜底：LLM 未提取出岗位名时，从消息中按"XX岗位"模式提取（清洗动词前缀）
-        if intent in ("match", "chart", "parse") and not pid:
+        if intent in ("match", "chart", "parse", "rank") and not pid:
             # 模式1：XX岗位 / XX职位
             m = re.search(r"([\u4e00-\u9fa5A-Za-z0-9+#\- ]{1,20}?)岗位|([\u4e00-\u9fa5A-Za-z0-9+#\- ]{1,20}?)职位", message)
             if not m:
@@ -758,12 +977,104 @@ class MatchAgent:
                     if pos2:
                         pid = pos2["id"]
 
+        # 2.6 人才名规则兜底：profile/update_status 缺人才实体时从"XX的档案/测评/履历"等模式提取
+        if intent in ("profile", "update_status", "explain") and not tid:
+            m = re.search(r"(?:看|查|查看|打开|展示|看看|把|将|录用|推荐|面试)?\s*([\u4e00-\u9fa5A-Za-z0-9]{1,6}?)(?:的)?(?:人才|档案|履历|测评|报告|简历|转|设为|标为|标记|到)", message)
+            if not m:
+                # 常见说法：人才ID #数字 / 人才X
+                m = re.search(r"(?:人才|#)\s*(\d+)", message)
+            if m:
+                ref = m.group(1).strip() if m.lastindex else message
+                try:
+                    tid2 = int(ref)
+                except (TypeError, ValueError):
+                    tid2 = None
+                t2 = cls._resolve_talent(db, tid2 if tid2 else ref)
+                if t2:
+                    tid = t2["id"]
+
+        # 2.7 rank 附加参数兜底：排序键 / 条数（LLM 未给出时按用户关键词推断）
+        sort_by = parsed.get("sort_by")
+        top_n = parsed.get("top_n")
+        if intent == "rank" or (intent in ("match", "reverse") and sort_by):
+            if not sort_by:
+                if any(k in message for k in ("综合评分", "综合分", "质量", "quality")):
+                    sort_by = "quality_score"
+                elif any(k in message for k in ("从业经验", "经验", "年限", "exp")):
+                    sort_by = "exp_years"
+                elif any(k in message for k in ("能力等级", "等级", "level")):
+                    sort_by = "level"
+                else:
+                    sort_by = "score"
+            if top_n is None:
+                m = re.search(r"(?:前|前?(\d{1,2})名|top\s*(\d+)|limit\s*(\d+))", message, re.IGNORECASE)
+                if m:
+                    try:
+                        top_n = int(next((g for g in m.groups() if g), "5"))
+                    except ValueError:
+                        top_n = 5
+                else:
+                    top_n = 5
+            parsed["sort_by"] = sort_by
+            parsed["top_n"] = top_n
+
+        # 友好兜底：用户提到查看档案/测评/履历但没解析出人才 → 明确提示，避免回退到通用帮助
+        if not tid and any(k in message for k in ("档案", "履历", "测评报告", "测评结果", "AI报告", "简历")):
+            m = re.search(r"(?:看下|看看|查一下|查看|打开|展示|查)?\s*([\u4e00-\u9fa5A-Za-z0-9]{1,6})", message)
+            who = m.group(1).strip() if m else "您说的人才"
+            result["error"] = (
+                f"未找到人才「{who}」，请检查姓名/编号是否正确，或先确认档案已入库。"
+            )
+            intent = "unknown"
+            result["intent"] = intent
+
+        # 2.75 关键词兜底覆盖：LLM 偶尔把 rank/parse/update_status 误判成 match/unknown，按消息关键字修正
+        msg_lower = message or ""
+        if intent != "rank":
+            kw_rank = any(k in msg_lower for k in ("排前", "前N名", "前几", "top", "排序",
+                                                    "按综合评分", "按综合分", "按从业经验",
+                                                    "按能力等级", "按匹配度"))
+            if kw_rank and ("岗位" in msg_lower or "候选人" in msg_lower):
+                intent = "rank"
+                parsed["intent"] = "rank"
+        if intent not in ("update_status",):
+            m_status = re.search(r"(?:设为|设置为|标记为|改为|把)([\u4e00-\u9fa5]{1,6})?.*?(推荐|录用|候选)", msg_lower)
+            has_modify = any(k in msg_lower for k in ("设为", "标记", "把", "改为", "设置成", "设置为", "标为"))
+            if m_status and has_modify:
+                intent = "update_status"
+                parsed["intent"] = "update_status"
+        if intent not in ("parse",):
+            if any(k in msg_lower for k in ("解析成标签", "智能解析岗位需求", "拆解岗位",
+                                            "生成标准化岗位需求标签", "任职要求·技能·学历·年限·素质标签")):
+                intent = "parse"
+                parsed["intent"] = "parse"
+
         # 3. 按意图执行
         result: dict[str, Any] = {"intent": intent, "params": parsed, "result": None}
         try:
             if intent == "parse" and pid:
                 data = cls.parse_requirement(db, pid)
                 result["result"] = data
+            elif intent == "parse" and not pid:
+                # 需求1：自由文本岗位需求/说明书 → 标准化标签体系（不要求岗位已建档）
+                data = cls.parse_jd(db, message, position_id=None,
+                                    title_hint=(position["name"] if position else None))
+                result["result"] = data
+            elif intent == "rank" and pid:
+                data = cls.rank_talents(db, position_id=pid, sort_by=sort_by,
+                                        top_n=int(top_n or 5))
+                result["result"] = data
+                result["intent"] = "rank"
+            elif intent == "rank" and not pid:
+                result["error"] = "请指明岗位（如：后端开发工程师岗位按综合评分排前5）"
+                intent = "unknown"
+            elif intent == "profile" and tid:
+                data = cls.talent_profile(db, tid)
+                result["result"] = data
+                result["intent"] = "profile"
+            elif intent == "profile" and not tid:
+                result["error"] = "请指明要看哪位人才（如：看下张三的档案/测评/履历）"
+                intent = "unknown"
             elif intent in ("match", "chart") and pid:
                 # chart 意图不需要逐条 LLM 解释（省 30-50 秒）；match 默认也不生成（前端按需点"匹配依据"按钮生成）
                 do_explain = (intent == "match")
@@ -778,6 +1089,21 @@ class MatchAgent:
             elif intent == "reverse" and tid:
                 data = cls.reverse_match(db, tid, top_k=10)
                 result["result"] = {"total": len(data), "results": data}
+            elif intent == "update_status":
+                if not pid or not tid:
+                    result["error"] = "请指明要修改状态的人才与岗位（例如：把人才#250设为推荐到后端开发工程师岗位）"
+                    intent = "unknown"
+                else:
+                    target_status = parsed.get("target_status")
+                    if target_status is None:
+                        target_status = 1
+                    from app.services.matching import MatchingService
+                    data = MatchingService.update_status_by_pair(
+                        db, position_id=pid, talent_id=tid,
+                        status=int(target_status), note=parsed.get("note"),
+                    )
+                    result["result"] = data
+                    result["intent"] = "update_status"
             elif intent == "explain":
                 data = cls._resolve_explain(db, pid=pid, tid=tid)
                 result["result"] = data
@@ -797,11 +1123,21 @@ class MatchAgent:
         """LLM 意图识别 + 参数抽取。失败时规则化兜底。"""
         prompt = (
             "你是岗位匹配助手。解析用户自然语言指令，输出**纯 JSON**（不要 markdown 代码块）：\n"
-            '{"intent":"parse|match|reverse|explain|unknown","position":"岗位名称或null",'
-            '"talent":"人才姓名/ID或null","filters":{"degree":"学历要求或null","years":经验年限数字或null,'
+            '{"intent":"parse|match|reverse|explain|rank|profile|update_status|unknown",'
+            '"position":"岗位名称或null","talent":"人才姓名/ID或null",'
+            '"sort_by":"score|level|exp_years|quality_score 或 null","top_n":5或null,'
+            '"target_status":0|1|2|null,"note":"备注或null",'
+            '"filters":{"degree":"学历要求或null","years":经验年限数字或null,'
             '"skills":["必备技能数组或[]"]}}\n'
-            "意图判断：解析岗位要求→parse；给岗位找人才→match；给人才找岗位→reverse；"
-            "问匹配原因/为什么排第几→explain；无法判断→unknown。\n"
+            "意图判断：\n"
+            "- 粘贴一段岗位需求/说明书或分析XX岗位→parse；\n"
+            "- 给岗位找人才→match；给人才找岗位→reverse；\n"
+            "- 要求对某岗位候选人按标准排序/筛选（匹配度/能力等级/从业经验/综合评分）→rank"
+            "（sort_by：匹配度→score、能力等级→level、从业经验→exp_years、综合评分→quality_score；top_n 给数量）；\n"
+            "- 查看某人才档案/测评报告/履历/简历→profile；\n"
+            "- 问匹配原因/为什么排第几→explain；\n"
+            "- 把某人才改成推荐/录用/候选→update_status（target_status:1=推荐 2=录用 0=候选）；\n"
+            "- 无法判断→unknown。\n"
             "注意：filters 只从用户明确提出的条件中提取，没有就填 null/空。\n"
             f"用户指令：{message}"
         )
@@ -848,6 +1184,10 @@ class MatchAgent:
                     "position": parsed.get("position"),
                     "talent": parsed.get("talent"),
                     "chart_type": parsed.get("chart_type"),
+                    "sort_by": parsed.get("sort_by"),
+                    "top_n": parsed.get("top_n"),
+                    "target_status": parsed.get("target_status"),
+                    "note": parsed.get("note"),
                     "filters": parsed.get("filters") or {},
                 }
         except Exception:  # noqa: BLE001
@@ -889,6 +1229,31 @@ class MatchAgent:
         if "为什么" in msg or "依据" in msg:
             return {"intent": "explain", "position": None, "talent": None,
                     "chart_type": None, "filters": filters}
+        # 智能筛选排序兜底：某岗位候选人 按 匹配度/能力等级/从业经验/综合评分 排序/筛前N
+        kw_sort = any(k in msg for k in ("排序", "排名", "按", "筛", "前", "top", "综合评分",
+                                         "综合分", "匹配度", "从业经验", "能力等级", "等级"))
+        if kw_sort and ("岗位" in msg or "候选人" in msg or "前" in msg or "名" in msg):
+            return {"intent": "rank", "position": None, "talent": None,
+                    "chart_type": None, "sort_by": None, "top_n": None, "filters": filters}
+        # 查看人才档案/测评/履历/简历兜底
+        kw_view = any(k in msg for k in ("档案", "履历", "简历", "测评报告", "测评结果", "AI报告", "能力报告"))
+        if kw_view and any(k in msg for k in ("看", "查", "打开", "展示", "给", "详情")):
+            return {"intent": "profile", "position": None, "talent": None,
+                    "chart_type": None, "sort_by": None, "top_n": None, "filters": filters}
+        # 状态修改（自然语言兜底）：含 关键词 + 触发词
+        target_status = None
+        if "录用" in msg or "offer" in msg.lower() or "入职" in msg:
+            target_status = 2
+        elif "推荐" in msg or "面试" in msg or "推进" in msg:
+            target_status = 1
+        elif ("取消" in msg and "推荐" in msg) or "回到候选" in msg or "转为候选" in msg or "退回候选" in msg:
+            target_status = 0
+        kw_status = any(k in msg for k in ("推荐", "录用", "入职", "面试", "转为候选", "退回候选", "回到候选"))
+        kw_modify = any(k in msg for k in ("改", "标记", "设为", "设置为", "把", "将", "调成"))
+        if kw_status and (kw_modify or "改为" in msg or "设为" in msg or "标记为" in msg):
+            return {"intent": "update_status", "position": None, "talent": None,
+                    "chart_type": None, "target_status": target_status, "note": None,
+                    "filters": filters}
         return {"intent": "unknown", "position": None, "talent": None,
                 "chart_type": None, "filters": filters}
 
@@ -928,8 +1293,8 @@ class MatchAgent:
         try:
             tid = int(str(ref).strip())
         except (TypeError, ValueError):
-            # 兼容 "人才5" / "人才#5" / "人才：5" 格式 → id=5
-            m = re.search(r"人才\s*[:：#]?\s*(\d+)", str(ref))
+            # 兼容 "人才5" / "人才#5" / "人才：5" / "#5" / "5" → id=5
+            m = re.search(r"(\d+)", str(ref))
             tid = int(m.group(1)) if m else 0
         if tid > 0:
             row = db.execute(
@@ -968,6 +1333,42 @@ class MatchAgent:
         """生成自然语言回复：LLM 总结，失败降级规则化文案。"""
         if error:
             return f"抱歉，执行失败：{error}"
+        # —— 结构化结果可直接规则化回复（省 LLM 调用，结果更稳定） ——
+        if intent == "update_status" and result:
+            return (f"已将记录调整为「{result.get('status_label','未知')}」"
+                    f"（match_id={result.get('match_id')}）。")
+        if intent == "rank" and result and result.get("rows"):
+            rows = result["rows"]
+            label = result.get("sort_label", "匹配度")
+            head = f"按【{label}】排序前 {len(rows)} 名：\n"
+            lines = []
+            for i, r in enumerate(rows[:5], 1):
+                if label == "综合评分" and r.get("quality_score") is not None:
+                    val = f"{r['quality_score']:.0f}分"
+                elif label == "从业经验" and r.get("exp_years") is not None:
+                    val = f"{r['exp_years']}年"
+                elif label == "能力等级":
+                    val = str(r.get("level") or "-")
+                else:
+                    val = f"{r.get('score', 0):.0f}分"
+                lines.append(f"{i}. {r.get('talent_name')}（#{r['talent_id']}） {r.get('current_title') or '—'} · {val}")
+            return head + "\n".join(lines)
+        if intent == "profile" and result:
+            b = result.get("base") or {}
+            rep = result.get("report") or {}
+            head = (f"{b.get('name') or ('人才#' + str(result.get('talent_id')))}｜"
+                    f"{b.get('degree') or '学历未知'}·{(b.get('years') or 0)}年·{b.get('current_title') or '无职位'}·"
+                    f"{b.get('current_company') or '—'}"
+                    f"{'·等级' + str(b.get('level')) if b.get('level') else ''}")
+            parts = [head]
+            if rep:
+                parts.append(f"测评：能力{rep.get('ability_level') or '未评'}｜综合分"
+                             f"{rep.get('composite_score') or '—'}｜潜力{rep.get('potential') or '—'}")
+                if rep.get("summary_report"):
+                    parts.append("摘要：" + (rep["summary_report"] or "").replace("\n", "")[:90] + "…")
+            if result.get("resume_snippet"):
+                parts.append("履历要点：" + result["resume_snippet"].replace("\n", "")[:60] + "…")
+            return "\n".join(parts)
         try:
             if intent == "parse" and result:
                 return llm.chat(
@@ -1018,8 +1419,11 @@ class MatchAgent:
             ctype = {"bar": "柱状图", "line": "折线图", "pie": "饼图"}.get(
                 result.get("chart_type", "bar"), "柱状图")
             return f"已生成{ctype}（{result['total']}名候选）。第1名：人才#{result['results'][0]['talent_id']}，{result['results'][0]['score']}分。"
-        return ("我是岗位人才匹配助手，可以这样问我：\n"
-                "· 「分析XX岗位的要求」→ 解析岗位需求\n"
-                "· 「找适合XX岗位的人才，硕士、3年经验、会Python」→ 匹配人才\n"
-                "· 「人才5适合什么岗位」→ 反向匹配\n"
-                "· 「为什么人才7排第一」→ 匹配依据解释")
+        return ("我是岗位人才匹配助手，可以这样问我（示例均用数据库真实岗位/人才）：\n"
+                "· 「帮我把这段岗位需求解析成标签：负责 AI 产品规划，统招本科及以上，5年以上AI产品经验，熟悉大模型应用，具备跨团队协调能力」\n"
+                "· 「分析后端开发工程师的岗位要求」\n"
+                "· 「帮我找适合后端开发的人才，硕士、3年经验」\n"
+                "· 「人才230适合什么岗位」\n"
+                "· 「后端开发工程师岗位按综合评分排前5」\n"
+                "· 「看下赵强的档案和测评报告」\n"
+                "· 「把赵强设为推荐到后端开发工程师岗位」")

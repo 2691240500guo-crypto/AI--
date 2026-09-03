@@ -28,6 +28,7 @@ class OverviewOut(BaseModel):
     talent_total: int = Field(0, description="人才总量")
     talent_by_degree: dict[str, int] = Field(default_factory=dict, description="学历结构")
     talent_by_level: dict[str, int] = Field(default_factory=dict, description="等级结构 S/A/B/C")
+    recruiting_positions: int = Field(0, description="空缺岗位数（启用且 filled < headcount）")
     assess_pass_rate: float = Field(0.0, description="测评合格率(0-1)")
     training_completion_rate: float = Field(0.0, description="培训计划完成率(0-1)")
     match_avg_score: float = Field(0.0, description="平均匹配度(0-100)")

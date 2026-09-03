@@ -157,6 +157,14 @@ def parse_resume_text(body: dict, db: Session = Depends(get_db),
     from app.services.talent_service import talent_to_out
     result = talent_to_out(t)
     result["parsed_fields"] = list(data.keys())
+    # M 域联动：文本简历建档后自动生成岗位匹配结果（失败不影响建档返回）
+    try:
+        from app.services.matching import MatchingService
+        auto = MatchingService.auto_match_new_talent(db, int(t.id))
+        result["auto_match"] = auto
+    except Exception as exc:  # noqa: BLE001
+        import logging
+        logging.getLogger("talent").warning("parse-text 后自动匹配失败(忽略): %s", exc)
     return ok(result)
 
 

@@ -38,6 +38,19 @@ DEFAULT_RULE = {"skill": 0.5, "degree": 0.15, "years": 0.15, "quality": 0.2}
 # 储备预警分数线
 RESERVE_SCORE_THRESHOLD = 80.0
 
+# 匹配结果状态枚举（与前端 statusLabel 对齐）
+# 0 候选/待确认；1 推荐；2 录用
+MATCH_STATUS_CANDIDATE = 0
+MATCH_STATUS_RECOMMEND = 1
+MATCH_STATUS_HIRED = 2
+# 状态语义字典
+MATCH_STATUS_LABEL = {0: "候选", 1: "推荐", 2: "录用"}
+
+# 匹配精度验收口径（需求2 更新 2026-09-03）：匹配准确率需 ≥90%
+EVAL_PASS_PCT = 90.0
+# 自检"合理命中"标准：Top1 的 skill 维度分下限
+EVAL_SKILL_HIT = 60.0
+
 
 class MatchingService:
     # ==================== 画像构建（T-P4-01 / D02） ====================
@@ -644,6 +657,61 @@ class MatchingService:
             deduped.append(row)
         return deduped
 
+    # ==================== 招聘中岗位计数（首页 KPI）====================
+
+    @classmethod
+    def vacancy_count(cls, db: Session) -> int:
+        """招聘中（空缺）岗位数：status=1 且 filled < headcount 的岗位数。"""
+        from sqlalchemy import select as sa_select, func as sa_func
+        from app.models.matching import PosPosition
+        return db.scalar(
+            sa_select(sa_func.count(PosPosition.id))
+            .where(PosPosition.status == 1)
+            .where(PosPosition.filled < PosPosition.headcount)
+        ) or 0
+
+    # ==================== 新人才建档后自动匹配（跨域回调入口） ====================
+
+    @classmethod
+    def auto_match_new_talent(cls, db: Session, talent_id: int) -> dict[str, Any]:
+        """人才建档成功后调用：确保四维向量存在，再对该人才跑一次全岗位匹配并落库。
+
+        任何失败只记日志、返回 {"auto_matched": False, "reason": ...}，不抛给调用方，
+        保证"建档流程不因匹配失败而回滚"。
+        """
+        try:
+            # 1) 前置保障：向量未就绪时先补（幂等 upsert）
+            from app.services.talent_vector_service import upsert_talent_vectors
+            from sqlalchemy import select as sa_select
+            from app.models.talent import Talent
+            t = db.scalars(sa_select(Talent).where(Talent.id == talent_id)).first()
+            if t is None:
+                return {"auto_matched": False, "reason": f"人才不存在: {talent_id}"}
+            upsert_talent_vectors(t)
+            # 2) 全岗位匹配（talent_ids 限定只处理该人才，幂等落库）
+            saved = cls.run_match(db, talent_ids=[int(talent_id)], top_k=10)
+            # 3) 名次重算：run_match 在本轮只处理 1 个新人，会把它误标为该岗 rank=1；
+            #    按岗位整体 score 重算真实名次（同分按 match_id 小的在前），保证与已有 TopK 并列正确
+            from sqlalchemy import select as sa_select, func as sa_func
+            from app.models.matching import MatchResult as _MR
+            for item in saved:
+                rec = MatchResultDAO.get(db, item.get("match_id"))
+                if rec is None:
+                    continue
+                better = db.scalar(sa_select(sa_func.count(_MR.id)).where(
+                    _MR.position_id == rec.position_id,
+                    _MR.score > rec.score)) or 0
+                same_prior = db.scalar(sa_select(sa_func.count(_MR.id)).where(
+                    _MR.position_id == rec.position_id,
+                    _MR.score == rec.score,
+                    _MR.id < rec.id)) or 0
+                rec.rank = int(better + same_prior + 1)
+            db.commit()
+            return {"auto_matched": True, "matched": len(saved)}
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[match] 新人才 #%s 自动匹配失败（不阻塞建档）: %s", talent_id, e)
+            return {"auto_matched": False, "reason": str(e)[:200]}
+
     # ==================== 储备人才保温管理（需求4） ====================
 
     @classmethod
@@ -668,6 +736,43 @@ class MatchingService:
             })
         db.commit()
         return updated
+
+    # ==================== 状态修改（候选→推荐/录用/储备）====================
+
+    @classmethod
+    def update_status(cls, db: Session, *, match_id: int, status: int,
+                      note: str | None = None) -> dict[str, Any]:
+        """修改单条匹配结果的状态（候选/推荐/录用）。
+
+        状态语义：
+            0 候选/待确认；1 推荐；2 录用。
+        录用（2）→ 不再被下次匹配覆盖（与 run_match 现有"已录用/推荐不覆盖"逻辑一致）。
+        """
+        if status not in MATCH_STATUS_LABEL:
+            raise BusinessError(400, f"非法状态: {status}（应为 0/1/2）")
+        rec = MatchResultDAO.get(db, match_id)
+        if not rec:
+            raise BusinessError(404, f"匹配结果不存在: {match_id}")
+        old = rec.status
+        rec.status = status
+        if note:
+            # 备注存在 dimension_json 旁的可读字段；当前没有该列，先把 note 拼进 explain（可读）
+            if rec.explain:
+                rec.explain = f"[{MATCH_STATUS_LABEL.get(old, old)}→{MATCH_STATUS_LABEL[status]}] {note}\n{rec.explain}"
+            else:
+                rec.explain = f"[{MATCH_STATUS_LABEL.get(old, old)}→{MATCH_STATUS_LABEL[status]}] {note}"
+        db.commit()
+        return {"match_id": match_id, "status": status, "status_label": MATCH_STATUS_LABEL[status],
+                "old_status": old, "old_status_label": MATCH_STATUS_LABEL.get(old, "未知")}
+
+    @classmethod
+    def update_status_by_pair(cls, db: Session, *, position_id: int, talent_id: int,
+                              status: int, note: str | None = None) -> dict[str, Any]:
+        """按 (岗位,人才) 改状态。Agent 自然语言多走这个入口（用户一般只给岗位名+人才编号）。"""
+        rec = MatchResultDAO.get_by_pair(db, talent_id=talent_id, position_id=position_id)
+        if not rec:
+            raise BusinessError(404, f"匹配结果不存在: position_id={position_id}, talent_id={talent_id}")
+        return cls.update_status(db, match_id=rec.id, status=status, note=note)
 
     # ==================== 匹配精度评估（需求2） ====================
 
@@ -712,24 +817,41 @@ class MatchingService:
                     "predicted": predicted, "relevant": relevant, "tp": tp,
                     "precision": round(precision, 4), "recall": round(recall, 4),
                     "f1": round(f1, 4), "precision_pct": round(precision * 100, 2),
+                    "target_pct": EVAL_PASS_PCT, "met": precision >= EVAL_PASS_PCT / 100.0,
                     "note": f"真值评估：每岗取算法 Top{top_k} 候选作为「推」；precision 即匹配精度"}
         else:
-            # 自检：每个岗位 top1，skill 维度 >=60 视为合理命中
-            pos_ids = [p.id for p in PosPositionDAO.list(db, PosPosition.status == 1, limit=500)]
+            # 自检：每个岗位 top1，skill 维度 >=EVAL_SKILL_HIT 视为合理命中；
+            # 附带逐岗位明细（details），前端可直观看到"哪个岗位 Top1 命中/未命中"。
+            positions = PosPositionDAO.list(db, PosPosition.status == 1, limit=500)
             hit, total = 0, 0
-            for pid in pos_ids:
-                top = MatchResultDAO.list_by_position(db, pid, limit=1)
+            details: list[dict[str, Any]] = []
+            for p in positions:
+                top = MatchResultDAO.list_by_position(db, p.id, limit=1)
                 if not top:
                     continue
                 total += 1
-                dims = json.loads(top[0].dimension_json or "{}") if top[0].dimension_json else {}
+                r0 = top[0]
+                dims = json.loads(r0.dimension_json or "{}") if r0.dimension_json else {}
                 try:
                     skill = float(dims.get("skill", 0))
                 except (TypeError, ValueError):
                     skill = 0.0
-                if skill >= 60:
+                is_hit = skill >= EVAL_SKILL_HIT
+                if is_hit:
                     hit += 1
+                details.append({
+                    "position_id": p.id,
+                    "position_name": p.name,
+                    "top1_talent_id": r0.talent_id,
+                    "top1_score": float(r0.score or 0),
+                    "skill_dim": round(skill, 2),
+                    "hit": is_hit,
+                })
             precision = hit / total if total else 0.0
             return {"mode": "self-check", "positions_scored": total, "top1_hit": hit,
                     "precision_pct": round(precision * 100, 2),
-                    "note": "自检口径（无人工真值）：top1 且 skill 维度>=60 视为命中；接入人工标注真值后可用 reference 模式得到精确 precision/recall/F1"}
+                    "target_pct": EVAL_PASS_PCT, "met": precision >= EVAL_PASS_PCT / 100.0,
+                    "details": details,
+                    "note": "自检口径（无人工真值）：每岗 Top1 且 skill 维度≥60 视为命中；"
+                            f"匹配准确率 ≥{EVAL_PASS_PCT:.0f}% 即满足验收。接入人工标注真值后可用 "
+                            "reference 模式得到精确 precision/recall/F1"}

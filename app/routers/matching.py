@@ -97,6 +97,13 @@ def create_position(body: PositionCreate, db: Session = Depends(get_db)):
     return ok(PositionOut.model_validate(obj))
 
 
+@router.get("/positions/vacancy-count", summary="招聘中岗位数（filled<headcount）")
+def get_vacancy_position_count(db: Session = Depends(get_db)):
+    """首页"在招岗位"卡片数据源。"""
+    from app.services.matching import MatchingService
+    return ok({"vacancy": MatchingService.vacancy_count(db)})
+
+
 @router.get("/positions/{pid}")
 def get_position(pid: int, db: Session = Depends(get_db)):
     p = PosPositionDAO.get(db, pid)
@@ -322,15 +329,9 @@ def get_explain(mid: int, force: bool = Query(False, description="force=1 时强
 
 @router.put("/result/{mid}/status")
 def update_result_status(mid: int, body: ResultStatusRequest, db: Session = Depends(get_db)):
-    """更新匹配结果状态：0候选 → 1推荐 → 2录用（操作闭环）。"""
-    rec = MatchResultDAO.get(db, mid)
-    if not rec:
-        raise HTTPException(404, "匹配结果不存在")
-    if body.status not in (0, 1, 2):
-        raise HTTPException(400, "status 仅支持 0候选/1推荐/2录用")
-    rec.status = body.status
-    db.commit()
-    return ok({"match_id": rec.id, "status": rec.status})
+    """更新匹配结果状态：0候选 / 1推荐 / 2录用（操作闭环，录用后下次 run_match 不覆盖）。"""
+    from app.services.matching import MatchingService
+    return ok(MatchingService.update_status(db, match_id=mid, status=body.status, note=body.note))
 
 
 @router.put("/result/{mid}/warm")
@@ -364,6 +365,24 @@ def evaluate_match(body: EvalRequest, db: Session = Depends(get_db)):
     """
     from app.services.matching import MatchingService
     return ok(MatchingService.evaluate(db, position_id=body.position_id, top_k=body.top_k, reference=body.reference or None))
+
+
+# ==================== 状态修改（候选→推荐/录用，M-6）====================
+# 注：单条改状态由上方 PUT /result/{mid}/status 提供；此处额外提供按 (岗位,人才) 改状态的入口
+# 给 MatchAgent 自然语言通道使用（用户通常说"录用 XX 岗位的 YY"，没有 match_id）。
+
+@router.post("/results/status-by-pair", summary="按 (岗位,人才) 对修改状态")
+def update_match_status_by_pair(body: dict, db: Session = Depends(get_db)):
+    """Agent 自然语言改状态的入口之一：知道岗位+人才编号但不知 match_id 时使用。
+    鉴权沿用路由级 require_any_perm(matching:*)，与模块内其它写操作一致。
+    """
+    from app.services.matching import MatchingService
+    if not body.get("position_id") or not body.get("talent_id"):
+        raise HTTPException(400, "缺少 position_id / talent_id")
+    return ok(MatchingService.update_status_by_pair(
+        db, position_id=int(body["position_id"]), talent_id=int(body["talent_id"]),
+        status=int(body["status"]), note=body.get("note"),
+    ))
 
 
 # ==================== 储备/空缺预警（M-5） ====================

@@ -22,6 +22,7 @@ def overview(db: Session) -> dict:
             "talent_total": analytics_dao.talent_total(db),
             "talent_by_degree": analytics_dao.talent_by_degree(db),
             "talent_by_level": analytics_dao.talent_by_level(db),
+            "recruiting_positions": analytics_dao.vacancy_position_count(db),
             "assess_pass_rate": analytics_dao.assess_pass_rate(db),
             "training_completion_rate": analytics_dao.training_completion_rate(db),
             "match_avg_score": analytics_dao.match_avg_score(db),
