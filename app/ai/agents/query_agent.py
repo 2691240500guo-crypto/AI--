@@ -175,6 +175,17 @@ class NL2SQLAgent:
         """
         if not rows or not columns:
             return {"type": chart_type, "x": [], "series": []}
+        # 单值聚合（如 COUNT/SUM/AVG 返回 1 行 1 列）：用户选了图表就要看到图，
+        # 不能只塞一个数字。pie → 1 个分类的饼图；bar/line → 1 根柱子 / 1 个点。
+        if len(columns) == 1 and len(rows) == 1:
+            value = rows[0][0]
+            label = columns[0]
+            if chart_type == "pie":
+                return {"type": "pie", "x": "", "y": "数量",
+                        "data": [{"name": label, "value": value}]}
+            return {"type": chart_type, "x": label,
+                    "labels": [label],
+                    "series": [{"name": label, "data": [value]}]}
         labels = [r[0] for r in rows]
         if chart_type == "pie":
             values = [r[1] if len(r) > 1 else 0 for r in rows]

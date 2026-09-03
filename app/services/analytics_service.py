@@ -12,22 +12,22 @@ from app.utils.response import BusinessError
 def overview(db: Session) -> dict:
     """看板概览：一次返回全部卡片指标（D-1）。"""
     return {
-        "talent_total": analytics_dao.talent_total(db),
-        "talent_by_degree": analytics_dao.talent_by_degree(db),
-        "talent_by_level": analytics_dao.talent_by_level(db),
-        "assess_pass_rate": analytics_dao.assess_pass_rate(db),
-        "training_completion_rate": analytics_dao.training_completion_rate(db),
-        "match_avg_score": analytics_dao.match_avg_score(db),
+        "talent_total": analytics_dao.talent_total(db), # 人才总数
+        "talent_by_degree": analytics_dao.talent_by_degree(db),# 人才学历分布
+        "talent_by_level": analytics_dao.talent_by_level(db), # 人才等级分布
+        "assess_pass_rate": analytics_dao.assess_pass_rate(db), # 测评合格率
+        "training_completion_rate": analytics_dao.training_completion_rate(db), #培训完成率
+        "match_avg_score": analytics_dao.match_avg_score(db),  # 匹配度均值
     }
 
 
 def trend(db: Session, metric: str, days: int = 30) -> list[dict]:
     """趋势序列（D-1 折线图）。metric: talent_new / training_new / match_new / assess_done。"""
     _METRIC_MAP = {
-        "talent_new": "talent",
-        "assess_done": "asm_result",
-        "training_new": "training_plan",
-        "match_new": "match_result",
+        "talent_new": "talent", # 人才新增
+        "assess_done": "asm_result", # 测评完成
+        "training_new": "training_plan", # 培训新增
+        "match_new": "match_result", # 匹配新增
     }
     key = _METRIC_MAP.get(metric)
     if not key:
@@ -87,7 +87,7 @@ def dim_filter(db: Session, filters) -> dict:
       - previous=0 时 change_rate 为 None，避免除零（前端显示"—"而不是 Infinity）
     """
     # 统一转成 dict：后面要复制一份改时间范围，dict 比模型对象好操作
-    params = filters if isinstance(filters, dict) else filters.model_dump()
+    params = filters if isinstance(filters, dict) else filters.model_dump() # 兼容旧调用
     metric = params.get("metric") or "talent_total"
     compare = params.get("compare") or "none"
     start, end = params.get("start_date"), params.get("end_date")
@@ -203,13 +203,13 @@ def build_excel(headers: list[str], rows: list[list], sheet_title: str = "报表
 def _fetch_rows(db: Session, report_type: str, filters: dict) -> list[list]:
     """按报表类型取数（导出用）。filters 透传 DAO 白名单，与看板口径一致。"""
     logger.info("导出取数 report_type=%s filters=%s", report_type, filters)
-    if report_type == "talent":
+    if report_type == "talent": #人才报表
         return analytics_dao.talent_rows(db, filters)
-    if report_type == "assess":
+    if report_type == "assess": #测评报表
         return analytics_dao.assess_rows(db, filters)
-    if report_type == "match":
+    if report_type == "match": #匹配报表
         return analytics_dao.match_rows(db, filters)
-    if report_type == "training":
+    if report_type == "training": #培训报表
         return analytics_dao.training_rows(db, filters)
     logger.warning("未知报表类型 %s，导出空表", report_type)
     return []

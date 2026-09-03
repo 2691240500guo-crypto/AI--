@@ -185,6 +185,8 @@ def distribution_items(db: Session, dimension: str) -> list[dict]:
     P2 的表后续对齐到文档后本函数直接生效，无需改动。
     """
     try:
+        from app.models.talent import Talent          # 模型未合入时走 except 降级
+
         # ---- 岗位分布：基于已合入的 match_result + pos_position ----
         if dimension == "position":
             from app.models.matching import MatchResult, PosPosition
@@ -196,21 +198,16 @@ def distribution_items(db: Session, dimension: str) -> list[dict]:
             ).all()
             return [{"name": n or "未知", "value": c} for n, c in rows]
 
-        # ---- 部门分布：match_result → pos_position.dept_id → sys_dept ----
+        # ---- 部门分布：直接基于 tal_talent.dept_id（与「人才总量」口径一致）----
         if dimension == "dept":
-            from app.models.matching import MatchResult, PosPosition
             from app.models.dept import Dept
             rows = db.execute(
-                select(Dept.name, func.count(MatchResult.id))
-                .join(PosPosition, MatchResult.position_id == PosPosition.id)
-                .join(Dept, PosPosition.dept_id == Dept.id)
+                select(func.coalesce(Dept.name, "未分配"), func.count(Talent.id))
+                .outerjoin(Dept, Talent.dept_id == Dept.id)
                 .group_by(Dept.id)
-                .order_by(func.count(MatchResult.id).desc())
+                .order_by(func.count(Talent.id).desc())
             ).all()
-            return [{"name": n or "未知", "value": c} for n, c in rows]
-
-        # ---- 以下三个维度依赖 tal_talent（字段按需求文档：degree/level/skills）----
-        from app.models.talent import Talent          # 模型未合入时走 except 降级
+            return [{"name": n, "value": c} for n, c in rows]
 
         if dimension == "degree":                     # 学历分布（文档字段 degree）
             rows = db.execute(

@@ -10,6 +10,7 @@
       <el-col :span="12"><el-card><template #header>趋势</template><EChart :option="trendOption" /></el-card></el-col>
       <el-col :span="12"><el-card><template #header>状态分布</template><EChart :option="pieOption" /></el-card></el-col>
       <el-col :span="12"><el-card><template #header>部门分布</template><EChart :option="barOption" /></el-card></el-col>
+      <el-col :span="12"><el-card><template #header>等级分布</template><EChart :option="levelOption" /></el-card></el-col>
     </el-row>
   </div>
 </template>
@@ -37,11 +38,13 @@ async function load() {
     ]
     // 学历结构（饼图数据源），来自 overview.talent_by_degree
     const degree = Object.entries(ov.talent_by_degree || {}).map(([name, value]) => ({ name, value }))
+    // 等级分布（柱图数据源）：来自 overview.talent_by_level（等级 P5/P6/P7…）
+    const level = Object.entries(ov.talent_by_level || {}).map(([name, value]) => ({ name, value }))
     // 部门分布（柱图数据源）：走后端 /distribution?dimension=dept（真实部门，2026-09-02 修正原误用学历数据）
     const dept = (await getDistribution({ dimension: 'dept' })).data || []
     // 趋势折线（近30天新增）
     const trend = (await getTrend({ metric: 'talent_new', days: 30 })).data || []
-    charts.value = { degree, dept, trend_line: trend }
+    charts.value = { degree, level, dept, trend_line: trend }
   } catch { ElMessage.error('看板加载失败') } finally { loading.value = false }
 }
 
@@ -61,6 +64,13 @@ const barOption = computed(() => ({
   xAxis: { type: 'category', data: (charts.value.dept || []).map(i => i.name) },
   yAxis: { type: 'value' },
   series: [{ type: 'bar', data: (charts.value.dept || []).map(i => i.value), name: '人数' }]
+}))
+// 等级分布柱图：数据源 talent_by_level（等级如 P5/P6/P7…）
+const levelOption = computed(() => ({
+  tooltip: { trigger: 'axis' },
+  xAxis: { type: 'category', data: (charts.value.level || []).map(i => i.name) },
+  yAxis: { type: 'value' },
+  series: [{ type: 'bar', data: (charts.value.level || []).map(i => i.value), name: '人数' }]
 }))
 onMounted(load)
 </script>

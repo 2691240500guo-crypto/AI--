@@ -41,18 +41,33 @@ def distribution(dimension: str = "degree",
     """分布（饼图）。"""
     return ok(analytics_service.distribution(db, dimension))
 
-# 用 ApiResp 包装：ok() 返回 {code,message,data}，直接写 ExportOut 会 500（字段在 data 里）
+# ===== D-4 报表导出（F04）=====
+# 关键：response_model 必须用 ApiResp[ExportOut]（统一响应包装），不能直接写 ExportOut。
+# 因为 ok() 已经返回 {code, message, data}，业务字段在 data 里；
+# 若写 response_model=ExportOut，FastAPI 会拿 ExportOut 去校验最外层（实际是 ApiResp 结构）→ 500。
 @router.post("/export", response_model=ApiResp[ExportOut])
 def export(req: ExportRequest, request: Request,
            db: Session = Depends(get_db),
            _=Depends(require_permission("analytics:export"))):
-    """报表导出（F04）：生成 xlsx 上传对象存储，返回下载 URL。"""
+    """报表导出（F04）：生成 xlsx 上传对象存储，返回下载 URL。
+
+    入参 ExportRequest：{report_type: talent/assess/match/training, filters?, date_range?}
+    出参 ExportOut：{file_name, file_url, object_name}
+    """
+    # 1. 交给 service 层处理：按 report_type 分发取数 → 生成 xlsx → 上传 MinIO 对象存储。
+    #    req.model_dump() 把 Pydantic 请求模型转成 dict（service 层统一按 dict 处理，便于复制/改时间范围）。
     result = analytics_service.export_report(db, req.model_dump())
-    # 用 url_for 反查，API_PREFIX 改了也不用改这里（不硬编码 /api）
+
+    # 2. 拼出"可下载的 file_url"：
+    #    request.url_for("download_report") 反查下载端点的完整路径（自动带 API_PREFIX /api/v1），
+    #    再 include_query_params 把 object_name 拼成 query string；
+    #    好处：不硬编码 "/api/v1/analytics/export/download"，前缀改了这里也不用改。
     result["file_url"] = str(
         request.url_for("download_report").include_query_params(
             object_name=result["object_name"])
     )
+
+    # 3. 统一响应包装返回：{code:0, message:"ok", data:{file_name, file_url, object_name}}
     return ok(result)
 
 

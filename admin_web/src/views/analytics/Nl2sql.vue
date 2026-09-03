@@ -24,7 +24,7 @@
     </el-card>
 
     <!-- 图表：chart_json 是简化结构，需转 ECharts option -->
-    <el-card v-if="hasData" style="margin-top:12px">
+    <el-card v-if="hasChart" style="margin-top:12px">
       <EChart :option="chartOption" height="360px" />
     </el-card>
 
@@ -56,7 +56,13 @@ const chartJson = ref(null)
 const rejected = ref(false)
 const rejectMsg = ref('')
 
-const hasData = computed(() => !!(chartJson.value && (chartJson.value.labels?.length || chartJson.value.data?.length)))
+// hasChart：bar/line 需 series，pie 需 data；保证图表区不渲染空图（不再显示虚线）
+const hasChart = computed(() => {
+  const cj = chartJson.value
+  if (!cj || !cj.type) return false
+  if (cj.type === 'pie') return !!(cj.data?.length)
+  return !!(cj.series?.length)
+})
 
 // —— chart_json(简化结构) → ECharts option（后端不是完整 option，需转换）——
 const chartOption = computed(() => {
