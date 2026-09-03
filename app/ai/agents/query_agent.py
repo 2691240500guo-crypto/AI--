@@ -67,6 +67,15 @@ BLOCKED_KEYWORDS = {"insert", "update", "delete", "drop", "alter", "truncate",
                     "create", "grant", "revoke", "exec", "union", "replace"}
 MAX_ROWS = 1000          # 单次返回行数上限
 
+# MySQL 5.7 方言限制（云端为 MySQL 5.7）：窗口函数 / CTE 等 MySQL 8 语法执行即 1064。
+# 命中即拒答并提示改用 GROUP BY/JOIN/常规聚合实现（2026-09-03 修复：占比/排行类问题曾因此失败）。
+MYSQL57_BANNED_PATTERNS = [
+    (re.compile(r"\bover\s*\("), "窗口函数 OVER"),
+    (re.compile(r"\b(?:row_number|rank|dense_rank)\s*\("), "窗口函数 ROW_NUMBER/RANK"),
+    (re.compile(r"\b(?:lag|lead|ntile|first_value|last_value|nth_value|cume_dist|percent_rank)\s*\("), "窗口函数"),
+    (re.compile(r"\bwith\s+[a-z_][a-z0-9_]*\s+as\s*\("), "CTE(WITH ... AS)"),
+]
+
 
 class NL2SQLAgent:
     """自然语言 → SQL → 受限执行 → 结果 + 图表配置。"""
@@ -82,17 +91,27 @@ class NL2SQLAgent:
             return {"status": "failed", "error_msg": "question 不能为空"}
 
         try:
-            # ---- 1. LLM 生成 SQL ----
-            sql = self._gen_sql(question)
-            logger.info("Agent⑤ 生成 SQL: %s", sql)
+            # ---- 1. LLM 生成 SQL + 安全校验（方言不合规自动重试一次）----
+            sql = ""
+            for attempt in range(2):
+                hint = ("你上一版 SQL 因使用窗口函数/CTE 被拒。"
+                        "请务必只用 GROUP BY + JOIN + 常规聚合函数与子查询，不要用 OVER()/ROW_NUMBER()/WITH AS。"
+                        if attempt == 1 else "")
+                sql = self._gen_sql(question, hint)
+                logger.info("Agent⑤ 生成 SQL: %s", sql)
+                try:
+                    self._assert_safe(sql)
+                    break
+                except ValueError as exc:
+                    if attempt == 0 and "MySQL 5.7 不支持" in str(exc):
+                        logger.warning("Agent⑤ SQL 方言不合规，带提示重试: %s", exc)
+                        continue
+                    raise
 
-            # ---- 2. 安全校验（失败即拒答）----
-            self._assert_safe(sql)
-
-            # ---- 3. 只读执行（线程池跑同步 engine，避免阻塞事件循环）----
+            # ---- 2. 只读执行（线程池跑同步 engine，避免阻塞事件循环）----
             columns, rows = await asyncio.to_thread(self._execute, sql)
 
-            # ---- 4. 生成图表配置 ----
+            # ---- 3. 生成图表配置 ----
             chart_json = self._build_chart(chart_type, columns, rows)
 
             return {"sql": sql, "columns": columns, "rows": rows,
@@ -102,13 +121,18 @@ class NL2SQLAgent:
             return {"status": "failed", "error_msg": str(exc)}
 
     # -------------------- 1. SQL 生成 --------------------
-    def _gen_sql(self, question: str) -> str:
-        """拼系统提示词（schema + 规则）→ LLM 生成 SQL → 剥代码块。"""
+    def _gen_sql(self, question: str, retry_hint: str = "") -> str:
+        """拼系统提示词（schema + 规则 + 方言约束）→ LLM 生成 SQL → 剥代码块。"""
         system = (
             "你是数据库查询助手。只允许使用下面白名单中的表和列，"
             "只允许生成一条 SELECT 查询，不要任何注释和多余文字。\n"
+            "目标数据库为 MySQL 5.7：禁止使用窗口函数（OVER、ROW_NUMBER、RANK、LAG/LEAD 等）"
+            "与 CTE（WITH ... AS）等 MySQL 8 语法；"
+            "占比/排行等统计请用 GROUP BY + JOIN + 常规聚合函数（COUNT/SUM/AVG/MAX）与子查询实现。\n"
             "可用表结构：\n" + self._schema_text()
         )
+        if retry_hint:
+            system += "\n注意：" + retry_hint
         raw = get_llm().chat(question, system=system, temperature=0)  # 温度0更稳定
         return self._extract_sql(raw)
 
@@ -146,6 +170,10 @@ class NL2SQLAgent:
         unknown = tables - set(SCHEMA.keys())
         if unknown:
             raise ValueError(f"涉及未授权表: {sorted(unknown)}")
+        # ④ MySQL 5.7 方言限制：窗口函数/CTE 在云端执行必报 1064，直接拦截
+        for pat, name in MYSQL57_BANNED_PATTERNS:
+            if pat.search(normalized):
+                raise ValueError(f"SQL 使用了 MySQL 5.7 不支持的{name}语法，请改用 GROUP BY/JOIN 实现")
 
     # -------------------- 3. 只读执行 --------------------
     def _execute(self, sql: str) -> tuple[list[str], list[list]]:
