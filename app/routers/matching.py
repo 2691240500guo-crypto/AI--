@@ -18,6 +18,8 @@ from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.deps import require_any_perm
+from app.core.config import get_settings
+from app.core.redis_client import get_redis_service
 from app.dao.matching import MatchPushLogDAO, MatchResultDAO, MatchRuleDAO, PosPositionDAO
 from app.db.session import get_db
 from app.models.matching import MatchResult, PosPosition, MatchRule, MatchPushLog
@@ -65,18 +67,25 @@ def list_positions(
     page: PageParams = Depends(PageParams),
     db: Session = Depends(get_db),
 ):
-    where = []
-    if keyword:
-        like = f"%{keyword}%"
-        where.append(PosPosition.name.like(like) | PosPosition.code.like(like))
-    if dept_id is not None:
-        where.append(PosPosition.dept_id == dept_id)
-    if status is not None:
-        where.append(PosPosition.status == status)
-    total = count_rows(db, PosPosition, *where)
-    rows = PosPositionDAO.list(db, *where, offset=(page.page - 1) * page.page_size,
-                               limit=page.page_size, order_by=PosPosition.id.desc())
-    return ok(paged_result([PositionOut.model_validate(r) for r in rows], page.page, page.page_size, total))
+    def load_position_page() -> dict:
+        where = []
+        if keyword:
+            like = f"%{keyword}%"
+            where.append(PosPosition.name.like(like) | PosPosition.code.like(like))
+        if dept_id is not None:
+            where.append(PosPosition.dept_id == dept_id)
+        if status is not None:
+            where.append(PosPosition.status == status)
+        total = count_rows(db, PosPosition, *where)
+        rows = PosPositionDAO.list(db, *where, offset=(page.page - 1) * page.page_size,
+                                   limit=page.page_size, order_by=PosPosition.id.desc())
+        items = [PositionOut.model_validate(row).model_dump(mode="json") for row in rows]
+        return paged_result(items, page.page, page.page_size, total)
+
+    cache_name = f"positions:{keyword or ''}:{dept_id}:{status}:{page.page}:{page.page_size}"
+    return ok(get_redis_service().cached_json(
+        "analytics", cache_name, get_settings().REDIS_HOME_TTL, load_position_page
+    ))
 
 
 @router.post("/positions")

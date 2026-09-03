@@ -3,6 +3,8 @@ from fastapi import APIRouter, Depends, HTTPException, Query  # 导入路由与�
 from sqlalchemy.orm import Session  # 导入数据库会话类型
 
 from app.core.deps import get_current_user, require_client  # 导入当前用户鉴权依赖
+from app.core.config import get_settings
+from app.core.redis_client import get_redis_service
 from app.db.session import get_db  # 导入数据库会话依赖
 from app.dao.message import MessageDAO  # 导入消息数据访问层
 from app.models.message import Message  # 导入消息 ORM 模型
@@ -30,8 +32,18 @@ def my_messages(page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=
                 unread_only: bool = False, user: User = Depends(get_current_user),
                 db: Session = Depends(get_db)):
     """查询当前用户的消息列表，支持分页与只看未读。"""
-    rows, total = MessageService.for_user(db, user.id, page, page_size, unread_only)  # 调用业务层查询
-    return ok(paged_result([_out(m, user.id) for m in rows], page, page_size, total))  # 返回分页结果
+    def load_message_page() -> dict:
+        rows, total = MessageService.for_user(db, user.id, page, page_size, unread_only)
+        items = [_out(message, user.id).model_dump(mode="json") for message in rows]
+        return paged_result(items, page, page_size, total)
+
+    data = get_redis_service().cached_json(
+        "messages",
+        f"user:{user.id}:page:{page}:{page_size}:unread:{int(unread_only)}",
+        get_settings().REDIS_MESSAGE_TTL,
+        load_message_page,
+    )
+    return ok(data)
 
 
 @router.post("/send", summary="发送消息（管理端）", dependencies=[Depends(require_client("admin"))])
@@ -59,7 +71,13 @@ def mark_read(mid: int, user: User = Depends(get_current_user), db: Session = De
 @router.get("/unread-count", summary="查询未读消息数", dependencies=[Depends(_READ_CLIENT)])
 def unread_count(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
     """查询当前用户未读消息数量。"""
-    return ok({"unread": MessageService.unread_count(db, user.id)})  # 统计全部可见消息
+    unread = get_redis_service().cached_json(
+        "messages",
+        f"user:{user.id}:unread-count",
+        get_settings().REDIS_MESSAGE_TTL,
+        lambda: MessageService.unread_count(db, user.id),
+    )
+    return ok({"unread": unread})
 
 
 @router.post("/read-all", summary="全部消息标记已读", dependencies=[Depends(_READ_CLIENT)])

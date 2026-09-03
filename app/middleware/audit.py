@@ -6,9 +6,11 @@
     - request_body 做密码脱敏后再入库
     - 写库独立会话、失败静默，绝不影响主请求
 """
+import asyncio
 import json
 import time
 
+from fastapi.concurrency import run_in_threadpool
 from starlette.middleware.base import BaseHTTPMiddleware, RequestResponseEndpoint
 from starlette.requests import Request
 from starlette.responses import Response
@@ -20,6 +22,7 @@ from app.services.audit import record_op
 
 # 只对写操作留痕
 _WRITE_METHODS = {"POST", "PUT", "DELETE", "PATCH"}
+_BACKGROUND_TASKS: set[asyncio.Task] = set()
 
 
 class AuditMiddleware(BaseHTTPMiddleware):
@@ -37,14 +40,19 @@ class AuditMiddleware(BaseHTTPMiddleware):
             duration_ms = int((time.perf_counter() - start) * 1000)
             # 写操作才落库（GET 等查询不记录）
             if request.method in _WRITE_METHODS:
-                user_id, username = _resolve_user(request)
                 try:
-                    _persist(
-                        user_id=user_id, username=username,
-                        method=request.method, path=request.url.path,
-                        status_code=response.status_code, ip=_ip(request),
-                        duration_ms=duration_ms, request_body=_mask(body),
+                    user_id, username = _resolve_user(request)
+                    # 审计为尽力写入，不能让云数据库延迟阻塞业务响应。
+                    task = asyncio.create_task(
+                        _persist_safely(
+                            user_id=user_id, username=username,
+                            method=request.method, path=request.url.path,
+                            status_code=response.status_code, ip=_ip(request),
+                            duration_ms=duration_ms, request_body=_mask(body),
+                        )
                     )
+                    _BACKGROUND_TASKS.add(task)
+                    task.add_done_callback(_BACKGROUND_TASKS.discard)
                 except Exception:
                     pass  # 审计失败静默，不影响主请求
             request.state.audit = {
@@ -65,6 +73,10 @@ def _resolve_user(request: Request) -> tuple[int | None, str | None]:
     if not payload or payload.get("type") != "access" or not payload.get("sub"):
         return None, None
     user_id = int(payload["sub"])
+    # 注销接口必须在数据库暂时不可用时仍能撤销 Redis 中的令牌。
+    # user_id 已包含在已签名 JWT 中，审计日志允许 username 为空。
+    if request.url.path.endswith("/auth/logout"):
+        return user_id, None
     username = None
     db = SessionLocal()
     try:
@@ -103,6 +115,14 @@ def _persist(*, user_id: int | None, username: str | None, method: str, path: st
         db.commit()
     finally:
         db.close()
+
+
+async def _persist_safely(**kwargs) -> None:
+    """在线程池后台写审计，云数据库异常或延迟不影响主请求。"""
+    try:
+        await run_in_threadpool(_persist, **kwargs)
+    except Exception:
+        pass
 
 
 def _ip(request: Request) -> str | None:

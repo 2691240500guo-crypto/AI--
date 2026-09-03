@@ -1,6 +1,8 @@
 """密码哈希与 JWT 签发/校验。"""
 from datetime import datetime, timedelta, timezone
+import time
 from typing import Any
+from uuid import uuid4
 
 # passlib[bcrypt]==1.7.* 依赖 bcrypt.__about__.__version__ 探测后端版本；
 # bcrypt>=4.1 移除了 __about__，会导致 passlib 每次初始化打印
@@ -36,6 +38,7 @@ def create_token(subject: str, token_type: str, expires_delta: timedelta,
     payload = {
         "sub": subject, "type": token_type,
         "exp": now + expires_delta, "iat": now,
+        "jti": uuid4().hex,
         "client_type": client_type,  # 端标识：admin(管理端) / app(小程序)
     }
     return jwt.encode(payload, settings.SECRET_KEY, algorithm=settings.ALGORITHM)
@@ -58,3 +61,22 @@ def decode_token(token: str) -> dict[str, Any] | None:
         return jwt.decode(token, get_settings().SECRET_KEY, algorithms=[get_settings().ALGORITHM])
     except JWTError:
         return None
+
+
+def is_token_revoked(payload: dict[str, Any]) -> bool:
+    from app.core.redis_client import get_redis_service
+
+    return get_redis_service().is_token_blacklisted(payload.get("jti"))
+
+
+def revoke_token(token: str | None) -> bool:
+    if not token:
+        return False
+    payload = decode_token(token)
+    if not payload:
+        return False
+    expires_at = int(payload.get("exp") or 0)
+    ttl = max(0, expires_at - int(time.time()))
+    from app.core.redis_client import get_redis_service
+
+    return get_redis_service().blacklist_token(payload.get("jti"), ttl)

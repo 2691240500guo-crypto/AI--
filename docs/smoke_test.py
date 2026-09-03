@@ -1,8 +1,10 @@
 # -*- coding: utf-8 -*-
 """全系统 API 冒烟测试：登录后遍历各模块核心接口。"""
+import os
 import requests, json, time, sys
 
 BASE = "http://127.0.0.1:8000/api/v1"
+ADMIN_PASSWORD = os.getenv("SMOKE_ADMIN_PASSWORD")
 results = []
 
 def call(name, method, path, token=None, body=None, timeout=15):
@@ -36,7 +38,10 @@ def call(name, method, path, token=None, body=None, timeout=15):
 
 # ========== 1. 登录 ==========
 print("== 登录 ==")
-r = call("登录", "POST", "/auth/login", body={"username": "admin", "password": "admin123"})
+if not ADMIN_PASSWORD:
+    print("!! 请通过环境变量 SMOKE_ADMIN_PASSWORD 提供管理员密码")
+    sys.exit(2)
+r = call("登录", "POST", "/auth/login", body={"username": "admin", "password": ADMIN_PASSWORD})
 if not r or r.status_code >= 400:
     print("!! 登录失败，无法继续。响应:", r.text[:300] if r else "无响应")
     sys.exit(1)
