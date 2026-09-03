@@ -512,6 +512,14 @@ function statusColor(course) {
   if (course.progress > 0) return '#55BCEB'
   return '#D98C23'
 }
+function goBack() {
+  const pages = getCurrentPages()
+  if (pages.length > 1) {
+    uni.navigateBack({ delta: 1 })
+  } else {
+    uni.switchTab({ url: '/pages/index/index' })
+  }
+}
 
 function courseInitial(title) {
   return String(title || '课').slice(0, 1)
@@ -550,6 +558,9 @@ onPullDownRefresh(async () => {
 
 <template>
   <view class="app-page study-page">
+    <view class="page-back" hover-class="page-back--active" @click="goBack" aria-label="返回">
+      <text class="page-back-icon">‹</text>
+    </view>
     <view class="header surface">
       <view>
         <text class="eyebrow">提升能力</text>
@@ -993,11 +1004,11 @@ onPullDownRefresh(async () => {
 }
 .action {
   flex: 1;
-  height: 78rpx;
+  height: 100rpx;
   margin: 0;
   color: var(--color-text);
-  font-size: 25rpx;
-  line-height: 78rpx;
+  font-size: 28rpx;
+  line-height: 100rpx;
   background: #fff;
   border: 2rpx solid var(--color-border);
   border-radius: var(--radius-md);
@@ -1066,5 +1077,30 @@ onPullDownRefresh(async () => {
   flex-shrink: 0;
   color: var(--color-muted);
   font-size: 23rpx;
+}
+
+.page-back {
+  position: fixed;
+  top: 18rpx;
+  left: 16rpx;
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60rpx;
+  height: 60rpx;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+.page-back-icon {
+  color: #fff;
+  font-size: 44rpx;
+  font-weight: 600;
+  line-height: 1;
+  margin-top: -6rpx;
+}
+.page-back--active {
+  background: rgba(255, 255, 255, 0.36);
 }
 </style>
