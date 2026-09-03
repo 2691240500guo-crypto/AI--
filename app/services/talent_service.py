@@ -625,14 +625,11 @@ def build_profile(db: Session, t: Talent, fast: bool = False) -> TalentProfileOu
             scores={tg.id: cats.get(tg.name, 0.6) for tg in tags},
         )
 
-    # 四维向量入库（Milvus）：技能 / 经验 / 素质 / 简历原文
-    text_for_vec = {
-        "skill": skill_sum or (t.skills or ""),
-        "exp": exp_sum or (t.work_experience or t.project_experience or ""),
-        "quality": qual_sum or _talent_full_text(t),
-        "resume": t.resume_text or _talent_full_text(t),
-    }
-    vb = _embed_and_store_all(t.id, text_for_vec)
+    # 四维向量入库（Milvus）：统一走 talent_vector_service.upsert_talent_vectors
+    # （2026-09-03：收敛第二个写实现 _embed_and_store_all，保证 resume 文本带 meta 头、
+    #   所有写入口同一契约，匹配/语义搜索读取一致）
+    from app.services.talent_vector_service import upsert_talent_vectors
+    vb = upsert_talent_vectors(t)
     vectors_built = any(vb.values())
 
     db.flush()
@@ -948,44 +945,6 @@ def _classify_tags(tags: list[str]) -> dict[str, float]:
     return {name: (0.9 if name in known else 0.6) for name in tags}
 
 
-def _embed_and_store_all(talent_id: int, texts: dict[str, str]) -> dict[str, bool]:
-    """对三维文本分别向量化并写入 Milvus；任一项失败不影响其它。
-
-    hq+ 2026-09-01 修复：改用 upsert（显式 id=talent_id，幂等覆盖）——
-    1) 集合若由 talent_vector_service 先建（非 auto_id），insert 无 id 会报
-       "missed an field id"；upsert 带 id 两者兼容
-    2) 与 /talent/{id}/vectors 视图（filter id == talent_id）共用一套集合
-    3) text 保留 talent_id=N|| 前缀，供语义搜索 _vector_search 解析
-    """
-    result: dict[str, bool] = {}
-    try:
-        from app.utils.llm import get_llm
-        llm = get_llm()
-        vec = _vec_store()  # 兼容适配：元代码 VectorStore uri 与 pymilvus>=2.6 不兼容
-        dim = len(llm.embed("test"))
-        for key, txt in texts.items():
-            if not txt or not txt.strip():
-                result[key] = False
-                continue
-            try:
-                if not vec.has_collection(key):
-                    vec.create_collection(key, dim=dim)
-                v = llm.embed(txt)
-                vec._client.upsert(
-                    collection_name=vec._name(key),
-                    data=[{"id": int(talent_id), "vector": v,
-                           "text": f"talent_id={talent_id}||{txt}"}],
-                )
-                result[key] = True
-            except Exception:
-                result[key] = False
-    except Exception:
-        for key in texts:
-            result[key] = False
-    return result
-
-
-# ---------------- 查重与合并（需求③）----------------
 def _identity_dup(db: Session, t: Talent) -> Optional[Talent]:
     found = TalentDAO.find_by_identity(db, name=t.name, phone=t.phone, email=t.email,
                                         exclude_id=t.id)
