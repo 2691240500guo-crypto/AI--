@@ -384,15 +384,22 @@ def parse_resume_file(db: Session, filename: str, content: bytes,
         db.add(t)
         db.flush()
         _build_sub_records(db, t, payload)
-        # 原文件存 MinIO（失败不影响主流程）
+        # 原文件存 MinIO（失败不影响主流程，但要写日志+同时维护 object_key/resume_file 兼容前端 v-if）
         try:
             store = get_object_storage()
             object_name = f"resumes/{datetime.now():%Y/%m}/{uuid.uuid4().hex}_{filename}"
             store.put_bytes(object_name, content,
                             content_type="application/octet-stream")
             t.resume_file = object_name
-        except Exception:
+            t.object_key = object_name  # hq+ 2026-09-03：同时写 object_key，兼容 list.vue 附件列 v-if 三字段判断
+        except Exception as e:
+            # hq+ 2026-09-03：之前 try/except Exception: t.resume_file = None 会静默吞 MinIO 异常
+            #   导致 status=success 但 resume_file=None（前端附件列空）。现在记 warning + 写解析日志 message，
+            #   便于排查 MinIO 配置（如端口错）问题。
+            logger.warning("[hq] MinIO 存简历失败(允许主流程继续): talent_id=%s err=%s", t.id, e)
             t.resume_file = None
+            t.object_key = None
+            log.message = f"MinIO 存简历失败: {str(e)[:300]}"
         db.flush()
         build_profile(db, t, fast=True)  # 解析路径快速画像，完整 AI 画像由显式按钮触发
         _ensure_ai_report_three_fields(db, t)  # 袁文武 2026-09-02：自动生成 AI 报告三大字段

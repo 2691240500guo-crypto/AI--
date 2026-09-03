@@ -216,6 +216,25 @@ onMounted(load)
             </div>
           </div>
 
+          <!-- hq+ 2026-09-03：已绑定标签池（8 维度归类是按 tal_tag.category，custom 类不进 8 维度→ 看不到）
+               后端 get_profile 路由已返回 ai_tags 字段（含全部 manual/AI 标签），这里完整展示。 -->
+          <div v-if="(profileData.ai_tags || []).length" class="bound-tags" style="margin-top:14px">
+            <div class="report-title">
+              已绑定标签（{{ profileData.ai_tags.length }} 个·含人工/AI 全部打标）
+            </div>
+            <div class="bound-tags-body">
+              <el-tag
+                v-for="(tag, i) in profileData.ai_tags"
+                :key="i"
+                size="small"
+                effect="plain"
+                class="dim-tag"
+              >
+                {{ tag }}
+              </el-tag>
+            </div>
+          </div>
+
           <!-- 画像摘要 -->
           <el-row :gutter="20" style="margin-top:16px" v-if="report">
             <el-col :span="8">
