@@ -112,7 +112,9 @@ def main() -> None:
                 print("已创建 talent_vec")
 
             talents = db.execute(
-                sqlalchemy.text("SELECT * FROM tal_talent WHERE id IS NOT NULL ORDER BY id")
+                # 只向量化「有简历文本」的档案：无简历的空档案（未命名/测评演示等）不参与匹配召回
+                sqlalchemy.text("SELECT * FROM tal_talent WHERE id IS NOT NULL "
+                                "AND TRIM(COALESCE(resume_text, '')) <> '' ORDER BY id")
             ).mappings().all()
             print(f"人才总数: {len(talents)}")
             ok = fail = 0
