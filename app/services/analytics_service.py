@@ -12,16 +12,6 @@ from app.core.redis_client import get_redis_service
 
 def overview(db: Session) -> dict:
     """看板概览：一次返回全部卡片指标（D-1）。"""
-
-    return {
-        "talent_total": analytics_dao.talent_total(db), # 人才总数
-        "talent_by_degree": analytics_dao.talent_by_degree(db),# 人才学历分布
-        "talent_by_level": analytics_dao.talent_by_level(db), # 人才等级分布
-        "assess_pass_rate": analytics_dao.assess_pass_rate(db), # 测评合格率
-        "training_completion_rate": analytics_dao.training_completion_rate(db), #培训完成率
-        "match_avg_score": analytics_dao.match_avg_score(db),  # 匹配度均值
-    }
-    
     settings = get_settings()
     return get_redis_service().cached_json(
         "analytics",
