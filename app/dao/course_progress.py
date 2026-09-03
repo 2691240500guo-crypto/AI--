@@ -31,6 +31,24 @@ class CourseProgressDAO(BaseDAO[CourseProgress]):
         return list(db.scalars(stmt).all())
 
     @classmethod
+    def list_all(cls, db: Session) -> list[CourseProgress]:
+        """全部学习进度行（管理端全员进度聚合用，数据量小可整体加载）。"""
+        return list(db.scalars(select(CourseProgress)).all())
+
+    @classmethod
+    def list_for_users(cls, db: Session, user_ids: list[int]) -> list[CourseProgress]:
+        """按学员批量查进度（避免逐人 N 次查询）。"""
+        if not user_ids:
+            return []
+        return list(
+            db.scalars(
+                select(CourseProgress)
+                .where(CourseProgress.user_id.in_(user_ids))
+                .order_by(CourseProgress.updated_at.desc())
+            ).all()
+        )
+
+    @classmethod
     def upsert(cls, db: Session, user_id: int, course_id: int, *,
                position: int, duration: int) -> CourseProgress:
         """记录/更新学习进度（按 user+course 幂等）。"""
