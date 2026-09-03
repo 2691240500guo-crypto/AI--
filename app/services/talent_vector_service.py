@@ -42,6 +42,8 @@ logger = logging.getLogger(__name__)
 # hq+ 2026-09-01：新增 resume 维（简历原文全文），语义搜索可直接按简历内容召回
 DIMENSIONS = ["skill", "exp", "quality", "resume"]
 DIM_LABEL = {"skill": "技能向量", "exp": "经验向量", "quality": "素质向量", "resume": "简历原文"}
+# 详情页/编辑页仅展示三维（技能/经验/素质）；简历原文维度仅用于语义检索，不对外展示
+DISPLAY_DIMS = ["skill", "exp", "quality"]
 
 _EMBED_DIM: int | None = None  # 首次成功 embed 后缓存
 
@@ -285,11 +287,17 @@ def upsert_talent_vector(talent, report=None) -> int | None:
     return result.get("skill")
 
 
-def get_talent_vectors(talent_id: int) -> list[dict]:
-    """查看某人才三维向量（text 预览）。返回 [{dim, label, text, has_vector}]。"""
+def get_talent_vectors(talent_id: int, talent=None) -> list[dict]:
+    """查看某人才三维向量（text 预览）。返回 [{dim, label, text, has_vector}]。
+
+    - 仅展示三维：技能/经验/素质（简历原文维度仅用于语义检索，不对外展示）。
+    - Milvus 无该维度向量时，降级基于人才简历实时构造文本，保证详情页三维画像始终有内容。
+    """
     vec = get_vector_store()
+    # 无向量时的降级文本：基于人才主档字段实时构造
+    fallback = _build_dim_texts(talent) if talent is not None else {}
     out: list[dict] = []
-    for dim in DIMENSIONS:
+    for dim in DISPLAY_DIMS:
         item = {"dim": dim, "label": DIM_LABEL[dim], "text": None, "has_vector": False}
         try:
             if vec.has_collection(dim):
@@ -309,6 +317,9 @@ def get_talent_vectors(talent_id: int) -> list[dict]:
                     item["has_vector"] = True
         except Exception as e:  # pragma: no cover
             logger.warning("[hq] 查询维度 %s 失败：%s", dim, e)
+        # 降级：Milvus 无该维度向量时，基于简历构造文本，保证画像有内容
+        if not item["text"]:
+            item["text"] = fallback.get(dim) or None
         out.append(item)
     return out
 

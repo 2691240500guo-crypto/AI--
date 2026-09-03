@@ -169,9 +169,11 @@ def _vec_store():
         def __init__(self):
             from pymilvus import MilvusClient
             self.prefix = settings.MILVUS_COLLECTION_PREFIX
-            # hq+ 修复：MILVUS_HOST 已含协议前缀（http://localhost），不能重复拼 http://
+            host = settings.MILVUS_HOST
+            if not host.startswith(("http://", "https://", "tcp://", "unix://")):
+                host = f"http://{host}"
             self._client = MilvusClient(
-                uri=f"{settings.MILVUS_HOST}:{settings.MILVUS_PORT}",
+                uri=f"{host}:{settings.MILVUS_PORT}",
                 db_name=settings.MILVUS_DB_NAME,
             )
 
@@ -372,9 +374,32 @@ def parse_resume_file(db: Session, filename: str, content: bytes,
             works=[WorkIn(**w) for w in (data.get("works") or [])],
             projects=[ProjectIn(**p) for p in (data.get("projects") or [])],
         )
+        # 回填 current_company：parse 路径 structurize 不产出该字段，从工作经历提炼最近一段公司名。
+        # 优先级：works[].end_date="至今/现在" → works[] 中 start_date 最新 → work_experience 文本兜底。
+        current_company = None
+        works_raw = data.get("works") or []
+        for _w in works_raw:
+            if str(_w.get("end_date") or "").strip() in ("至今", "现在", "present", "now"):
+                _c = str(_w.get("company") or "").strip()
+                if _c:
+                    current_company = _c
+                    break
+        if not current_company and works_raw:
+            _latest = sorted(works_raw, key=lambda x: str(x.get("start_date") or ""), reverse=True)
+            current_company = str(_latest[0].get("company") or "").strip() or None
+        if not current_company:
+            _we = data.get("work_experience") or ""
+            _m = re.search(r"company[:：]\s*([^;；,，]+).*?end_date[:：]\s*(?:至今|现在)", _we)
+            if _m:
+                current_company = _m.group(1).strip() or None
+            elif "至今" in _we:
+                _m2 = re.search(r"company[:：]\s*([^;；,，]+)", _we)
+                current_company = (_m2.group(1).strip() or None) if _m2 else None
+
         t = Talent(name=payload.name, gender=payload.gender, phone=payload.phone,
                    email=payload.email, highest_education=payload.highest_education,
                    major=payload.major, current_title=payload.current_title,
+                   current_company=current_company,
                    years_experience=payload.years_experience,
                    salary_expectation=payload.salary_expectation, skills=payload.skills,
                    work_experience=payload.work_experience,
@@ -600,13 +625,15 @@ def build_profile(db: Session, t: Talent, fast: bool = False) -> TalentProfileOu
         tags_by_dim = _derive_tags_by_rules(t)
         all_tags = _flatten_tags(tags_by_dim)
         potential = tags_by_dim.get("potential", ["培养型"])[0]
-        if all_tags:
+        if any(tags_by_dim.values()):
             cats = _classify_tags(all_tags)
-            tags = TagDAO.ensure_tags(db, all_tags, category="custom", source="ai")
-            TalentTagRelDAO.set_ai_tags(
-                db, t.id, [tg.id for tg in tags],
-                scores={tg.id: cats.get(tg.name, 0.6) for tg in tags},
-            )
+            tag_ids, scores = [], {}
+            for dim, names in tags_by_dim.items():
+                for tg in TagDAO.ensure_tags(db, names, category=dim, source="ai"):
+                    if tg.id not in scores:
+                        tag_ids.append(tg.id)
+                        scores[tg.id] = cats.get(tg.name, 0.6)
+            TalentTagRelDAO.set_ai_tags(db, t.id, tag_ids, scores=scores)
         db.flush()
         now_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
         return TalentProfileOut(
@@ -624,13 +651,15 @@ def build_profile(db: Session, t: Talent, fast: bool = False) -> TalentProfileOu
 
     # 标签落库
     vectors_built = False
-    if all_tags:
+    if any(tags_by_dim.values()):
         cats = _classify_tags(all_tags)
-        tags = TagDAO.ensure_tags(db, all_tags, category="custom", source="ai")
-        TalentTagRelDAO.set_ai_tags(
-            db, t.id, [tg.id for tg in tags],
-            scores={tg.id: cats.get(tg.name, 0.6) for tg in tags},
-        )
+        tag_ids, scores = [], {}
+        for dim, names in tags_by_dim.items():
+            for tg in TagDAO.ensure_tags(db, names, category=dim, source="ai"):
+                if tg.id not in scores:
+                    tag_ids.append(tg.id)
+                    scores[tg.id] = cats.get(tg.name, 0.6)
+        TalentTagRelDAO.set_ai_tags(db, t.id, tag_ids, scores=scores)
 
     # 四维向量入库（Milvus）：统一走 talent_vector_service.upsert_talent_vectors
     # （2026-09-03：收敛第二个写实现 _embed_and_store_all，保证 resume 文本带 meta 头、
