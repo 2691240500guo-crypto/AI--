@@ -85,9 +85,17 @@ export function vectorizeTalent(id) {
 export function getTalentVectors(id) {
   return http.get(`/talent/${id}/vectors`)
 }
+// 袁文武 2026-09-03：获取人才画像概览（8 维度标签 + 元信息）
+export function getTalentProfile(id) {
+  return http.get(`/talent/${id}/profile/overview`)
+}
 // 自然语言语义搜索人才（袁文武 POST /talent/search，body: query/top_k/use_vector）
 export function semanticSearchTalent(q, topK = 10, dimension = 'skill') {
   return http.post('/talent/search', { query: q, top_k: topK, use_vector: true })
+}
+// 语义搜索 v2（袁文武 POST /talent/search-v2，返回完整解析信息+匹配条件）
+export function semanticSearchTalentV2(q, topK = 10) {
+  return http.post('/talent/search-v2', { query: q, top_k: topK, use_vector: true })
 }
 // 针对单个人才做 RAG 问答（自然语言问题 → LLM 基于其画像字段回答）
 export function askTalentQA(id, question) {

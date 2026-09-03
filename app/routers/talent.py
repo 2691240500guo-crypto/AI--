@@ -382,6 +382,17 @@ def search(body: SemanticSearchRequest, db: Session = Depends(get_db)):
     return ok([SemanticSearchHit(**h.model_dump()) for h in hits])
 
 
+# 袁文武 2026-09-03：语义搜索 v2，返回完整解析信息、匹配条件等
+@router.post("/search-v2", dependencies=[Depends(require_permission("talent:query"))])
+def search_v2(body: SemanticSearchRequest, db: Session = Depends(get_db)):
+    """语义搜索 v2：NLU 解析 + 结构化过滤 + 向量精排 + 匹配解释。"""
+    from app.services.talent_service import semantic_search_v2
+    result = semantic_search_v2(
+        db, query=body.query, top_k=body.top_k, use_vector=body.use_vector,
+    )
+    return ok(result)
+
+
 # ---------------- 需求⑤ 档案 RAG 问答 ----------------
 
 
@@ -802,15 +813,57 @@ async def download_resume(
                     headers={"Content-Disposition": disposition,
                              "Content-Length": str(len(data))})
 
-@router.get("/{tid}/vectors", summary="查看人才三维向量画像（text 预览）")
+@router.get("/{tid}/vectors", summary="查看人才四维向量画像（text 预览）")
 def talent_vectors(tid: int, db: Session = Depends(get_db)):
-    """hq+ 批次2.3c：查看某人才三维向量（技能/经验/素质）是否有值。"""
+    """hq+ 批次2.3c：查看某人才四维向量（技能/经验/素质/简历）是否有值。"""
     from app.services.talent_vector_service import get_talent_vectors  # hq+
     t = svc.TalentDAO.get(db, tid)
     if not t:
         raise HTTPException(404, "人才不存在")
-    # hq+ 修复：get_talent_vectors 参数是 talent_id(int)，传对象会 int() 报错被吞
     return ok(get_talent_vectors(tid))
+
+
+# 袁文武 2026-09-03：获取人才画像概览（从已有标签+报告读取，不重新生成）
+@router.get("/{tid}/profile/overview", summary="获取人才画像概览")
+def get_profile(tid: int, db: Session = Depends(get_db)):
+    """获取人才画像：8 维度标签分组 + 元信息。从已有数据读取，不触发 AI 生成。"""
+    from app.models.talent import TalentTalentTag, TalentTag
+    from app.services.talent_service import TAG_DIM_LABELS, SEED_TAGS
+    t = svc.TalentDAO.get(db, tid)
+    if not t:
+        raise HTTPException(404, "人才不存在")
+
+    # 从标签关系表读取 AI 生成的标签
+    rels = (db.query(TalentTag.name, TalentTag.category, TalentTalentTag.score)
+            .join(TalentTag, TalentTag.id == TalentTalentTag.tag_id)
+            .filter(TalentTalentTag.talent_id == tid)
+            .order_by(TalentTalentTag.score.desc())
+            .all())
+
+    tags_by_dim = {dim: [] for dim in TAG_DIM_LABELS}
+    all_tags = []
+    for name, category, score in rels:
+        if category and category in tags_by_dim:
+            tags_by_dim[category].append(name)
+        all_tags.append(name)
+
+    # 潜力评级（从 potential 维度取第一个）
+    potential = tags_by_dim.get("potential", [None])[0] if tags_by_dim.get("potential") else None
+
+    return ok({
+        "talent_id": tid,
+        "name": t.name,
+        "ai_tags": all_tags,
+        "tags_by_dim": tags_by_dim,
+        "tag_count": len(all_tags),
+        "potential_level": potential,
+        "skill_summary": t.skills,
+        "experience_summary": t.work_experience,
+        "quality_summary": None,
+        "vectors_built": False,  # 概览接口不查向量状态
+        "generate_mode": "cached",
+        "profile_updated_at": t.updated_at.strftime("%Y-%m-%d %H:%M:%S") if t.updated_at else None,
+    })
 
 
 @router.post("/merge-overwrite", summary="上传弹框确认：用新简历覆盖旧档案")

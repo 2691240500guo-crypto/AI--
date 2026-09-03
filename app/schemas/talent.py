@@ -188,12 +188,17 @@ class TalentOut(ORMModel):
 class TalentProfileOut(BaseModel):
     talent_id: int
     name: str
-    vectors_built: bool                  # Milvus 三维向量是否生成
-    ai_tags: list[str] = []              # AI 自动生成标签
+    vectors_built: bool = False            # 四维向量是否生成
+    ai_tags: list[str] = []                 # 全部 AI 标签（扁平列表，兼容旧字段）
     skill_summary: str | None = None
     experience_summary: str | None = None
     quality_summary: str | None = None
-    potential_level: str | None = None   # 潜力评级
+    potential_level: str | None = None      # 潜力评级
+    # 袁文武 2026-09-03 新增：多维度标签分组 + 元信息
+    tags_by_dim: dict[str, list[str]] = {}  # 按维度分组的标签 {skill:[], level:[], ...}
+    tag_count: int = 0                      # 标签总数
+    generate_mode: str = "rule"             # 生成方式：llm / rule / fast
+    profile_updated_at: str | None = None   # 画像更新时间
 
 
 class SemanticSearchRequest(BaseModel):
