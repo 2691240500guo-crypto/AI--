@@ -6,19 +6,27 @@ from app.dao import analytics as analytics_dao
 from datetime import date, datetime, timedelta
 from app.utils.logger import logger
 from app.utils.response import BusinessError
+from app.core.config import get_settings
+from app.core.redis_client import get_redis_service
 
 
 
 def overview(db: Session) -> dict:
     """看板概览：一次返回全部卡片指标（D-1）。"""
-    return {
-        "talent_total": analytics_dao.talent_total(db),
-        "talent_by_degree": analytics_dao.talent_by_degree(db),
-        "talent_by_level": analytics_dao.talent_by_level(db),
-        "assess_pass_rate": analytics_dao.assess_pass_rate(db),
-        "training_completion_rate": analytics_dao.training_completion_rate(db),
-        "match_avg_score": analytics_dao.match_avg_score(db),
-    }
+    settings = get_settings()
+    return get_redis_service().cached_json(
+        "analytics",
+        "overview",
+        settings.REDIS_ANALYTICS_TTL,
+        lambda: {
+            "talent_total": analytics_dao.talent_total(db),
+            "talent_by_degree": analytics_dao.talent_by_degree(db),
+            "talent_by_level": analytics_dao.talent_by_level(db),
+            "assess_pass_rate": analytics_dao.assess_pass_rate(db),
+            "training_completion_rate": analytics_dao.training_completion_rate(db),
+            "match_avg_score": analytics_dao.match_avg_score(db),
+        },
+    )
 
 
 def trend(db: Session, metric: str, days: int = 30) -> list[dict]:
@@ -33,7 +41,12 @@ def trend(db: Session, metric: str, days: int = 30) -> list[dict]:
     if not key:
         logger.warning("trend 未知 metric=%s，返回空", metric)
         return []
-    return analytics_dao.daily_new_counts(db, key, days)
+    return get_redis_service().cached_json(
+        "analytics",
+        f"trend:{key}:{days}",
+        get_settings().REDIS_ANALYTICS_TTL,
+        lambda: analytics_dao.daily_new_counts(db, key, days),
+    )
 
 
 def distribution(db: Session, dimension: str) -> list[dict]:
@@ -42,7 +55,12 @@ def distribution(db: Session, dimension: str) -> list[dict]:
     if dimension not in _ALLOWED:
         logger.warning("distribution 未知维度 %s，返回空", dimension)
         return []
-    return analytics_dao.distribution_items(db, dimension)
+    return get_redis_service().cached_json(
+        "analytics",
+        f"distribution:{dimension}",
+        get_settings().REDIS_DISTRIBUTION_TTL,
+        lambda: analytics_dao.distribution_items(db, dimension),
+    )
 
 
 def _shift_period(start: date, end: date, compare: str) -> tuple[date, date]:

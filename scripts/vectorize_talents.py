@@ -2,7 +2,7 @@
 
 用途：
 - 从云 MySQL tal_talent 读取人才档案，组装带结构化标记的画像文本，
-  经硅基流动 bge-m3(1024维) 向量化后写入 Milvus talent_vec；
+经硅基流动 bge-m3(1024维) 向量化后由 upsert_talent_vectors 实时写入四维集合(skill/exp/quality/resume)；
 - 从 pos_position 读取岗位，向量化后写入 position_vec；
 - 支持 --drop 先删旧集合再重建（修复 pymilvus 3.x 遗留的坏集合）。
 
@@ -31,44 +31,12 @@ from app.utils.llm import get_llm
 from app.utils.vector_store import get_vector_store
 
 POSITION_VEC_COLLECTION = "position_vec"
-TALENT_VEC_COLLECTION = "talent_vec"
 
 
 def _norm(text) -> str:
     if text is None:
         return ""
     return str(text).strip()
-
-
-def build_talent_profile(row) -> str:
-    """组装人才画像文本，前置结构化标记供硬过滤解析。"""
-    tid = row.id
-    degree = _norm(row.highest_education) or "未知"
-    years = _norm(row.years_experience) or "0"
-    m = re.search(r"(\d+)", years)
-    years_num = m.group(1) if m else "0"
-    skills = _norm(row.skills).replace(";", ",").replace("；", ",")
-    parts = [
-        f"【人才id:{tid}|学历:{degree}|经验:{years_num}年|技能:{skills}】",
-        f"姓名：{_norm(row.name)}",
-    ]
-    if _norm(row.major):
-        parts.append(f"专业：{row.major}")
-    if _norm(row.years_experience):
-        parts.append(f"从业经验：{row.years_experience}")
-    if _norm(row.current_title):
-        parts.append(f"当前职称：{row.current_title}")
-    if skills:
-        parts.append(f"技能：{skills}")
-    if _norm(row.work_experience):
-        parts.append(f"工作经历：{row.work_experience}")
-    if _norm(row.project_experience):
-        parts.append(f"项目经历：{row.project_experience}")
-    if _norm(row.honors):
-        parts.append(f"荣誉：{row.honors}")
-    if _norm(row.summary):
-        parts.append(f"自我评价：{row.summary}")
-    return "；".join(parts)
 
 
 def build_position_profile(row) -> str:
@@ -101,32 +69,31 @@ def main() -> None:
         print(f"embedding 维度: {dim}")
 
         if not args.skip_talent:
+            # 2026-09-03：人才向量统一走实时四维集合（upsert_talent_vectors，skill/exp/quality/resume），
+            # 档案增改即实时 upsert，本脚本仅用于存量数据一次性回灌；批处理 talent_vec 集合已退役。
             if args.drop:
-                if vec.has_collection(TALENT_VEC_COLLECTION):
-                    vec.delete_collection(TALENT_VEC_COLLECTION)
-                    print("已删除旧 talent_vec")
-                vec.create_collection(TALENT_VEC_COLLECTION, dim=dim)
-                print("已重建 talent_vec")
-            elif not vec.has_collection(TALENT_VEC_COLLECTION):
-                vec.create_collection(TALENT_VEC_COLLECTION, dim=dim)
-                print("已创建 talent_vec")
-
+                print("提示：--drop 对人才四维不生效（幂等 upsert 维护）；如需清空请删除 Milvus 集合 talent_skill/talent_exp/talent_quality/talent_resume")
+            from app.services.talent_vector_service import upsert_talent_vectors
             talents = db.execute(
-                # 只向量化「有简历文本」的档案：无简历的空档案（未命名/测评演示等）不参与匹配召回
-                sqlalchemy.text("SELECT * FROM tal_talent WHERE id IS NOT NULL "
+                # 过滤：停用(status!=1)不处理；无简历文本的空档案不参与匹配召回（合并两边口径）
+                sqlalchemy.text("SELECT * FROM tal_talent WHERE status=1 "
                                 "AND TRIM(COALESCE(resume_text, '')) <> '' ORDER BY id")
             ).mappings().all()
-            print(f"人才总数: {len(talents)}")
+            print(f"人才总数(在档): {len(talents)}")
             ok = fail = 0
-            for row in talents:
-                text = build_talent_profile(row)
+            for i, row in enumerate(talents, 1):
                 try:
-                    vec.insert(TALENT_VEC_COLLECTION, [llm.embed(text)], [text])
-                    ok += 1
+                    dims = upsert_talent_vectors(row)
+                    if dims:
+                        ok += 1
+                    else:
+                        fail += 1
                 except Exception as e:  # noqa: BLE001
                     fail += 1
                     print(f"  人才 #{row.id} 向量化失败: {str(e)[:120]}")
-            print(f"人才向量化完成: 成功 {ok}, 失败 {fail}")
+                if i % 10 == 0:
+                    print(f"  进度 {i}/{len(talents)}（成功 {ok} 失败 {fail}）")
+            print(f"人才四维向量回灌完成: 成功 {ok}, 失败 {fail}")
 
         if not args.skip_position:
             if args.drop:

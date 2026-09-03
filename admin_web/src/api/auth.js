@@ -12,6 +12,6 @@ export function getMyMenus() {
 export function getMe() {
   return http.get('/auth/me')
 }
-export function logout() {
-  return http.post('/auth/logout')
+export function logout(data = {}) {
+  return http.post('/auth/logout', data)
 }

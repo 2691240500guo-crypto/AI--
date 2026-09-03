@@ -144,7 +144,19 @@ async function load() {
     if (showPosKpi) calls.push(listPositions({ page: 1, page_size: 1 }).then(r => ({ k: 'pos', v: r.data?.total })))
     if (showTrainKpi) calls.push(http.get('/training/effects').then(r => ({ k: 'train', v: r.data?.total_plans })))
     if (showMsgKpi) calls.push(getUnreadCount().then(r => ({ k: 'msg', v: r?.data?.unread ?? r?.unread ?? r })))
-    const results = await Promise.all(calls.map(p => p.catch(() => null)))
+
+    // 明细与图表无需等待 KPI，请求与第一批同时发出，避免两轮云数据库耗时相加。
+    const calls2 = []
+    if (showRecentAssess) calls2.push(listResults({ page: 1, page_size: 5 }).then(r => ({ k: 'results', v: r.data?.items || [] })))
+    calls2.push(listMyMessages({ page: 1, page_size: 5 }).then(r => ({ k: 'msgs', v: r.data?.items || r.data || [] })))
+    if (showCharts) {
+      calls2.push(getDistribution({ dimension: 'degree' }).then(r => ({ k: 'dist', v: r.data || [] })))
+      calls2.push(getTrend().then(r => ({ k: 'trend', v: r.data || [] })))
+    }
+    const [results, results2] = await Promise.all([
+      Promise.all(calls.map(p => p.catch(() => null))),
+      Promise.all(calls2.map(p => p.catch(() => null))),
+    ])
     const kpiMap = {}
     for (const r of results) if (r) kpiMap[r.k] = r
     const o = kpiMap.overview?.v || {}
@@ -161,15 +173,7 @@ async function load() {
     if (showMsgKpi) kpiList.push({ key: 'msg', label: '未读消息', value: kpiMap.msg?.v ?? '-', sub: '消息中心', color: '#e5533c' })
     kpis.value = kpiList
 
-    // ---- 第二批：明细/图表（同样按权限码跳过）----
-    const calls2 = []
-    if (showRecentAssess) calls2.push(listResults({ page: 1, page_size: 5 }).then(r => ({ k: 'results', v: r.data?.items || [] })))
-    calls2.push(listMyMessages({ page: 1, page_size: 5 }).then(r => ({ k: 'msgs', v: r.data?.items || r.data || [] })))
-    if (showCharts) {
-      calls2.push(getDistribution({ dim: 'education' }).then(r => ({ k: 'dist', v: r.data || [] })))
-      calls2.push(getTrend().then(r => ({ k: 'trend', v: r.data || [] })))
-    }
-    const results2 = await Promise.all(calls2.map(p => p.catch(() => null)))
+    // ---- 明细/图表结果 ----
     const map2 = {}
     for (const r of results2) if (r) map2[r.k] = r
 

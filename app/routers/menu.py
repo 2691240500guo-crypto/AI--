@@ -8,6 +8,8 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, require_permission
+from app.core.config import get_settings
+from app.core.redis_client import get_redis_service
 from app.db.session import get_db
 from app.dao.menu import MenuDAO
 from app.models.menu import Menu
@@ -28,35 +30,47 @@ def my_menus(user: User = Depends(get_current_user), db: Session = Depends(get_d
     若用户只勾选了子菜单（未勾父目录），自动补全所有被勾菜单的父级目录，
     保证侧边栏能渲染出折叠面板（前端按 parent_id 嵌套）。
     """
-    perms: set[str] = set()
-    if user.is_super:
-        menus = MenuDAO.list(db, limit=500, order_by=Menu.sort)
-        perms = {m.perm for m in menus if m.perm}
-    else:
-        seen: dict[int, Menu] = {}
-        for role in user.roles:
-            for m in role.menus:
-                seen[m.id] = m
-                if m.perm:
-                    perms.add(m.perm)
-        menus = sorted(seen.values(), key=lambda x: x.sort)
-        # 自动补全父级目录：用户只勾子菜单时也能渲染
-        all_menus = MenuDAO.list(db, limit=500, order_by=Menu.sort)
-        seen_ids = {m.id for m in menus}
-        for m in menus:
-            if m.parent_id > 0 and m.parent_id not in seen_ids:
-                # 找祖先链（递归）
-                pid = m.parent_id
-                while pid > 0 and pid not in seen_ids:
-                    parent = next((x for x in all_menus if x.id == pid), None)
-                    if parent:
-                        seen[parent.id] = parent
-                        seen_ids.add(parent.id)
-                        pid = parent.parent_id
-                    else:
-                        break
-        menus = sorted(seen.values(), key=lambda x: x.sort)
-    return ok({"menus": [MenuOut.model_validate(m) for m in menus], "perms": sorted(perms)})
+    def load_navigation() -> dict:
+        perms: set[str] = set()
+        if user.is_super:
+            menus = MenuDAO.list(db, limit=500, order_by=Menu.sort)
+            perms = {m.perm for m in menus if m.perm}
+        else:
+            seen: dict[int, Menu] = {}
+            for role in user.roles:
+                for m in role.menus:
+                    seen[m.id] = m
+                    if m.perm:
+                        perms.add(m.perm)
+            menus = sorted(seen.values(), key=lambda x: x.sort)
+            # 自动补全父级目录：用户只勾子菜单时也能渲染
+            all_menus = MenuDAO.list(db, limit=500, order_by=Menu.sort)
+            seen_ids = {m.id for m in menus}
+            for m in menus:
+                if m.parent_id > 0 and m.parent_id not in seen_ids:
+                    # 找祖先链（递归）
+                    pid = m.parent_id
+                    while pid > 0 and pid not in seen_ids:
+                        parent = next((x for x in all_menus if x.id == pid), None)
+                        if parent:
+                            seen[parent.id] = parent
+                            seen_ids.add(parent.id)
+                            pid = parent.parent_id
+                        else:
+                            break
+            menus = sorted(seen.values(), key=lambda x: x.sort)
+        return {
+            "menus": [MenuOut.model_validate(m).model_dump(mode="json") for m in menus],
+            "perms": sorted(perms),
+        }
+
+    data = get_redis_service().cached_json(
+        "navigation",
+        f"user:{user.id}",
+        get_settings().REDIS_NAVIGATION_TTL,
+        load_navigation,
+    )
+    return ok(data)
 
 
 @router.get("")

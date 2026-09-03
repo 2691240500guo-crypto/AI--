@@ -68,11 +68,11 @@ class TalentDAO(BaseDAO[Talent]):
                 select(TalentTalentTag.talent_id)
                 .join(TalentTag, TalentTag.id == TalentTalentTag.tag_id)
                 .where(TalentTag.name == tag)))
-        if level:  # 能力等级标签（如 高级/骨干/专家）
+        if level:  # 能力层级标签（初级/中级/高级/…）；画像派生标签落库时为 custom 分类（uk_name 全局唯一），故按 name 精确匹配、不限 category
             conds.append(Talent.id.in_(
                 select(TalentTalentTag.talent_id)
                 .join(TalentTag, TalentTag.id == TalentTalentTag.tag_id)
-                .where(TalentTag.category == "level", TalentTag.name == level)))
+                .where(TalentTag.name == level)))
         return conds
 
     # ---------- 查重辅助（需求③ 智能查重）----------

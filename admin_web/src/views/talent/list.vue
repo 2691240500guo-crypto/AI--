@@ -40,11 +40,18 @@ const degreeOptions = [
   { label: '大专', value: '大专' },
   { label: '高中及以下', value: '高中' },
 ]
+// 能力层级选项：与后端画像标签库(SEED_TAGS level 维度)同源，按名称精确匹配标签筛选
 const levelOptions = [
-  { label: 'P5 初级', value: 'P5' },
-  { label: 'P6 中级', value: 'P6' },
-  { label: 'P7 高级', value: 'P7' },
-  { label: 'P8 专家', value: 'P8' },
+  { label: '初级', value: '初级' },
+  { label: '中级', value: '中级' },
+  { label: '高级', value: '高级' },
+  { label: '资深', value: '资深' },
+  { label: '骨干', value: '骨干' },
+  { label: '专家', value: '专家' },
+  { label: '架构师', value: '架构师' },
+  { label: '管理者', value: '管理者' },
+  { label: '负责人', value: '负责人' },
+  { label: '技术总监', value: '技术总监' },
 ]
 const yearOptions = [
   { label: '1年以上', value: 1 },
