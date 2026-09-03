@@ -159,6 +159,7 @@ class LaunchRequest(BaseModel):
 class LaunchResultOut(BaseModel):
     result_id: int
     talent_id: int
+    user_id: int
     paper_id: int
     batch_id: int
     batch_no: str
@@ -209,6 +210,7 @@ class PaperDetailOut(PaperOut):
 class AssessmentResultOut(ORMModel):
     id: int
     talent_id: int
+    user_id: int
     paper_id: int
     batch_id: int | None
     status: int

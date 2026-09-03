@@ -35,6 +35,7 @@ from app.models.assessment import (
     QuestionBank,
 )
 from app.models.dept import Position
+from app.models.talent import Talent
 from app.models.user import User
 from app.schemas.assessment import (
     CapabilityModelCreate,
@@ -371,10 +372,18 @@ class AssessmentService:
             raise ValueError("试卷没有题目")
         if len(body.talent_ids) != len(set(body.talent_ids)):
             raise ValueError("测试用户不能重复")
-        users = list(db.scalars(select(User).where(User.id.in_(body.talent_ids), User.status == 1)).all())
-        by_id = {user.id: user for user in users}
-        if len(by_id) != len(body.talent_ids):
-            raise ValueError("存在不存在或已停用的测试用户")
+        talents = list(db.scalars(select(Talent).where(
+            Talent.id.in_(body.talent_ids), Talent.status == 1
+        )).all())
+        if len({talent.id for talent in talents}) != len(body.talent_ids):
+            raise ValueError("存在不存在或已失效的人才档案")
+        users = list(db.scalars(select(User).where(
+            User.talent_id.in_(body.talent_ids), User.status == 1, User.user_type == "employee"
+        )).all())
+        user_by_talent_id = {item.talent_id: item for item in users if item.talent_id is not None}
+        missing_accounts = [str(talent_id) for talent_id in body.talent_ids if talent_id not in user_by_talent_id]
+        if missing_accounts:
+            raise ValueError(f"人才档案未关联可用员工账号：{', '.join(missing_accounts)}")
 
         started_at = body.started_at or datetime.now()
         deadline_at = body.deadline_at or started_at + timedelta(minutes=paper.duration)
@@ -396,9 +405,11 @@ class AssessmentService:
         )
         results: list[AssessmentResult] = []
         for talent_id in body.talent_ids:
+            target_user = user_by_talent_id[talent_id]
             result = AssessmentResultDAO.create(
                 db,
                 talent_id=talent_id,
+                user_id=target_user.id,
                 paper_id=paper.id,
                 batch_id=batch.id,
                 status=0,
@@ -412,7 +423,7 @@ class AssessmentService:
 
         db.flush()
         for result in results:
-            user = by_id[result.talent_id]
+            target_user = user_by_talent_id[result.talent_id]
             try:
                 with db.begin_nested():
                     MessageService.send(
@@ -421,7 +432,7 @@ class AssessmentService:
                         title=f"待完成测评：{paper.title}",
                         content=f"请在 {deadline_at:%Y-%m-%d %H:%M} 前完成测评。",
                         sender_id=None,
-                        receiver_ids=[user.id],
+                        receiver_ids=[target_user.id],
                         biz_type="assessment_result",
                         biz_id=result.id,
                     )
@@ -435,7 +446,7 @@ class AssessmentService:
         result = AssessmentResultDAO.get(db, result_id)
         if not result:
             raise LookupError("测评记录不存在")
-        if user and not user.is_super and result.talent_id != user.id:
+        if user and not user.is_super and result.user_id != user.id:
             raise PermissionError("无权访问该测评记录")
         return result
 
@@ -468,7 +479,7 @@ class AssessmentService:
 
     @staticmethod
     def _ensure_answerable(result: AssessmentResult, user: User | None = None) -> AssessmentResult:
-        if user and not user.is_super and result.talent_id != user.id:
+        if user and not user.is_super and result.user_id != user.id:
             raise PermissionError("无权访问该测评记录")
         if result.status in {2, 3}:
             raise ValueError("测评已经交卷，不能继续作答")
@@ -519,16 +530,14 @@ class AssessmentService:
 
     @staticmethod
     def list_todo(db: Session, user: User) -> list[AssessmentResult]:
-        talent_id = None if user.is_super else user.id
-        return AssessmentResultDAO.paged(
-            db, talent_id=talent_id, pending_only=True, page=1, page_size=200
-        )[0]
+        rows, _ = AssessmentResultDAO.paged(db, pending_only=True, page=1, page_size=200)
+        return rows if user.is_super else [row for row in rows if row.user_id == user.id]
 
     @staticmethod
     def get_answer_by_paper(db: Session, paper_id: int, user: User) -> dict:
         result = db.scalar(select(AssessmentResult).where(
             AssessmentResult.paper_id == paper_id,
-            AssessmentResult.talent_id == user.id,
+            AssessmentResult.user_id == user.id,
             AssessmentResult.status.in_([0, 1]),
         ).order_by(AssessmentResult.id.desc()))
         if not result:
@@ -577,7 +586,7 @@ class AssessmentService:
     def submit(db: Session, result_id: int, answers: dict[str, Any] | None = None,
                user: User | None = None) -> tuple[AssessmentResult, list[AssessmentResultDetail]]:
         result = AssessmentResultDAO.get_for_update(db, result_id) or AssessmentService._get_result(db, result_id, user)
-        if user and not user.is_super and result.talent_id != user.id:
+        if user and not user.is_super and result.user_id != user.id:
             raise PermissionError("无权访问该测评记录")
         if result.status in {2, 3}:
             return result, AssessmentResultDetailDAO.list_by_result(db, result.id)
@@ -801,7 +810,7 @@ class AssessmentService:
             raise LookupError("Agent 任务不存在")
         if user and not user.is_super:
             result = task.result
-            if not result or result.talent_id != user.id:
+            if not result or result.user_id != user.id:
                 raise PermissionError("无权访问该 Agent 任务")
         return task
 
@@ -813,13 +822,15 @@ class AssessmentService:
             result = db.get(AssessmentResult, result_id)
             if not result:
                 raise LookupError("测评记录不存在")
-            if user and not user.is_super and result.talent_id != user.id:
+            if user and not user.is_super and result.user_id != user.id:
                 raise PermissionError("无权访问该 Agent 任务")
             return AgentTaskDAO.list_by_result(db, result_id)
         if user and not user.is_super:
             from app.dao.assessment import AssessmentResultDAO
 
-            result_ids = [item.id for item in AssessmentResultDAO.list_by_talent(db, user.id)]
+            result_ids = list(db.scalars(
+                select(AssessmentResult.id).where(AssessmentResult.user_id == user.id)
+            ).all())
             if not result_ids:
                 return []
             return list(db.query(AgentTaskDAO.__model__).filter(

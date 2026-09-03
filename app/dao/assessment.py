@@ -20,6 +20,7 @@ from app.models.assessment import (
     QuestionBank,
 )
 from app.models.user import User
+from app.models.talent import Talent
 
 
 class QuestionBankDAO(BaseDAO[QuestionBank]):
@@ -240,8 +241,8 @@ class AssessmentResultDAO(BaseDAO[AssessmentResult]):
     @classmethod
     def get_with_user_and_paper(cls, db: Session, result_id: int):
         stmt = (
-            select(cls.__model__, User.nickname, AssessmentPaper.title)
-            .join(User, User.id == cls.__model__.talent_id)
+            select(cls.__model__, Talent.name, AssessmentPaper.title)
+            .join(Talent, Talent.id == cls.__model__.talent_id)
             .join(AssessmentPaper, AssessmentPaper.id == cls.__model__.paper_id)
             .where(cls.__model__.id == result_id)
         )
@@ -262,8 +263,8 @@ class AssessmentResultDAO(BaseDAO[AssessmentResult]):
         if status is not None:
             conditions.append(cls.__model__.status == status)
         stmt = (
-            select(cls.__model__, User.nickname, AssessmentPaper.title, AssessmentBatch.batch_no, AssessmentBatch.name)
-            .join(User, User.id == cls.__model__.talent_id)
+            select(cls.__model__, Talent.name, AssessmentPaper.title, AssessmentBatch.batch_no, AssessmentBatch.name)
+            .join(Talent, Talent.id == cls.__model__.talent_id)
             .join(AssessmentPaper, AssessmentPaper.id == cls.__model__.paper_id)
             .outerjoin(AssessmentBatch, AssessmentBatch.id == cls.__model__.batch_id)
         )

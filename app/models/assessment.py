@@ -142,7 +142,9 @@ class AssessmentResult(Base):
     )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
-    talent_id: Mapped[int] = mapped_column(ForeignKey("sys_user.id", ondelete="RESTRICT"), index=True)
+    # 人才档案是跨模块统计、等级和培训计划的业务主体；登录账号只用于鉴权和消息投递。
+    talent_id: Mapped[int] = mapped_column(ForeignKey("tal_talent.id", ondelete="RESTRICT"), index=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("sys_user.id", ondelete="RESTRICT"), index=True)
     paper_id: Mapped[int] = mapped_column(ForeignKey("asm_paper.id", ondelete="RESTRICT"), index=True)
     batch_id: Mapped[int | None] = mapped_column(
         ForeignKey("asm_assessment_batch.id", ondelete="SET NULL"), default=None, index=True

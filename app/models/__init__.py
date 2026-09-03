@@ -30,6 +30,7 @@ from app.models.talent_merge import TalentMerge
 from app.models.course import Course
 from app.models.course_progress import CourseProgress
 from app.models.course_video import CourseVideo
+from app.models.training import Course as TrainingCourse, Lesson, TrainingPlan, LearningRecord, Exam, ExamResult
 
 __all__ = [
     "User", "UserRole", "Role", "RoleMenu", "Menu",
@@ -44,4 +45,5 @@ __all__ = [
     "TalentCertificate", "TalentTag", "TalentTalentTag", "TalentResumeParseLog",
     "TalentDict", "TalentReport", "TalentMerge",
     "Course", "CourseProgress", "CourseVideo",
+    "TrainingCourse", "Lesson", "TrainingPlan", "LearningRecord", "Exam", "ExamResult",
 ]

@@ -365,6 +365,7 @@ def launch_assessment(body: LaunchRequest, user: User = Depends(get_current_user
             LaunchResultOut(
                 result_id=result.id,
                 talent_id=result.talent_id,
+                user_id=result.user_id,
                 paper_id=result.paper_id,
                 batch_id=batch.id,
                 batch_no=batch.batch_no,
@@ -390,30 +391,38 @@ def list_todo(user: User = Depends(require_client("app")), db: Session = Depends
     ) for result in rows])
 
 
+@router.get("/my-results", dependencies=[Depends(get_current_user)])
+def my_results(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """小程序「我的测评记录」：只看当前登录人自己的结果（登录即可，不限管理端权限码）。
+
+    返回结构与 /results 每条一致（含 paper_title/paper_total_score/question_count 等），
+    但 data 直接是数组（与 /todo 风格统一），便于被测端直接渲染。
+    """
+    try:
+        rows, _ = AssessmentService.list_results(
+            db, talent_id=user.talent_id, paper_id=None, batch_id=None, status=None,
+            page=1, page_size=200,
+        )
+        items = [AssessmentResultListOut(
+            **AssessmentResultOut.model_validate(result).model_dump(),
+            talent_name=talent_name,
+            paper_title=paper_title,
+            paper_total_score=result.paper.total_score,
+            question_count=len(result.paper.question_links),
+            batch_no=batch_no,
+            batch_name=batch_name,
+        ) for result, talent_name, paper_title, batch_no, batch_name in rows]
+        return ok(items)
+    except Exception as exc:
+        _raise_business_error(exc)
+
+
 @router.get("/papers/{paper_id}/answer", dependencies=[Depends(require_client("app"))])
 def answer_by_paper(paper_id: int, user: User = Depends(require_client("app")), db: Session = Depends(get_db)):
     try:
         return ok(AnswerSnapshotOut.model_validate(AssessmentService.get_answer_by_paper(db, paper_id, user)))
     except Exception as exc:
         _raise_business_error(exc)
-
-
-@router.get("/my-results", dependencies=[Depends(get_current_user)])
-def list_my_results(user: User = Depends(get_current_user), db: Session = Depends(get_db)):
-    """用户端只读取自己的历史测评，避免暴露管理端成绩查询权限。"""
-    rows, _ = AssessmentService.list_results(
-        db, talent_id=user.id, paper_id=None, batch_id=None,
-        status=None, page=1, page_size=200,
-    )
-    return ok([AssessmentResultListOut(
-        **AssessmentResultOut.model_validate(result).model_dump(),
-        talent_name=talent_name,
-        paper_title=paper_title,
-        paper_total_score=result.paper.total_score,
-        question_count=len(result.paper.question_links),
-        batch_no=batch_no,
-        batch_name=batch_name,
-    ) for result, talent_name, paper_title, batch_no, batch_name in rows])
 
 
 @router.get("/my-result/{result_id}", dependencies=[Depends(get_current_user)])
