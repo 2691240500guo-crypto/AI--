@@ -75,7 +75,9 @@ def main() -> None:
                 print("提示：--drop 对人才四维不生效（幂等 upsert 维护）；如需清空请删除 Milvus 集合 talent_skill/talent_exp/talent_quality/talent_resume")
             from app.services.talent_vector_service import upsert_talent_vectors
             talents = db.execute(
-                sqlalchemy.text("SELECT * FROM tal_talent WHERE status=1 ORDER BY id")
+                # 过滤：停用(status!=1)不处理；无简历文本的空档案不参与匹配召回（合并两边口径）
+                sqlalchemy.text("SELECT * FROM tal_talent WHERE status=1 "
+                                "AND TRIM(COALESCE(resume_text, '')) <> '' ORDER BY id")
             ).mappings().all()
             print(f"人才总数(在档): {len(talents)}")
             ok = fail = 0
