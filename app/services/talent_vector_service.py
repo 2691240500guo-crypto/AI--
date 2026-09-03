@@ -128,7 +128,7 @@ def _load_json_list(raw: str | None) -> list[str]:
 
 
 def _build_dim_texts(talent, report=None) -> dict[str, str]:
-    """从人才主档 + AI 报告构造三个维度的 embedding 文本（稳定可读）。
+    """从人才主档 + AI 报告构造四个维度的 embedding 文本（稳定可读）。
 
     :param report: TalentReport ORM（可空，缺省用主档字段兜底）
     """
@@ -163,10 +163,13 @@ def _build_dim_texts(talent, report=None) -> dict[str, str]:
     quality_parts.extend(shortcomings)
     quality_text = "、".join(p for p in quality_parts if p) or "(暂无素质信息)"
 
-    # 4) 简历原文向量（hq+ 2026-09-01）：用整篇简历文本做相似度搜索（截断控 token）
-    resume_text = (talent.resume_text or "").strip()[:1500]
-    if not resume_text:
-        resume_text = (talent.summary or "")[:200] or (talent.skills or "")[:200] or "(暂无简历内容)"
+    # 4) 简历原文向量：统一带双兼容头（match_agent 硬过滤解析）+ 简历原文（语义检索）
+    #    头格式：【人才id:N|学历:X|经验:Y年|技能:Z】与 scripts 旧 talent_vec 同构，供
+    #    MatchAgent._TALENT_META_RE 解析；写入端再统一加 talent_id=N|| 前缀供 _TID_RE 解析。
+    body = (talent.resume_text or "").strip()[:1500]
+    if not body:
+        body = _main_body_text(talent)[:1500] or "(暂无简历内容)"
+    resume_text = _meta_head(talent) + body
 
     return {
         "skill": skill_text,
@@ -174,6 +177,40 @@ def _build_dim_texts(talent, report=None) -> dict[str, str]:
         "quality": quality_text,
         "resume": resume_text,
     }
+
+
+def _meta_head(t) -> str:
+    """结构化头（与 vectorize 脚本/匹配 Agent 契约同构）：【人才id:N|学历:X|经验:Y年|技能:Z】"""
+    degree = (t.highest_education or "未知").strip()
+    years = t.years_experience or 0
+    try:
+        years_num = int(float(str(years).strip()))
+    except (TypeError, ValueError):
+        years_num = 0
+    skills = (t.skills or "").replace(";", ",").replace("；", ",")
+    return f"【人才id:{int(t.id)}|学历:{degree}|经验:{years_num}年|技能:{skills}】"
+
+
+def _main_body_text(t) -> str:
+    """主档画像正文（无简历原文时的语义兜底，与 vectorize 脚本 build_talent_profile 同构）。"""
+    parts = [f"姓名：{t.name or ''}"]
+    if getattr(t, "major", None):
+        parts.append(f"专业：{t.major}")
+    if t.years_experience:
+        parts.append(f"从业经验：{t.years_experience}")
+    if t.current_title:
+        parts.append(f"当前职称：{t.current_title}")
+    if t.skills:
+        parts.append(f"技能：{t.skills}")
+    if t.work_experience:
+        parts.append(f"工作经历：{t.work_experience}")
+    if t.project_experience:
+        parts.append(f"项目经历：{t.project_experience}")
+    if t.honors:
+        parts.append(f"荣誉：{t.honors}")
+    if t.summary:
+        parts.append(f"自我评价：{t.summary}")
+    return "；".join(parts)
 
 
 # ============ 三维写入 / 动态更新 ============

@@ -6,7 +6,7 @@
 3. 双重策略打分：硬性条件过滤（学历/经验/必备技能）+ 软性能力加权（skill/degree/years/quality）
 4. 候选人才排序 + 匹配原因解释（复用 MatchingService.explain）
 
-AI 底座：硅基流动 Qwen3-30B（chat）+ bge-m3（embed，1024 维）+ Milvus（talent_vec/position_vec）。
+AI 底座：硅基流动 Qwen3-30B（chat）+ bge-m3（embed，1024 维）+ Milvus（人才四维集合/position_vec）。
 
 人才画像 text 约定（scripts/vectorize_talents.py 写入）：
     【人才id:35|学历:硕士|经验:3年|技能:Python,Java,SQL】姓名：...；专业：...；...
@@ -26,7 +26,10 @@ from app.services.matching import DEFAULT_RULE, MatchingService
 from app.utils.response import BusinessError
 
 POSITION_VEC_COLLECTION = "position_vec"
-TALENT_VEC_COLLECTION = "talent_vec"
+# 人才向量统一读四维集合中的 resume 维（2026-09-03 收敛：批处理 talent_vec 已退役）。
+# resume 文本带【人才id|学历|经验|技能】meta 头 + 简历原文，由 upsert_talent_vectors 实时写入，
+# 增改档案即可命中，无需再手动运行 vectorize 批处理。
+TALENT_VEC_COLLECTION = "resume"
 
 # 学历等级（数值越大越高）
 DEGREE_LEVEL = {"博士": 4, "硕士": 3, "本科": 2, "大专": 1, "中专": 1, "高中": 0}
@@ -292,7 +295,7 @@ class MatchAgent:
             raise BusinessError(500, f"AI 底座不可用：{e}") from e
 
         if not vec.has_collection(TALENT_VEC_COLLECTION):
-            raise BusinessError(400, "人才向量集合 talent_vec 未就绪，请先运行 scripts/vectorize_talents.py")
+            raise BusinessError(400, "人才画像向量未就绪：请先创建/更新人才档案触发画像向量化（或执行 scripts/vectorize_talents.py 回灌存量）")
 
         # 2. 岗位向量 → Milvus 高维语义检索
         qvec = llm.embed(MatchingService.build_profile_text(p))
@@ -609,7 +612,7 @@ class MatchAgent:
         except Exception as e:  # noqa: BLE001
             raise BusinessError(500, f"AI 底座不可用：{e}") from e
         if not vec.has_collection(TALENT_VEC_COLLECTION):
-            raise BusinessError(400, "人才向量集合 talent_vec 未就绪，请先运行 scripts/vectorize_talents.py")
+            raise BusinessError(400, "人才画像向量未就绪：请先创建/更新人才档案触发画像向量化（或执行 scripts/vectorize_talents.py 回灌存量）")
 
         # 需求文本向量 → 检索人才
         qvec = llm.embed(text)
