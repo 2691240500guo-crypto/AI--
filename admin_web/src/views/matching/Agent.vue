@@ -166,6 +166,60 @@
                 </el-table>
               </el-card>
 
+              <el-card v-if="m.rankList && m.rankList.length" shadow="never" class="section-card">
+                <template #header>
+                  <span>🏅 智能筛选排序（按{{ m.rankSortLabel || '匹配度' }} · Top{{ m.rankList.length }}）</span>
+                </template>
+                <el-table :data="m.rankList" stripe border size="small">
+                  <el-table-column type="index" label="#" width="46" />
+                  <el-table-column label="人才" min-width="150">
+                    <template #default="{ row }">
+                      <span class="cand-name">{{ row.talent_name }}<span class="cand-tag">#{{ row.talent_id }}</span></span>
+                      <div class="cand-meta">{{ row.current_title || '—' }}</div>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="匹配度" width="86">
+                    <template #default="{ row }">
+                      <b :class="Number(row.score) >= 80 ? 'ok-text' : 'warn-text'">{{ Number(row.score).toFixed(1) }}</b>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="能力等级" width="80">
+                    <template #default="{ row }">
+                      <el-tag size="small" :type="tagLevelType(row.level)">{{ row.level || '-' }}</el-tag>
+                    </template>
+                  </el-table-column>
+                  <el-table-column label="从业经验" width="90">
+                    <template #default="{ row }">{{ row.exp_years != null ? row.exp_years + '年' : '-' }}</template>
+                  </el-table-column>
+                  <el-table-column label="综合评分" width="86">
+                    <template #default="{ row }">{{ row.quality_score != null ? Number(row.quality_score).toFixed(0) : '-' }}</template>
+                  </el-table-column>
+                  <el-table-column label="操作" width="150" fixed="right">
+                    <template #default="{ row }">
+                      <el-button link type="primary" size="small" @click="askTalent(row)">👤 看档案/测评</el-button>
+                    </template>
+                  </el-table-column>
+                </el-table>
+              </el-card>
+
+              <el-card v-if="m.profile" shadow="never" class="section-card">
+                <template #header><span>👤 人才档案 · {{ m.profile.name }}</span></template>
+                <el-descriptions :column="3" border size="small" class="profile-desc">
+                  <el-descriptions-item label="学历">{{ m.profile.base?.degree || '未知' }}</el-descriptions-item>
+                  <el-descriptions-item label="经验">{{ m.profile.base?.years || 0 }}年</el-descriptions-item>
+                  <el-descriptions-item label="能力等级">{{ m.profile.base?.level || '未评' }}</el-descriptions-item>
+                  <el-descriptions-item label="职位">{{ m.profile.base?.current_title || '—' }}</el-descriptions-item>
+                  <el-descriptions-item label="公司">{{ m.profile.base?.current_company || '—' }}</el-descriptions-item>
+                  <el-descriptions-item label="联系方式">{{ m.profile.base?.phone_masked || '—' }} {{ m.profile.base?.email_masked || '' }}</el-descriptions-item>
+                </el-descriptions>
+                <div v-if="m.profile.report" class="profile-report">
+                  <b>测评报告：</b>
+                  能力 {{ m.profile.report.ability_level || '未评' }} · 综合分 {{ m.profile.report.composite_score ?? '—' }} · 潜力 {{ m.profile.report.potential || '—' }}
+                  <div v-if="m.profile.report.summary_report" class="profile-report-text">{{ m.profile.report.summary_report }}</div>
+                </div>
+                <div v-if="m.profile.resume_snippet" class="profile-report-text">📄 履历摘要：{{ m.profile.resume_snippet }}</div>
+              </el-card>
+
               <el-card v-if="m.chartType && m.results && m.results.length" shadow="never" class="section-card charts-card">
                 <template #header>
                   <span>📊 {{ CHART_LABEL[m.chartType] || '' }} · {{ m.chartTitle || '候选人匹配度' }}</span>
@@ -250,7 +304,7 @@
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  Aim, ChatLineRound, Document, MagicStick, Promotion, TrendCharts,
+  ChatLineRound, Document, MagicStick, Promotion, TrendCharts,
 } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import { agentChat, getExplain } from '@/api/matching'
@@ -264,22 +318,25 @@ const CHART_TITLE = {
 }
 
 const QUICK_QUERIES = [
-  '帮我找适合后端开发的人才',
+  '帮我把这段岗位需求解析成标签：负责 AI 产品规划，统招本科及以上，5年以上AI产品经验，熟悉大模型应用，具备跨团队协调能力',
   '分析后端开发工程师的岗位要求',
-  '生成后端开发的折线图',
-  '为什么人才4排第一',
-  '人才5适合什么岗位',
+  '帮我找适合后端开发的人才，硕士、3年经验',
+  '后端开发工程师岗位按综合评分排前5',
+  '生成后端开发工程师岗位的折线图',
+  '人才230适合什么岗位',
+  '把人才#250设为推荐到后端开发工程师岗位',
 ]
 
 const CAPABILITIES = [
-  { icon: Document, color: '#409eff', text: '岗位解析', desc: 'AI 拆解任职要求/技能/经验门槛' },
-  { icon: Aim, color: '#67c23a', text: '人才匹配', desc: '向量检索+硬过滤+软加权打分排序' },
-  { icon: TrendCharts, color: '#e6a23c', text: '可视化', desc: '柱状图/折线图/饼图展示匹配维度' },
-  { icon: ChatLineRound, color: '#9c64f6', text: '匹配解释', desc: '说明推荐依据与维度得分' },
+  { icon: Document, color: '#409eff', text: '岗位智能解析', desc: '手动录入/导入说明书→任职要求·技能·学历·年限·素质标签' },
+  { icon: TrendCharts, color: '#e6a23c', text: '智能筛选排序', desc: '按匹配度/能力等级/从业经验/综合评分排序优选' },
+  { icon: ChatLineRound, color: '#9c64f6', text: '一键查看人才', desc: '档案·AI 测评报告·履历信息一句话调出' },
+  { icon: Promotion, color: '#f56c6c', text: '自然语言操作', desc: '匹配、解释、图表、状态流转都可用对话完成' },
 ]
 
 // ===== 对话历史（localStorage 持久化） =====
-const STORAGE_KEY = 'agent_conv_history_v2'
+// v2→v3：强制丢弃旧缓存气泡（后端未重启期间存的旧意图/旧兜底文案回放）
+const STORAGE_KEY = 'agent_conv_history_v3'
 const conversations = ref(loadConversations())
 const activeConvId = ref(null)
 const messages = ref([])
@@ -339,6 +396,7 @@ function persistCurrentConv() {
   const cleanMsgs = messages.value.filter((m) => !m.loading).map((m) => ({
     id: m.id, role: m.role, text: m.text, reply: m.reply,
     chartType: m.chartType, results: m.results || [], reverseResults: m.reverseResults || [], parsed: m.parsed || null,
+    rankList: m.rankList || [], rankSortLabel: m.rankSortLabel || '', profile: m.profile || null,
   }))
   c.messages = cleanMsgs
   c.messageCount = cleanMsgs.length
@@ -392,6 +450,17 @@ function fillNlp(text) {
   })
 }
 
+// 从排序结果跳转到"看档案/测评"（把下一轮问题填进输入框）
+function askTalent(row) {
+  const who = row.talent_name && !/^人才\d+$/.test(row.talent_name) ? row.talent_name : `#${row.talent_id}`
+  fillNlp(`看下${who}的档案和测评报告`)
+}
+
+// 能力等级标签配色：S→红(A+)、A→橙、B→蓝、C→灰
+function tagLevelType(level) {
+  return { S: 'danger', A: 'warning', B: 'primary', C: 'info' }[level] || 'info'
+}
+
 // ===== 自然语言聊天 =====
 async function handleChat() {
   const msg = nlpInput.value.trim()
@@ -426,6 +495,11 @@ async function handleChat() {
       agentMsg.parsed = result
     } else if (intent === 'match' && result) {
       agentMsg.results = result.results || []
+    } else if (intent === 'rank' && result) {
+      agentMsg.rankList = result.rows || []
+      agentMsg.rankSortLabel = result.sort_label || '匹配度'
+    } else if (intent === 'profile' && result) {
+      agentMsg.profile = result
     } else if (intent === 'chart' && result) {
       agentMsg.chartType = data.chart_type || 'bar'
       agentMsg.results = result.results || []
@@ -798,6 +872,7 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resizeAll); dispose
   max-width: 75%; background: #409eff; color: #fff;
   padding: 10px 14px; border-radius: 14px 14px 4px 14px;
   font-size: 14px; line-height: 1.6; word-break: break-word;
+  white-space: pre-wrap; overflow-wrap: anywhere;
 }
 .agent-msg { align-items: flex-start; }
 .agent-avatar {
@@ -812,11 +887,11 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resizeAll); dispose
   background: #f6f8fa; border: 1px solid #e5e7eb;
   padding: 10px 14px; border-radius: 14px 14px 14px 4px;
   color: #1f2328; font-size: 14px; line-height: 1.6;
-  margin-bottom: 12px;
+  margin-bottom: 12px; max-width: 100%;
+  white-space: pre-wrap; word-break: break-word; overflow-wrap: anywhere;
 }
 .reply-bubble.is-loading { color: #8b949e; font-style: italic; }
-.reply-bubble.is-loading::after {
-  content: ''; display: inline-block; width: 6px; height: 6px;
+.reply-bubble.is-loading::after { content: ''; display: inline-block; width: 6px; height: 6px;
   margin-left: 4px; border-radius: 50%; background: #409eff;
   animation: typing 1s infinite;
 }
@@ -829,6 +904,11 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resizeAll); dispose
 .dim-title { font-weight: 600; margin-bottom: 8px; color: #303133; }
 .dim-list { margin: 0; padding-left: 18px; color: #606266; font-size: 13px; }
 .dim-list li { margin-bottom: 4px; }
+.ok-text { color: #059669; }
+.warn-text { color: #d97706; }
+.profile-desc { margin-top: 4px; }
+.profile-report { margin-top: 10px; font-size: 13px; color: #303133; background: #f0f9ff; border-left: 3px solid #409eff; padding: 8px 12px; border-radius: 4px; }
+.profile-report-text { margin-top: 6px; font-size: 12px; color: #606266; white-space: pre-wrap; word-break: break-word; max-height: 220px; overflow: auto; }
 .gate-line { font-size: 13px; color: #606266; margin-bottom: 6px; }
 .skill-tags { display: flex; flex-wrap: wrap; }
 .empty { color: #c0c4cc; font-size: 13px; }

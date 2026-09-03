@@ -13,6 +13,15 @@ const loading = ref(false)
 const data = ref(null)
 const activeCollapse = ref(['summary'])  // 默认展开「个人简介」
 
+// 入口来源：SPA 内优先走浏览器历史回退（确保回退路径已注册过，不会 404），兜底首页。
+function goBack() {
+  if (typeof window !== 'undefined' && window.history && window.history.length > 1) {
+    router.back()
+    return
+  }
+  router.push('/home')
+}
+
 // 袁文武 2026-09-02：AI 解析报告 + 四维向量画像（详情页展示）
 const report = ref(null)
 const reportLoading = ref(false)
@@ -109,7 +118,7 @@ onMounted(load)
   <el-card v-loading="loading">
     <template #header>
       <div class="head">
-        <el-page-header @back="() => router.push('/talent')" :title="'返回列表'">
+        <el-page-header @back="goBack" :title="'返回列表'">
           <template #content>
             <span class="title">{{ data?.name || '加载中...' }}</span>
             <el-tag v-if="data" :type="data.status === 1 ? 'success' : 'info'" size="small" style="margin-left:8px">

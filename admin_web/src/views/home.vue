@@ -141,7 +141,7 @@ async function load() {
     if (showTalentKpi) calls.push(getOverview().then(r => ({ k: 'overview', v: r.data || {} })))
     // 测评完成数：来自 /assessment/results/statistics（assessment:stat）
     if (showAssessKpi) calls.push(http.get('/assessment/results/statistics').then(r => ({ k: 'assess', v: r.data?.completed_results })))
-    if (showPosKpi) calls.push(listPositions({ page: 1, page_size: 1 }).then(r => ({ k: 'pos', v: r.data?.total })))
+    if (showPosKpi) calls.push(http.get('/matching/positions/vacancy-count').then(r => ({ k: 'pos', v: r.data?.vacancy ?? r?.vacancy })))
     if (showTrainKpi) calls.push(http.get('/training/effects').then(r => ({ k: 'train', v: r.data?.total_plans })))
     if (showMsgKpi) calls.push(getUnreadCount().then(r => ({ k: 'msg', v: r?.data?.unread ?? r?.unread ?? r })))
 

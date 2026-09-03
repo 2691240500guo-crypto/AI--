@@ -2,11 +2,11 @@
 import { computed, onBeforeUnmount, onMounted, reactive, ref, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { User, View, Sunny, Refresh } from '@element-plus/icons-vue'
+import { User, View, Sunny, Refresh, ArrowDown } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import {
   listResults, getExplain, runMatch, listPositions, updateWarm,
-  updateResultStatus, evaluateMatch,
+  updateResultStatus,
 } from '@/api/matching'
 
 const router = useRouter()
@@ -212,7 +212,12 @@ async function viewTalent(row) {
   } catch {
     return // 404 等错误已由拦截器提示，阻止无谓跳转
   }
-  router.push({ name: 'talent-detail', params: { id: row.talent_id } })
+  // 携带 from 来源，T 域详情页"返回列表"据此回到原页面（默认 /talent 列表）
+  router.push({
+    name: 'talent-detail',
+    params: { id: row.talent_id },
+    query: { from: '/matching/results' },
+  })
 }
 
 // ===== 储备保温管理（需求4）：展示态/跟进弹窗复用共享工具与组件（与 Alert 页一致） =====
@@ -243,40 +248,29 @@ function onFollowSuccess(u) {
   }
 }
 // ===== 状态流转（0候选 1推荐 2录用） =====
-async function changeStatus(row) {
-  const next = row.status >= 2 ? 0 : row.status + 1
-  const label = { 0: '候选', 1: '推荐', 2: '录用' }
+async function changeStatus(row, target) {
+  // target 可选：未传则按当前状态自动后推一步（向后兼容老按钮）
+  if (target === undefined) {
+    target = row.status >= 3 ? 0 : row.status + 1
+  }
+  target = Number(target)
+  if (target === row.status) {
+    ElMessage.info('状态未变化')
+    return
+  }
   try {
-    await ElMessageBox.confirm(`将记录「${label[row.status]}」→「${label[next]}」？`, '状态流转', { type: 'warning' })
+    await ElMessageBox.confirm(
+      `将记录「${statusLabel(row.status)}」→「${statusLabel(target)}」？`,
+      '状态流转', { type: 'warning' },
+    )
   } catch {
     return
   }
   try {
-    await updateResultStatus(row.id, next)
-    ElMessage.success(`已更新为「${label[next]}」`)
+    await updateResultStatus(row.id, target)
+    ElMessage.success(`已更新为「${statusLabel(target)}」`)
     load()
   } catch { /* error shown by interceptor */ }
-}
-
-// ===== 匹配精度评估（需求2） =====
-const evalLoading = ref(false)
-const evalResult = ref(null)
-const evalCollapsed = ref(false)
-const evalTopK = ref(3)  // 每岗作为「推」的 TopK 候选，与 HR 实际选人范围一致
-// 走后端 self-check 模式：每岗取 top1，若 skill 维度≥60 视为合理命中；
-// 当前高匹配种子数据下命中率高（≥85% 达标），结果直接可对照"≥85%"验收口径。
-// 无需构造 reference 真值集合，避免「top1=正、top2-3=反」自洽真值把分母撑大拉低 precision。
-async function runEvaluate() {
-  evalLoading.value = true
-  evalCollapsed.value = false
-  try {
-    const res = await evaluateMatch({})  // 不传 reference → 后端 self-check（top1 + skill≥60）
-    evalResult.value = { ...res.data }
-    const pct = Number(res.data?.precision_pct ?? 0)
-    ElMessage.success(`已用 ${res.data?.positions_scored ?? 0} 个岗位的 top1 完成匹配精度评估：${pct}%`)
-  } finally {
-    evalLoading.value = false
-  }
 }
 
 // ===== 双向匹配：发起匹配（岗位→人才）+ 反向匹配（人才→岗位） =====
@@ -445,49 +439,6 @@ onMounted(async () => {
           </div>
         </div>
       </div>
-      <div class="overview-card ovc-mini" @click="runEvaluate">
-        <div class="ovc-icon ovc-gray">
-          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M4 19V5"/>
-            <path d="M4 19h16"/>
-            <rect x="7" y="11" width="3" height="6" rx="0.5"/>
-            <rect x="12" y="8" width="3" height="9" rx="0.5"/>
-            <rect x="17" y="14" width="3" height="3" rx="0.5"/>
-          </svg>
-        </div>
-        <div class="ovc-body">
-          <div class="ovc-head">
-            <span class="ovc-title">匹配精度评估</span>
-            <span class="ovc-tag">对照 ≥85%</span>
-          </div>
-          <div class="ovc-desc">算法精度自检与人工标注评估</div>
-          <div class="ovc-actions">
-            <el-button :loading="evalLoading" plain size="small" @click.stop="runEvaluate">开始评估</el-button>
-            <span v-if="evalResult" class="ovc-result-tag" :class="evalResult.precision_pct >= 85 ? 'ok' : 'warn'">
-              匹配精度 {{ evalResult.precision_pct }}%{{ evalResult.precision_pct >= 85 ? ' ✅' : ' ❌' }}
-            </span>
-          </div>
-        </div>
-      </div>
-    </div>
-
-    <!-- 匹配精度（需求2）：reference 真值模式，只展示精准率 -->
-    <div v-if="evalResult && !evalCollapsed" class="eval-box">
-      <div class="eval-head">
-        <div class="eval-title">
-          <b>📊 匹配精度</b>
-          <el-tag size="small" :type="evalResult.precision_pct >= 85 ? 'success' : 'danger'">
-            {{ evalResult.precision_pct >= 85 ? '✅ 满足 ≥85%' : '❌ 未达 ≥85%' }}
-          </el-tag>
-        </div>
-        <el-button link type="primary" @click="evalCollapsed = true">收起</el-button>
-      </div>
-      <div class="eval-single">
-        <div class="big-value" :class="evalResult.precision_pct >= 85 ? 'ok' : 'warn'">
-          {{ evalResult.precision_pct }}<span class="metric-unit">%</span>
-        </div>
-        <div class="big-label">精准率（匹配准确率）</div>
-      </div>
     </div>
 
     <el-table :data="rows" v-loading="loading" stripe row-key="id">
@@ -501,9 +452,18 @@ onMounted(async () => {
           <el-tag :type="scoreType(row.score)" size="small">{{ Number(row.score).toFixed(1) }}</el-tag>
         </template>
       </el-table-column>
-      <el-table-column label="状态" width="72">
+      <el-table-column label="状态" width="92">
         <template #default="{ row }">
-          <el-tag :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
+          <el-tooltip placement="top" effect="light">
+            <template #content>
+              <div style="max-width:240px;line-height:1.6;">
+                <div><b>候选</b>：待确认；下次匹配会重新算分</div>
+                <div><b>推荐</b>：HR 认可，可推面试；不再覆盖</div>
+                <div><b>录用</b>：已发 offer / 入职；永久保留</div>
+              </div>
+            </template>
+            <el-tag :type="statusType(row.status)" size="small">{{ statusLabel(row.status) }}</el-tag>
+          </el-tooltip>
         </template>
       </el-table-column>
       <el-table-column label="保温状态" width="108">
@@ -513,14 +473,14 @@ onMounted(async () => {
           </el-tooltip>
         </template>
       </el-table-column>
-      <el-table-column label="生成时间" width="118" sortable :sort-by="(r)=>r.created_at">
+      <el-table-column label="生成时间" width="148" sortable :sort-by="(r)=>r.created_at">
         <template #default="{ row }">
           <el-tooltip :content="row.created_at" placement="top">
             <span>{{ fmtShort(row.created_at) }}</span>
           </el-tooltip>
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="220" fixed="right">
+      <el-table-column label="操作" width="320">
         <template #default="{ row }">
           <div class="row-actions">
             <el-tooltip content="查看人才档案" placement="top">
@@ -538,10 +498,29 @@ onMounted(async () => {
                 <el-icon style="vertical-align:-2px;margin-right:2px"><Sunny /></el-icon>跟进
               </el-button>
             </el-tooltip>
-            <el-tooltip content="状态流转：候选→推荐→录用" placement="top">
-              <el-button type="success" link size="small" @click="changeStatus(row)">
-                <el-icon style="vertical-align:-2px;margin-right:2px"><Refresh /></el-icon>流转
-              </el-button>
+            <el-tooltip content="修改状态（候选 / 推荐 / 录用 / 储备）" placement="top">
+              <el-dropdown trigger="click" @command="(v) => changeStatus(row, Number(v))">
+                <el-button type="success" link size="small">
+                  <el-icon style="vertical-align:-2px;margin-right:2px"><Refresh /></el-icon>流转
+                  <el-icon style="vertical-align:-2px;margin-left:1px"><ArrowDown /></el-icon>
+                </el-button>
+                <template #dropdown>
+                  <el-dropdown-menu>
+                    <el-dropdown-item :command="0" :disabled="row.status === 0"
+                      title="回到待确认状态，下一次 run_match 会重新算分">
+                      ↩ 设为候选
+                    </el-dropdown-item>
+                    <el-dropdown-item :command="1" :disabled="row.status === 1"
+                      title="HR 主观认可，可推面试/下一轮；run_match 不再覆盖">
+                      👍 设为推荐
+                    </el-dropdown-item>
+                    <el-dropdown-item :command="2" :disabled="row.status === 2"
+                      title="已发 offer / 入职确认；run_match 不再覆盖，永久保留">
+                      🎉 设为录用
+                    </el-dropdown-item>
+                  </el-dropdown-menu>
+                </template>
+              </el-dropdown>
             </el-tooltip>
           </div>
         </template>
@@ -682,11 +661,11 @@ onMounted(async () => {
 .filter-title { font-size: 13px; font-weight: 600; color: #6b7280; padding: 0 4px 8px; border-bottom: 1px dashed #e5e7eb; margin-bottom: 10px; }
 
 /* === 两向匹配概览卡片（紧凑版，与筛选行视觉平衡） === */
-.match-overview { display: grid; grid-template-columns: 1fr 1fr 0.7fr; gap: 12px; margin-bottom: 16px; grid-auto-rows: 1fr; }
-.overview-card { display: flex; gap: 14px; padding: 14px 16px; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; cursor: pointer; transition: all .2s; align-items: center; min-height: 110px; }
+.match-overview { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 16px; grid-auto-rows: 1fr; }
+.overview-card { display: flex; gap: 12px; padding: 8px 12px; background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; cursor: pointer; transition: all .2s; align-items: center; min-height: 60px; }
 .overview-card:hover { border-color: #93c5fd; box-shadow: 0 4px 12px rgba(0,0,0,0.06); transform: translateY(-1px); }
-.ovc-icon { width: 56px; height: 56px; border-radius: 12px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 2px 6px rgba(15,23,42,0.08); }
-.ovc-icon svg { width: 30px; height: 30px; display: block; }
+.ovc-icon { width: 40px; height: 40px; border-radius: 10px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; box-shadow: 0 2px 6px rgba(15,23,42,0.08); }
+.ovc-icon svg { width: 22px; height: 22px; display: block; }
 .ovc-blue { background: linear-gradient(135deg, #3b82f6, #2563eb); }
 .ovc-green { background: linear-gradient(135deg, #10b981, #059669); }
 .ovc-gray { background: linear-gradient(135deg, #6b7280, #4b5563); }
@@ -694,7 +673,7 @@ onMounted(async () => {
 .ovc-head { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
 .ovc-title { font-size: 14px; font-weight: 700; color: #1f2937; }
 .ovc-tag { font-size: 10px; font-weight: 500; color: #6b7280; background: #f3f4f6; padding: 1px 6px; border-radius: 3px; }
-.ovc-desc { color: #6b7280; font-size: 12px; line-height: 1.4; margin: 4px 0 8px; }
+.ovc-desc { color: #6b7280; font-size: 12px; line-height: 1.4; margin: 2px 0 0; }
 .ovc-actions { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .ovc-hint { color: #9ca3af; font-size: 11px; }
 .ovc-mini { background: #f9fafb; }
@@ -711,8 +690,8 @@ onMounted(async () => {
 .explain-text { background: #f5f7fa; border-radius: 8px; padding: 12px; line-height: 1.7; color: #1f2937; font-size: 14px; }
 .warm-meta { font-size: 11px; color: #9ca3af; line-height: 1.4; margin-top: 2px; white-space: nowrap; }
 .tpl-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; }
-.row-actions { display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; }
-.row-actions .el-button { padding: 4px 6px; }
+.row-actions { display: flex; align-items: center; gap: 4px; flex-wrap: nowrap; white-space: nowrap; margin-left: -4px; }
+.row-actions .el-button { padding: 4px 4px; }
 .row-actions .el-icon { font-size: 14px; }
 .tip { color: #9ca3af; font-size: 12px; margin-top: 4px; }
 .rev-header { font-size: 14px; color: #1f2937; margin: 10px 0 8px; padding: 8px 12px; background: #ecfdf5; border-left: 3px solid #10b981; border-radius: 4px; }
@@ -741,12 +720,43 @@ onMounted(async () => {
 .metric.metric-pass .metric-value { color: #059669; }
 .metric.metric-fail .metric-value { color: #dc2626; }
 .metric-desc { color: #9ca3af; font-size: 11px; margin-top: 4px; }
-.eval-single { text-align: center; padding: 14px 0 6px; }
-.eval-single .big-value { font-size: 44px; font-weight: 800; line-height: 1; font-family: ui-monospace, monospace; color: #1f2937; }
+.eval-single { text-align: center; padding: 10px 0 6px; }
+.eval-single .big-value { font-size: 28px; font-weight: 800; line-height: 1; font-family: ui-monospace, monospace; color: #1f2937; }
 .eval-single .big-value.ok { color: #059669; }
 .eval-single .big-value.warn { color: #dc2626; }
-.eval-single .big-value .metric-unit { font-size: 18px; font-weight: 600; opacity: 0.6; margin-left: 2px; }
-.eval-single .big-label { color: #6b7280; font-size: 13px; margin-top: 6px; }
+.eval-single .big-value .metric-unit { font-size: 13px; font-weight: 600; opacity: 0.6; margin-left: 2px; }
+.eval-single .big-label { color: #6b7280; font-size: 12px; margin-top: 4px; }
 .eval-note { color: #475569; font-size: 12px; line-height: 1.6; margin-top: 10px; padding: 8px 12px; background: #f8fafc; border-radius: 6px; }
 .eval-note code { background: #e2e8f0; padding: 1px 5px; border-radius: 3px; font-family: ui-monospace, monospace; font-size: 11px; }
+.info-icon {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 16px; height: 16px; border-radius: 50%;
+  background: #dbeafe; color: #2563eb; font-size: 11px; font-weight: 700;
+  cursor: help; user-select: none;
+}
+.info-icon:hover { background: #bfdbfe; }
+.mode-badge {
+  font-size: 11px; color: #64748b;
+  background: #f1f5f9; border: 1px solid #e2e8f0;
+  padding: 2px 8px; border-radius: 999px;
+}
+.hit-sub { color: #64748b; font-size: 11px; margin-top: 4px; }
+.eval-meaning {
+  margin-top: 10px; padding: 10px 14px;
+  background: #ffffff; border: 1px dashed #93c5fd; border-radius: 8px;
+  font-size: 12px; line-height: 1.6; color: #334155;
+}
+.eval-meaning p { margin: 4px 0; }
+.eval-meaning b { color: #1d4ed8; }
+.eval-meaning .warn-note { color: #b45309; background: #fffbeb; border: 1px dashed #fcd34d; border-radius: 6px; padding: 6px 10px; margin-top: 8px; }
+.eval-meaning .warn-note b { color: #b45309; }
+.tooltip-body { font-size: 12px; line-height: 1.6; max-width: 320px; }
+.mode-badge.warn-badge { color: #b45309; background: #fef3c7; border-color: #fde68a; }
+.eval-detail { margin-top: 8px; }
+.ed-head { font-size: 11px; font-weight: 700; color: #475569; margin-bottom: 4px; }
+.ed-table { width: 100%; border-collapse: collapse; font-size: 11px; background: #fff; border-radius: 6px; overflow: hidden; }
+.ed-table th, .ed-table td { border: 1px solid #e2e8f0; padding: 3px 6px; text-align: left; }
+.ed-table th { background: #f1f5f9; color: #475569; font-weight: 600; }
+.ed-table .cell-ok { color: #059669; font-weight: 700; }
+.ed-table .cell-warn { color: #dc2626; font-weight: 700; }
 </style>
