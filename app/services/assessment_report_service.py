@@ -195,6 +195,7 @@ class AssessmentReportService:
                         course_ids=course_ids,
                         deadline=datetime.now() + timedelta(days=30),
                         generated_by="assessment",
+                        source="agent",
                         weakness_tags=weaknesses,
                     )
                     db.flush()

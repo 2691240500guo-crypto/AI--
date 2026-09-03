@@ -138,6 +138,7 @@ def create_plan(body: PlanCreate, db: Session = Depends(get_db)):
     plan = PlanService.create(db, talent_id=body.talent_id, title=body.title,
                               course_ids=body.course_ids, deadline=body.deadline,
                               weakness_tags=body.weakness_tags,
+                              source=body.source,
                               generated_by=body.generated_by or "manual")
     # 管理端补充字段（可选）
     if body.status is not None:
@@ -355,6 +356,8 @@ def update_plan(pid: int, body: PlanUpdate, db: Session = Depends(get_db)):
         p.generated_by = body.generated_by
     if body.improvement is not None:
         p.improvement = body.improvement
+    if body.source is not None:
+        p.source = body.source
     db.commit()
     return ok(PlanOut.model_validate(p))
 

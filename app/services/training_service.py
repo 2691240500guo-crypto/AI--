@@ -30,11 +30,12 @@ class PlanService:
     @staticmethod
     def create(db: Session, *, talent_id: int, title: str,
                course_ids: list[int], deadline, generated_by: str = "manual",
+               source: str = "manual",
                weakness_tags: list[str] | None = None) -> TrainingPlan:
         plan = PlanDAO.create(
             db, talent_id=talent_id, title=title,
             course_ids=",".join(map(str, course_ids)) if course_ids else "",
-            source="manual" if generated_by == "manual" else "agent",
+            source=source,
             deadline=deadline, generated_by=generated_by,
             weakness_tags=",".join(weakness_tags) if weakness_tags else "",
         )

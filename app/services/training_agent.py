@@ -342,7 +342,7 @@ class TrainingAgentService:
             shortage_tags + [f"岗位:{n}" for n in position_names] + position_tags))
         plan = PlanService.create(
             db, talent_id=talent_id, title=title, course_ids=course_ids,
-            deadline=deadline, generated_by="agent", weakness_tags=weakness_tags,
+            deadline=deadline, generated_by="agent", source="agent", weakness_tags=weakness_tags,
         )
 
         # 推送
