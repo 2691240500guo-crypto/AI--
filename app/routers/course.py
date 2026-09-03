@@ -238,15 +238,10 @@ def report_progress(
 
 
 # ============ 学习进度页 ============
-@router.get("/progress", summary="我的学习进度（进度页数据源，含未学习课程）")
-def my_progress(
-    db: Session = Depends(get_db),
-    user: User = Depends(require_permission("course:course")),
-):
-    # hq+  以全部已生成课程为基准：未学习的课程也返回（percent=0），
-    #     保证「课程总数 = 未学习 + 学习中 + 已完成」
-    courses = CourseDAO.list_enabled(db)
-    prog_map = {p.course_id: p for p in CourseProgressDAO.list_for_user(db, user.id)}
+def _progress_items(db: Session, user_id: int, courses: list | None = None) -> list[dict]:
+    """构造某用户的逐课程进度列表（未学课程也返回 percent=0，口径与 my_progress 一致）。"""
+    courses = courses if courses is not None else CourseDAO.list_enabled(db)
+    prog_map = {p.course_id: p for p in CourseProgressDAO.list_for_user(db, user_id)}
     items = []
     for c in courses:
         p = prog_map.get(c.id)
@@ -263,4 +258,144 @@ def my_progress(
             "last_watch_at": (p.last_watch_at.strftime("%Y-%m-%d %H:%M:%S")
                               if p and p.last_watch_at else None),
         })
+    return items
+
+
+@router.get("/progress", summary="我的学习进度（进度页数据源，含未学习课程）")
+def my_progress(
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("course:course")),
+):
+    # hq+  以全部已生成课程为基准：未学习的课程也返回（percent=0），
+    #     保证「课程总数 = 未学习 + 学习中 + 已完成」
+    courses = CourseDAO.list_enabled(db)
+    items = _progress_items(db, user.id, courses)
     return ok({"items": items, "total": len(items)})
+
+
+# ============ 全员学习进度（管理端监控） ============
+@router.get("/progress/overview", summary="全员学习进度（管理端：admin/hr 看全员，employee 仅本人）")
+def progress_overview(
+    keyword: str | None = Query(None, description="姓名/工号/登录名模糊"),
+    status: str | None = Query(None, description="all / learning / completed / not_started"),
+    course_id: int | None = Query(None, description="只看某门课的学习情况"),
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=200),
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("course:course")),
+):
+    """按学员聚合全员学习进度：每人平均进度/完成课程数/学习中/未学习 + 最近学习时间。
+
+    数据隔离：employee 访问等价于「只看自己」（防御），管理端角色看全员。
+    """
+    from sqlalchemy import select as _sel
+    from app.models.dept import Dept as _Dept
+    from app.models.user import User as _User
+
+    courses = CourseDAO.list_enabled(db)
+    course_total = len(courses)
+    prog_rows = CourseProgressDAO.list_all(db)
+
+    # 学员池：仅 employee 用户（管理端账号即使有历史学习记录也不入学员列表，
+    # 避免 admin/hr 在"全员学习进度"里显示成学员——学习主体是员工）
+    users = list(db.scalars(_sel(_User).where(_User.status == 1)).all())
+    user_ids_with = {p.user_id for p in prog_rows}
+    if user.user_type == "employee" and not user.is_super:
+        scope_ids = {user.id}
+    else:
+        scope_ids = {u.id for u in users if u.user_type == "employee"}
+    scope_users = {u.id: u for u in users if u.id in scope_ids}
+
+    dept_ids = {u.dept_id for u in scope_users.values() if u.dept_id}
+    dept_names = {}
+    if dept_ids:
+        for d in db.scalars(_sel(_Dept).where(_Dept.id.in_(dept_ids))).all():
+            dept_names[d.id] = d.name
+
+    # course 维度过滤：只看某门课时，统计以该课为口径
+    prog_by_course = {c.id: [] for c in courses}
+    for p in prog_rows:
+        prog_by_course.setdefault(p.course_id, []).append(p)
+    if course_id:
+        relevant = prog_by_course.get(course_id, [])
+        rel_map = {p.user_id: p for p in relevant}
+    else:
+        rel_map = None
+
+    # 按学员聚合
+    rows = []
+    by_user: dict[int, list] = {}
+    for p in prog_rows:
+        by_user.setdefault(p.user_id, []).append(p)
+    for uid, u in scope_users.items():
+        if rel_map is not None:
+            plist = [rel_map[uid]] if uid in rel_map else []
+        else:
+            plist = by_user.get(uid, [])
+        if course_id is None:
+            plist = plist  # 全课程口径：该学员所有课程进度
+        pmap = {p.course_id: p for p in plist}
+        base = course_total if course_id is None else 1
+        started = sum(1 for p in plist if p.percent > 0)
+        completed_n = sum(1 for p in plist if p.completed)
+        learning_n = started - completed_n
+        not_started = base - started
+        avg = round(sum(p.percent for p in plist) / base) if base else 0
+        last = max((p.last_watch_at for p in plist if p.last_watch_at), default=None)
+        rows.append({
+            "user_id": uid,
+            "username": u.username,
+            "nickname": u.nickname or u.username,
+            "emp_no": u.emp_no,
+            "dept_name": dept_names.get(u.dept_id, ""),
+            "course_total": base,
+            "started": started,
+            "completed": completed_n,
+            "learning": learning_n,
+            "not_started": not_started,
+            "avg_percent": avg,
+            "last_watch_at": last.strftime("%Y-%m-%d %H:%M:%S") if last else None,
+        })
+
+    # 筛选：keyword / status
+    if keyword:
+        kw = keyword.strip().lower()
+        rows = [r for r in rows
+                if kw in (r["nickname"] or "").lower() or kw in (r["username"] or "").lower()
+                or kw in (r["emp_no"] or "").lower()]
+    if status == "completed":
+        rows = [r for r in rows if r["completed"] > 0 and r["learning"] == 0]
+    elif status == "learning":
+        rows = [r for r in rows if r["learning"] > 0]
+    elif status == "not_started":
+        rows = [r for r in rows if r["avg_percent"] == 0]
+
+    rows.sort(key=lambda r: (r["last_watch_at"] or ""), reverse=True)
+    total = len(rows)
+    start = (page - 1) * page_size
+    page_rows = rows[start:start + page_size]
+
+    stats = {
+        "course_total": course_total,
+        "employee_total": len(scope_users),
+        "has_progress": len(user_ids_with & scope_ids),
+        "avg_percent_all": round(sum(r["avg_percent"] for r in rows) / total) if total else 0,
+        "completed_employees": sum(1 for r in rows if r["learning"] == 0 and r["avg_percent"] >= 100),
+        "learning_employees": sum(1 for r in rows if r["learning"] > 0),
+        "not_started_employees": sum(1 for r in rows if r["avg_percent"] == 0),
+    }
+    return ok({"stats": stats, "items": page_rows,
+               "meta": {"page": page, "page_size": page_size, "total": total}})
+
+
+@router.get("/progress/user/{user_id}", summary="指定学员的逐课程学习进度（管理端穿透查看）")
+def user_progress_detail(
+    user_id: int,
+    db: Session = Depends(get_db),
+    user: User = Depends(require_permission("course:course")),
+):
+    """返回某学员的逐课程进度明细（与「我的学习进度」同构）。employee 仅可查本人。"""
+    if user.user_type == "employee" and not user.is_super and user.id != user_id:
+        raise HTTPException(403, "无权查看其他学员的学习进度")
+    items = _progress_items(db, user_id)
+    return ok({"user_id": user_id, "items": items, "total": len(items)})
