@@ -21,6 +21,7 @@ from app.db.session import engine
 from app.exceptions.middlewares import register_middlewares
 from app.exceptions.exception_handlers import register_exception_handlers
 from app.middleware.audit import AuditMiddleware
+from app.middleware.cache_invalidation import CacheInvalidationMiddleware
 from app.routers.api import api
 import app.models  # noqa: F401  确保 model 注册进 Base.metadata
 
@@ -37,6 +38,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 app.add_middleware(AuditMiddleware)
+app.add_middleware(CacheInvalidationMiddleware)
 
 # 全局异常处理器（业务异常/参数校验/HTTP 异常/兜底 500，统一响应格式）
 register_exception_handlers(app)
@@ -51,6 +53,18 @@ def on_startup() -> None:
     if settings.AUTO_INIT_DB:
         from app.db.init_db import init_db
         init_db()
+    if settings.REDIS_ENABLED:
+        from app.core.redis_client import get_redis_service
+        if get_redis_service().ping():
+            print("Redis connection ready")
+        else:
+            print("Redis unavailable; optional features will degrade")
+
+
+@app.on_event("shutdown")
+def on_shutdown() -> None:
+    from app.core.redis_client import get_redis_service
+    get_redis_service().close()
 
 
 app.include_router(api, prefix=settings.API_PREFIX)
@@ -58,7 +72,16 @@ app.include_router(api, prefix=settings.API_PREFIX)
 
 @app.get("/health", tags=["meta"])
 def health():
-    return {"status": "ok"}
+    from app.core.redis_client import get_redis_service
+    redis_service = get_redis_service()
+    return {
+        "status": "ok",
+        "redis": {
+            "enabled": redis_service.enabled,
+            "available": redis_service.available,
+            "required": False,
+        },
+    }
 
 
 if __name__ == "__main__":

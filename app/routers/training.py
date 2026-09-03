@@ -6,6 +6,8 @@ from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, require_any_perm, require_client
+from app.core.config import get_settings
+from app.core.redis_client import get_redis_service
 from app.db.session import get_db
 from app.dao.training import CourseDAO, LessonDAO, PlanDAO, ExamDAO, ExamResultDAO, RecordDAO
 from app.models.talent import Talent
@@ -293,7 +295,12 @@ def agent_recommend(body: AgentRecommend, db: Session = Depends(get_db)):
 # ---------- 效果分析（E05）----------
 @router.get("/effects", dependencies=[Depends(require_client("admin"))])
 def effects(db: Session = Depends(get_db)):
-    return ok(EffectService.overview(db))
+    return ok(get_redis_service().cached_json(
+        "analytics",
+        "training-effects",
+        get_settings().REDIS_HOME_TTL,
+        lambda: EffectService.overview(db),
+    ))
 
 
 @router.get("/effects/full", dependencies=[Depends(require_client("admin"))])

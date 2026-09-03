@@ -1,5 +1,5 @@
 import { defineStore } from 'pinia'
-import { login, getMyMenus, getMe } from '@/api/auth'
+import { login, logout as logoutApi, getMyMenus, getMe } from '@/api/auth'
 import { registerDynamicRoutes } from '@/router'
 import router from '@/router'
 
@@ -22,14 +22,17 @@ export const useUserStore = defineStore('user', {
     },
     /** 刷新/恢复会话：拉菜单（含动态路由注册）+ 恢复用户信息 */
     async restore() {
-      await this.loadMenus()
-      try {
-        const res = await getMe()
-        this.user = res.data
-      } catch (e) {
+      // 两个接口互不依赖，并行请求可避免云数据库链路耗时叠加。
+      const meRequest = getMe().catch((e) => {
         // 用户信息拉取失败不阻塞，至少 token/菜单正常
         console.warn('[restore] getMe failed:', e?.message)
-      }
+        return null
+      })
+      const [menuRes, meRes] = await Promise.all([getMyMenus(), meRequest])
+      this.menus = menuRes.data.menus
+      this.perms = menuRes.data.perms
+      registerDynamicRoutes(menuRes.data.menus)
+      if (meRes) this.user = meRes.data
     },
     async loadMenus() {
       const res = await getMyMenus()
@@ -43,14 +46,21 @@ export const useUserStore = defineStore('user', {
       return this.perms.includes(perm)
     },
     async logout() {
-      this.token = ''
-      this.user = null
-      this.menus = []
-      this.perms = []
-      // 只清自己相关的 token，不要 clear() 全清（会清掉无关数据）
-      sessionStorage.removeItem('token')
-      sessionStorage.removeItem('refresh_token')
-      router.push('/login')
+      const refreshToken = sessionStorage.getItem('refresh_token')
+      try {
+        if (this.token) await logoutApi({ refresh_token: refreshToken })
+      } catch (e) {
+        console.warn('[logout] server revoke failed:', e?.message)
+      } finally {
+        this.token = ''
+        this.user = null
+        this.menus = []
+        this.perms = []
+        // 只清自己相关的 token，不要 clear() 全清（会清掉无关数据）
+        sessionStorage.removeItem('token')
+        sessionStorage.removeItem('refresh_token')
+        router.push('/login')
+      }
     }
   }
 })

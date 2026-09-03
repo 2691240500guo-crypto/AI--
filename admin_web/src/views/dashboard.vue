@@ -28,7 +28,12 @@ async function load() {
   loading.value = true
   try {
     // 后端 /overview 为全局聚合，不接收筛选参数（方案甲，2026-09-02 移除筛选条）
-    const ov = (await getOverview()).data
+    const [overviewRes, deptRes, trendRes] = await Promise.all([
+      getOverview(),
+      getDistribution({ dimension: 'dept' }),
+      getTrend({ metric: 'talent_new', days: 30 }),
+    ])
+    const ov = overviewRes.data
     kpis.value = [
       { key: 'talent_total', label: '人才总量', value: ov.talent_total ?? 0 },
       { key: 'assess_pass_rate', label: '测评合格率', value: Math.round((ov.assess_pass_rate ?? 0) * 100), suffix: '%' },
@@ -38,9 +43,9 @@ async function load() {
     // 学历结构（饼图数据源），来自 overview.talent_by_degree
     const degree = Object.entries(ov.talent_by_degree || {}).map(([name, value]) => ({ name, value }))
     // 部门分布（柱图数据源）：走后端 /distribution?dimension=dept（真实部门，2026-09-02 修正原误用学历数据）
-    const dept = (await getDistribution({ dimension: 'dept' })).data || []
+    const dept = deptRes.data || []
     // 趋势折线（近30天新增）
-    const trend = (await getTrend({ metric: 'talent_new', days: 30 })).data || []
+    const trend = trendRes.data || []
     charts.value = { degree, dept, trend_line: trend }
   } catch { ElMessage.error('看板加载失败') } finally { loading.value = false }
 }
