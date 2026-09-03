@@ -7,7 +7,7 @@
     </el-row>
 
     <el-row :gutter="16" class="charts">
-      <el-col :span="12"><el-card><template #header>趋势</template><EChart :option="trendOption" /></el-card></el-col>
+      <el-col :span="12"><el-card><template #header>增量趋势</template><EChart :option="trendOption" /></el-card></el-col>
       <el-col :span="12"><el-card><template #header>状态分布</template><EChart :option="pieOption" /></el-card></el-col>
       <el-col :span="12"><el-card><template #header>部门分布</template><EChart :option="barOption" /></el-card></el-col>
       <el-col :span="12"><el-card><template #header>等级分布</template><EChart :option="levelOption" /></el-card></el-col>
