@@ -24,7 +24,6 @@ from app.models.talent import (
     Talent, TalentEducation, TalentWorkExperience, TalentProject, TalentCertificate,
     TalentTag, TalentTalentTag, TalentResumeParseLog,
 )
-from app.models.talent_dict import TalentDict
 from app.models.talent_report import TalentReport
 from app.models.talent_merge import TalentMerge
 from app.models.course import Course
@@ -43,7 +42,7 @@ __all__ = [
     "AssessmentTrainingOutbox",
     "Talent", "TalentEducation", "TalentWorkExperience", "TalentProject",
     "TalentCertificate", "TalentTag", "TalentTalentTag", "TalentResumeParseLog",
-    "TalentDict", "TalentReport", "TalentMerge",
+    "TalentReport", "TalentMerge",
     "Course", "CourseProgress", "CourseVideo",
     "TrainingCourse", "Lesson", "TrainingPlan", "LearningRecord", "Exam", "ExamResult",
 ]

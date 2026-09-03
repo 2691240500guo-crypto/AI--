@@ -156,9 +156,12 @@ export async function deleteCourse(id) {
 
 // ---------- 人才下拉（学习计划选择人员）----------
 
-export async function listTalentOptions(keyword = '') {
+export async function listTalentOptions(keyword = '', options = {}) {
+  const params = {}
+  if (keyword) params.keyword = keyword
+  if (options.messageRecipientOnly) params.message_recipient_only = true
   const res = await http.get('/training/talents', {
-    params: keyword ? { keyword } : {}
+    params
   })
   return { data: res.data || [] }
 }
@@ -249,7 +252,8 @@ export async function createPlan(body) {
     deadline: body.deadline || null,
     status: planStatusToInt[body.status] ?? 0,
     generated_by: body.generated_by || '管理员',
-    improvement: Number(body.improvement) || 0
+    improvement: Number(body.improvement) || 0,
+    push: body.notify_employee !== false
   })
   return { data: res.data }
 }

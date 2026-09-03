@@ -9,6 +9,7 @@ import ResultsPanel from './components/ResultsPanel.vue'
 const activeTab = ref('banks')
 const refreshKey = ref(0)
 const overviewLoading = ref(false)
+const overviewError = ref('')
 const overview = reactive({ total_results: 0, completed_results: 0, average_score: 0, pass_rate: 0 })
 const overviewItems = computed(() => [
   { label: '测评总数', value: overview.total_results, suffix: '场' },
@@ -22,7 +23,12 @@ function refreshAll() {
 }
 async function loadOverview() {
   overviewLoading.value = true
-  try { Object.assign(overview, (await getStatistics({})).data || {}) } finally { overviewLoading.value = false }
+  overviewError.value = ''
+  try {
+    Object.assign(overview, (await getStatistics({})).data || {})
+  } catch (error) {
+    overviewError.value = error?.message || '测评概览加载失败，请重试'
+  } finally { overviewLoading.value = false }
 }
 onMounted(loadOverview)
 </script>
@@ -37,6 +43,10 @@ onMounted(loadOverview)
       <el-button @click="refreshAll">刷新数据</el-button>
     </div>
 
+    <div v-if="overviewError" class="error-state">
+      <el-alert :title="overviewError" type="error" show-icon :closable="false" />
+      <el-button type="primary" plain :loading="overviewLoading" @click="loadOverview">重试</el-button>
+    </div>
     <el-row :gutter="14" class="overview-row" v-loading="overviewLoading">
       <el-col v-for="item in overviewItems" :key="item.label" :xs="12" :sm="6">
         <el-card shadow="never" class="overview-card"><div class="overview-label">{{ item.label }}</div><div class="overview-value">{{ item.value }}<small>{{ item.suffix }}</small></div></el-card>
@@ -56,6 +66,8 @@ onMounted(loadOverview)
 
 <style scoped>
 .assessment-page { min-height: 100%; }
+.error-state { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.error-state :deep(.el-alert) { flex: 1; }
 .page-head { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 16px; }
 .page-head h2 { margin: 0; color: #172033; font-size: 22px; }
 .page-head p { margin: 7px 0 0; color: #778196; font-size: 13px; }
@@ -68,5 +80,6 @@ onMounted(loadOverview)
 .assessment-tabs :deep(.el-tabs__content) { overflow: visible; }
 @media (max-width: 720px) {
   .page-head { align-items: stretch; gap: 12px; flex-direction: column; }
+  .error-state { align-items: stretch; flex-direction: column; }
 }
 </style>

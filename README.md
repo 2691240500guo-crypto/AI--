@@ -99,8 +99,8 @@ E:\work\table
    uvicorn app.main:app --reload
    ```
    > ⚠️ 必须从根目录、用模块模式运行，勿直接 `python app/main.py`（sys.path 会错）。
-   > 浏览器打开 `http://127.0.0.1:8000/docs`（Swagger），默认超管 `admin / admin123`。
-   > `.env` 已指向云端 MySQL8：`mysql+pymysql://adtp_db:12345678@120.77.177.232:3306/adtp_db`
+   > 浏览器打开 `http://127.0.0.1:8000/docs`（Swagger）。管理员密码按部署环境设置，不写入仓库。
+   > `.env` 通过 `DATABASE_URL` 指向云端 MySQL 8；连接地址和凭据不写入仓库。
 
 4. 数据库迁移（Alembic，表结构版本化）
    ```

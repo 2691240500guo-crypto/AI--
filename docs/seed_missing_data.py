@@ -7,14 +7,39 @@
 4. 人才过期：补 expire_at
 全部幂等可重跑。
 """
-import pymysql, requests, json, datetime, sys
+import datetime
+import os
+
+import pymysql
+import requests
+from sqlalchemy.engine import make_url
+
+from app.core.config import get_settings
 
 BASE = "http://127.0.0.1:8000/api/v1"
-DB = dict(host='120.77.177.232', port=3306, user='adtp_db', password='12345678',
-          database='adtp_db', connect_timeout=8, autocommit=True, charset='utf8mb4')
+DB_URL = make_url(get_settings().DATABASE_URL)
+if DB_URL.get_backend_name() != "mysql":
+    raise RuntimeError("该脚本只允许连接配置中的云端 MySQL")
+DB = dict(
+    host=DB_URL.host,
+    port=DB_URL.port or 3306,
+    user=DB_URL.username,
+    password=DB_URL.password,
+    database=DB_URL.database,
+    connect_timeout=8,
+    autocommit=True,
+    charset="utf8mb4",
+)
+ADMIN_PASSWORD = os.getenv("SEED_ADMIN_PASSWORD")
+if not ADMIN_PASSWORD:
+    raise RuntimeError("请通过环境变量 SEED_ADMIN_PASSWORD 提供管理员密码")
 
 def login():
-    r = requests.post(f"{BASE}/auth/login", json={"username": "admin", "password": "admin123"}, timeout=15)
+    r = requests.post(
+        f"{BASE}/auth/login",
+        json={"username": "admin", "password": ADMIN_PASSWORD},
+        timeout=15,
+    )
     r.raise_for_status()
     return r.json()["data"]["access_token"]
 

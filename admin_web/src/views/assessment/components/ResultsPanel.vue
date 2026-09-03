@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { getBatchStatistics, getQuestionStatistics, getStatistics, listAssessmentBatches, listPapers, listResults } from '@/api/assessment'
 import AssessmentRadar from './AssessmentRadar.vue'
 import ResultDetailDrawer from './ResultDetailDrawer.vue'
+import { assessmentResultStatus, assessmentStatusMeta } from '../status'
 
 const papers = ref([])
 const batches = ref([])
@@ -20,7 +21,6 @@ const selectedResultId = ref(null)
 const drawerVisible = ref(false)
 const stats = reactive({ total_results: 0, completed_results: 0, average_score: 0, pass_count: 0, pass_rate: 0, dimensions: [] })
 const filters = reactive({ talent_id: null, paper_id: null, batch_id: null, status: null })
-const statusLabels = { 0: '未答', 1: '答题中', 2: '已交卷', 3: '报告已生成' }
 const radarDimensions = computed(() => (stats.dimensions || []).map((item) => ({ ...item, rate: item.accuracy })))
 const filteredBatches = computed(() => filters.paper_id
   ? batches.value.filter((batch) => batch.paper_id === filters.paper_id)
@@ -95,7 +95,7 @@ onMounted(async () => {
 
 <template>
   <div v-loading="statsLoading" class="results-panel">
-    <el-alert v-if="errorMessage" :title="errorMessage" type="error" show-icon closable @close="errorMessage = ''" />
+    <div v-if="errorMessage" class="error-state"><el-alert :title="errorMessage" type="error" show-icon :closable="false" /><el-button type="primary" plain :loading="loading" @click="load">重试</el-button></div>
     <el-row :gutter="14" class="stat-row">
       <el-col :xs="12" :sm="6"><el-card shadow="never"><el-statistic title="测评总数" :value="stats.total_results" /></el-card></el-col>
       <el-col :xs="12" :sm="6"><el-card shadow="never"><el-statistic title="已完成" :value="stats.completed_results" /></el-card></el-col>
@@ -111,20 +111,20 @@ onMounted(async () => {
         <el-select v-model="filters.batch_id" clearable filterable placeholder="全部批次" style="width:240px">
           <el-option v-for="batch in filteredBatches" :key="batch.id" :label="`${batch.name}（${batch.batch_no}）`" :value="batch.id" />
         </el-select>
-        <el-select v-model="filters.status" clearable placeholder="全部状态" style="width:140px"><el-option v-for="(label, value) in statusLabels" :key="value" :label="label" :value="Number(value)" /></el-select>
+        <el-select v-model="filters.status" clearable placeholder="全部状态" style="width:140px"><el-option v-for="(meta, value) in assessmentResultStatus" :key="value" :label="meta.label" :value="Number(value)" /></el-select>
         <el-button type="primary" @click="search">查询</el-button><el-button @click="reset">重置</el-button>
       </div>
-      <el-table :data="rows" v-loading="loading" stripe>
+      <div class="table-scroll"><el-table :data="rows" v-loading="loading" stripe class="results-table">
         <el-table-column prop="id" label="ID" width="65" />
         <el-table-column prop="talent_name" label="人员" width="120" />
         <el-table-column prop="paper_title" label="试卷" min-width="180" show-overflow-tooltip />
         <el-table-column prop="batch_name" label="批次" min-width="170" show-overflow-tooltip />
-        <el-table-column label="状态" width="105"><template #default="{ row }"><el-tag size="small" :type="row.status >= 2 ? 'success' : 'warning'">{{ statusLabels[row.status] }}</el-tag></template></el-table-column>
+        <el-table-column label="状态" width="110"><template #default="{ row }"><el-tag size="small" :type="assessmentStatusMeta(row.status).type">{{ assessmentStatusMeta(row.status).label }}</el-tag></template></el-table-column>
         <el-table-column label="得分" width="120"><template #default="{ row }">{{ scoreLabel(row) }}</template></el-table-column>
         <el-table-column prop="correct_count" label="答对" width="75" />
         <el-table-column label="交卷时间" width="175"><template #default="{ row }">{{ formatDate(row.end_at) }}</template></el-table-column>
         <el-table-column label="操作" width="90" fixed="right"><template #default="{ row }"><el-button link type="primary" @click="openDetail(row)">查看详情</el-button></template></el-table-column>
-      </el-table>
+      </el-table></div>
       <el-empty v-if="!rows.length && !loading" description="暂无测评结果" />
       <div class="pagination"><el-pagination v-model:current-page="page" v-model:page-size="pageSize" :total="total" :page-sizes="[10, 20, 50, 100]" layout="total, sizes, prev, pager, next" @size-change="load" @current-change="load" /></div>
     </el-card>
@@ -177,6 +177,10 @@ onMounted(async () => {
 
 <style scoped>
 .stat-row { margin-bottom: 14px; }
+.error-state { display: flex; align-items: center; gap: 12px; margin-bottom: 14px; }
+.error-state :deep(.el-alert) { flex: 1; }
+.table-scroll { max-width: 100%; overflow-x: auto; }
+.results-table { min-width: 980px; }
 .table-card, .dimension-card { margin-top: 14px; }
 .filters { display: flex; flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
 .filters :deep(.el-input-number) { width: 130px; }
@@ -188,5 +192,5 @@ onMounted(async () => {
 .analysis-heading span, .dimension-item small { color: #98a2b3; font-size: 12px; }
 .dimension-item__head { display: flex; justify-content: space-between; margin-bottom: 7px; color: #344054; }
 .dimension-item__head strong { color: #2563eb; }
-@media (max-width: 800px) { .analysis-layout { grid-template-columns: 1fr; gap: 8px; } }
+@media (max-width: 800px) { .error-state { align-items: stretch; flex-direction: column; }.analysis-layout { grid-template-columns: 1fr; gap: 8px; }.pagination { justify-content: flex-start; overflow-x: auto; } }
 </style>

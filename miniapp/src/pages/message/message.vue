@@ -172,7 +172,10 @@ function formatTime(value) {
   return text.length > 16 ? text.slice(0, 16) : text
 }
 
-function go(url) { uni.navigateTo({ url }) }
+function goStudy() {
+  closeDetail()
+  uni.switchTab({ url: '/pages/study/study' })
+}
 </script>
 
 <template>
@@ -244,7 +247,7 @@ function go(url) { uni.navigateTo({ url }) }
           <view class="close" @click="closeDetail">关闭</view>
         </view>
         <view class="detail-tag" :class="typeClass(selected.type_code)">
-      <view v-if="selected.type_code === 'train' || selected.type_code === 'training'" class="detail-action" @click="go('/pages/study/study')">去学习</view>
+      <view v-if="selected.type_code === 'train' || selected.type_code === 'training'" class="detail-action" @click="goStudy">去学习</view>
           {{ typeText(selected.type_code) }}
         </view>
         <view class="detail-content">{{ selected.content || '暂无消息内容' }}</view>

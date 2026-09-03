@@ -12,6 +12,9 @@ AI Talent 启动/关闭脚本说明
   start-miniapp.bat       启动小程序 H5 (uni-app, 端口 5174)
   stop-miniapp.bat        关闭小程序 H5 (结束占用 5174 的进程)
   stop-all-frontend.bat   一键关闭两个前端 (5173 + 5174)
+  seed_assessment_data.py 幂等补齐 C 测评演示数据，不删除已有结果
+  reset_assessment_data.py 删除并重新生成 C 测评演示业务数据
+  audit_database_schema.py 只读生成完整数据库表/字段审计清单
 
 二、使用方式
 ------------
@@ -32,6 +35,19 @@ AI Talent 启动/关闭脚本说明
 
   4. 关闭: 双击对应的 stop-*.bat,或直接关掉启动时弹出的黑窗口
      (dev server / uvicorn 窗口用 Ctrl+C 关闭更干净)
+
+  5. 幂等补齐测评演示数据:
+     python scripts\seed_assessment_data.py
+
+  6. 删除旧测评演示业务数据并按当前模型重新生成:
+     先确认 .env 的 DATABASE_URL 指向目标数据库,再执行
+     python scripts\reset_assessment_data.py --yes
+     重建只删除固定种子名称对应的 C 测评题库、试卷、批次、结果、报告和联动记录。
+     演示登录账号与人才档案会保留,避免影响消息、培训等其他模块。
+
+  7. 生成数据库表/字段审计清单:
+     python scripts\audit_database_schema.py
+     默认输出 docs\数据库表字段审计清单.md,不会输出数据库地址、密码或业务行内容。
 
 三、端口对照
 ------------

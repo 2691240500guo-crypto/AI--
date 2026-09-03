@@ -28,7 +28,7 @@ const query = reactive({
   source: ''
 })
 
-const dialog = reactive({ visible: false, editing: false })
+const dialog = reactive({ visible: false, editing: false, saving: false })
 const progressDialog = reactive({ visible: false })
 const form = reactive(blankPlan())
 const progressForm = reactive({ id: null, title: '', status: 'in_progress', records: [] })
@@ -56,7 +56,8 @@ function blankPlan() {
     status: 'not_started',
     deadline: '',
     generated_by: '管理员',
-    improvement: 0
+    improvement: 0,
+    notify_employee: true
   }
 }
 
@@ -122,12 +123,22 @@ function openEdit(row) {
 }
 
 async function save() {
-  await formRef.value.validate()
-  if (form.id) await updatePlan(form.id, form)
-  else await createPlan(form)
-  ElMessage.success('学习计划已保存')
-  dialog.visible = false
-  load()
+  if (dialog.saving) return
+  dialog.saving = true
+  try {
+    await formRef.value.validate()
+    if (form.id) {
+      await updatePlan(form.id, form)
+      ElMessage.success('学习计划已保存')
+    } else {
+      await createPlan(form)
+      ElMessage.success(form.notify_employee ? '学习计划已保存并通知员工' : '学习计划已保存')
+    }
+    dialog.visible = false
+    load()
+  } finally {
+    dialog.saving = false
+  }
 }
 
 function openProgress(row) {
@@ -317,10 +328,13 @@ onMounted(async () => {
         <el-input-number v-model="form.improvement" :min="0" :max="100" style="width:180px" />
         <span class="suffix">分</span>
       </el-form-item>
+      <el-form-item v-if="!dialog.editing" label="通知员工">
+        <el-switch v-model="form.notify_employee" active-text="保存后发送消息" />
+      </el-form-item>
     </el-form>
     <template #footer>
-      <el-button @click="dialog.visible=false">取消</el-button>
-      <el-button type="primary" @click="save">保存</el-button>
+      <el-button :disabled="dialog.saving" @click="dialog.visible=false">取消</el-button>
+      <el-button type="primary" :loading="dialog.saving" @click="save">保存</el-button>
     </template>
   </el-dialog>
 

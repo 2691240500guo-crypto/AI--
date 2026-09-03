@@ -5,10 +5,12 @@
 权限码：读 talent:query，写 talent:manage（超管绕过）。
 """
 from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.deps import get_current_user, require_client, require_permission
 from app.db.session import get_db
+from app.models.user import User
 from app.schemas.talent import (
     TalentCreate, TalentUpdate, TalentOut, TalentQuery,
     TalentProfileOut, SemanticSearchRequest, SemanticSearchHit,
@@ -46,7 +48,33 @@ def list_talent(keyword: str | None = None, tag: str | None = None,
         rows = [r for r in rows if r.status == status]
     if source:
         rows = [r for r in rows if (r.resume_source or "") == source]
-    items = [TalentOut(**talent_to_out(r)) for r in rows]
+    talent_ids = [talent.id for talent in rows]
+    account_by_talent_id: dict[int, User] = {}
+    if talent_ids:
+        accounts = db.scalars(
+            select(User)
+            .where(
+                User.talent_id.in_(talent_ids),
+                User.status == 1,
+                User.user_type == "employee",
+            )
+            .order_by(User.id)
+        ).all()
+        # 老库若尚未应用唯一约束，稳定选取最早的有效员工账号，避免返回结果漂移。
+        for account in accounts:
+            account_by_talent_id.setdefault(account.talent_id, account)
+
+    items = []
+    for talent in rows:
+        payload = talent_to_out(talent)
+        account = account_by_talent_id.get(talent.id)
+        if account:
+            payload.update({
+                "user_id": account.id,
+                "username": account.username,
+                "nickname": account.nickname,
+            })
+        items.append(TalentOut(**payload))
     return ok(paged_result(items, page, page_size, total))
 
 @router.get("/governance", dependencies=[Depends(require_permission("talent:query"))])

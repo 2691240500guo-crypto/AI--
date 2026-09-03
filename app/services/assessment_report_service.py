@@ -96,9 +96,15 @@ class AssessmentReportService:
             link.agent_task_id = agent_task_id or link.agent_task_id
             link.weak_dimensions = weak_dimensions
             if training_plan is not None:
-                link.training_plan_json = training_plan
+                previous_plan = dict(link.training_plan_json or {})
+                merged_plan = dict(training_plan)
+                # 消息失败后的重试必须复用已落库计划，不能覆盖执行标识后重复创建。
+                if previous_plan.get("plan_id") is not None:
+                    merged_plan["plan_id"] = previous_plan["plan_id"]
+                    merged_plan["course_ids"] = previous_plan.get("course_ids", [])
+                link.training_plan_json = merged_plan
             link.status = "pending"
-            link.error_message = error_message or "培训模块尚未接入，等待后续处理"
+            link.error_message = error_message
             link.processed_at = None
             db.flush()
             return link, False
@@ -109,7 +115,7 @@ class AssessmentReportService:
             training_plan_json=training_plan,
             status="pending",
             retry_count=0,
-            error_message=error_message or "培训模块尚未接入，等待后续处理",
+            error_message=error_message,
         )
         db.add(link)
         db.flush()
@@ -163,30 +169,43 @@ class AssessmentReportService:
         try:
             from sqlalchemy import select
 
-            from app.models.training import Course
+            from app.models.training import Course, TrainingPlan
             from app.services.training_service import PlanService
 
             weaknesses = list(link.weak_dimensions or [])
-            courses = list(db.scalars(select(Course).where(Course.status == 1)).all())
-            course_ids = [
-                course.id for course in courses
-                if any(dimension in (course.allow_tags or "") for dimension in weaknesses)
-            ][:3]
-            plan = PlanService.create(
-                db,
-                talent_id=result.talent_id,
-                title=training_plan.get("title") or "测评短板提升计划",
-                course_ids=course_ids,
-                deadline=datetime.now() + timedelta(days=30),
-                generated_by="assessment",
-                weakness_tags=weaknesses,
-            )
-            link.training_plan_json = {**training_plan, "plan_id": plan.id, "course_ids": course_ids}
-            link.status = "sent"
-            link.error_message = None
-            link.processed_at = datetime.now()
-        except Exception as exc:
+            stored_plan = dict(link.training_plan_json or {})
+            plan_id = stored_plan.get("plan_id")
+            course_ids = list(stored_plan.get("course_ids") or [])
+
+            # SAVEPOINT 隔离培训表缺失、约束错误等数据库异常，保证 outbox 仍能落为 failed。
+            with db.begin_nested():
+                plan = db.get(TrainingPlan, plan_id) if plan_id is not None else None
+                if plan is not None and plan.talent_id != result.talent_id:
+                    raise ValueError("培训计划与测评人才不一致")
+                if plan is None:
+                    courses = list(db.scalars(select(Course).where(Course.status == 1)).all())
+                    course_ids = [
+                        course.id for course in courses
+                        if any(dimension in (course.allow_tags or "") for dimension in weaknesses)
+                    ][:3]
+                    plan = PlanService.create(
+                        db,
+                        talent_id=result.talent_id,
+                        title=training_plan.get("title") or "测评短板提升计划",
+                        course_ids=course_ids,
+                        deadline=datetime.now() + timedelta(days=30),
+                        generated_by="assessment",
+                        weakness_tags=weaknesses,
+                    )
+                    db.flush()
+
+            link.training_plan_json = {**stored_plan, **training_plan, "plan_id": plan.id, "course_ids": course_ids}
+            # 计划已落库但消息尚未发送，仍属于处理中状态。
             link.status = "pending"
+            link.error_message = None
+            link.processed_at = None
+        except Exception as exc:
+            link.status = "failed"
             link.error_message = f"培训计划创建失败，可重试：{str(exc)[:900]}"
             link.processed_at = None
         db.flush()

@@ -132,6 +132,11 @@ class CertificateOut(ORMModel):
 class TalentOut(ORMModel):
     id: int
     name: str
+    # 管理端业务选择器使用的人才 ↔ 可登录员工账号映射。
+    # 无有效员工账号时保持为空，调用方可展示但应禁止选择。
+    user_id: int | None = None
+    username: str | None = None
+    nickname: str | None = None
     gender: str | None = None
     phone_masked: str | None = None      # 脱敏手机号
     phone: str | None = None             # hq+ 原始手机号

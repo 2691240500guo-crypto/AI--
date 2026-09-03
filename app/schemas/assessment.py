@@ -254,7 +254,7 @@ class TrainingOutboxOut(ORMModel):
     agent_task_id: int | None
     weak_dimensions: list[Any] | None
     training_plan_json: dict[str, Any] | None
-    status: str
+    status: Literal["pending", "sent", "failed"]
     retry_count: int
     error_message: str | None
     processed_at: datetime | None
@@ -409,7 +409,7 @@ class TrainingLinkOut(ORMModel):
     agent_task_id: int | None
     weak_dimensions: list[Any] | None
     training_plan_json: dict[str, Any] | None
-    status: str
+    status: Literal["pending", "sent", "failed"]
     retry_count: int
     error_message: str | None
     processed_at: datetime | None

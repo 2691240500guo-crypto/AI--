@@ -21,9 +21,9 @@ from sqlalchemy.orm import Session
 
 from app.dao.training import CourseDAO
 from app.models.training import Lesson
-from app.dao.user import UserDAO
 from app.utils.llm import get_llm
 from app.utils.logger import logger
+from app.utils.response import BusinessError
 
 
 # ========== JSON 列表提取容错 ==========
@@ -329,6 +329,14 @@ class TrainingAgentService:
                 logger.warning("[train] 剔除无视频课节的课程(培训必有视频): %s", dropped)
             course_ids = [cid for cid in course_ids if cid in valid_ids]
 
+        # 推送接收人必须是登录账号 user_id。先校验再建计划，避免无账号时
+        # 只创建计划、未发送消息，却向前端返回“已推送”的假成功。
+        receiver_user_id = None
+        if push:
+            receiver_user_id = MessageService.user_id_for_talent(db, talent_id)
+            if receiver_user_id is None:
+                raise BusinessError(400, "该人才档案未关联有效员工账号，无法推送培训计划")
+
         # 建计划（weakness_tags 存短板 + 岗位名 + 岗位需求标签）
         weakness_tags = list(dict.fromkeys(
             shortage_tags + [f"岗位:{n}" for n in position_names] + position_tags))
@@ -340,20 +348,15 @@ class TrainingAgentService:
         # 推送
         if push:
             try:
-                # 接收人统一按 user_id（sys_user.talent_id 反查），消息查询端用 user_id 匹配；
-                # 直接发 talent_id 会导致员工收不到（user_id != talent_id）。
-                owner = UserDAO.get_by(db, talent_id=talent_id, status=1)
-                if owner is None:
-                    logger.warning("[train] 培训计划已生成，但 talent_id=%s 无关联登录账号，跳过消息推送", talent_id)
-                else:
-                    MessageService.send(
-                        db, type_code="train", title=title,
-                        content=f"已为你生成个性化培训计划（含 {len(course_ids)} 门课程，"
-                                f"针对短板与适配岗位 {position_names or '通用能力'}）",
-                        receiver_ids=[owner.id], biz_type="training", biz_id=plan.id,
-                    )
+                MessageService.send(
+                    db, type_code="train", title=title,
+                    content=f"已为你生成个性化培训计划（含 {len(course_ids)} 门课程，"
+                            f"针对短板与适配岗位 {position_names or '通用能力'}）",
+                    receiver_ids=[receiver_user_id], biz_type="training", biz_id=plan.id,
+                )
             except Exception as exc:  # noqa: BLE001
-                logger.warning("[train] 培训消息推送失败（不影响计划）：%s", exc)
+                logger.exception("[train] 培训消息推送失败，事务将回滚：%s", exc)
+                raise BusinessError(500, "培训计划消息推送失败，请稍后重试") from exc
 
         return {
             "plan_id": plan.id,
@@ -361,6 +364,6 @@ class TrainingAgentService:
             "shortage_tags": shortage_tags,
             "position_tags": position_tags,
             "positions": [{"name": n} for n in position_names],
-            "pushed": push,
+            "pushed": bool(push and receiver_user_id),
         }
 

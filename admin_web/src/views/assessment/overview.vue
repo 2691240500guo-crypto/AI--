@@ -8,6 +8,7 @@ import { useUserStore } from '@/stores/user'
 const router = useRouter()
 const user = useUserStore()
 const loading = ref(false)
+const errorMessage = ref('')
 const stats = reactive({ total_results: 0, completed_results: 0, average_score: 0, pass_rate: 0 })
 const actions = computed(() => [
   { title: '题库与题目', description: '维护题库、题目与批量导入', path: '/assessment/question-bank', perm: 'assessment:manage', icon: Collection },
@@ -18,7 +19,12 @@ const actions = computed(() => [
 
 async function load() {
   loading.value = true
-  try { Object.assign(stats, (await getStatistics({})).data || {}) } finally { loading.value = false }
+  errorMessage.value = ''
+  try {
+    Object.assign(stats, (await getStatistics({})).data || {})
+  } catch (error) {
+    errorMessage.value = error?.message || '测评概览加载失败，请重试'
+  } finally { loading.value = false }
 }
 
 onMounted(load)
@@ -26,6 +32,10 @@ onMounted(load)
 
 <template>
   <div v-loading="loading" class="overview-page">
+    <div v-if="errorMessage" class="error-state">
+      <el-alert :title="errorMessage" type="error" show-icon :closable="false" />
+      <el-button type="primary" plain :loading="loading" @click="load">重试</el-button>
+    </div>
     <el-row :gutter="16">
       <el-col :xs="12" :sm="6"><el-card shadow="never"><el-statistic title="测评总数" :value="stats.total_results" suffix="场" /></el-card></el-col>
       <el-col :xs="12" :sm="6"><el-card shadow="never"><el-statistic title="已完成" :value="stats.completed_results" suffix="场" /></el-card></el-col>
@@ -49,13 +59,15 @@ onMounted(load)
       <template #header>C 智能测评管理闭环</template>
       <p>管理端负责题库、组卷、发起、统计、能力报告和培训联动，在线作答由用户端承载。</p>
       <p>管理流程：维护题库与题目 → 创建试卷 → 发起测评 → 用户端完成作答 → 查看成绩与报告。</p>
-      <el-alert title="报告通过 LangGraph 调用硅基流动，失败时自动使用本地确定性算法；培训模块未接入时保留可重试联动记录。" type="info" :closable="false" />
+      <el-alert title="报告通过 LangGraph 调用硅基流动，失败时自动使用本地确定性算法；培训计划或消息投递失败时保留可重试联动记录。" type="info" :closable="false" />
     </el-card>
   </div>
 </template>
 
 <style scoped>
 .overview-page { min-height: 100%; }
+.error-state { display: flex; align-items: center; gap: 12px; margin-bottom: 16px; }
+.error-state :deep(.el-alert) { flex: 1; }
 .quick-section { margin-top: 16px; padding: 20px; background: #fff; border: 1px solid #e4e7ed; border-radius: 6px; }
 .section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 16px; }
 .section-heading h2 { margin: 0; color: #172033; font-size: 18px; font-weight: 600; }
@@ -71,5 +83,5 @@ onMounted(load)
 .guide-card { margin-top: 16px; }
 .guide-card p { color: #5d6678; line-height: 1.8; }
 @media (max-width: 1100px) { .quick-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
-@media (max-width: 560px) { .quick-section { padding: 16px; }.quick-grid { grid-template-columns: 1fr; }.quick-action { min-height: 88px; } }
+@media (max-width: 560px) { .error-state { align-items: stretch; flex-direction: column; }.quick-section { padding: 16px; }.quick-grid { grid-template-columns: 1fr; }.quick-action { min-height: 88px; } }
 </style>

@@ -18,14 +18,16 @@ class Settings(BaseSettings):
     VERSION: str = "0.1.0"
     API_PREFIX: str = "/api/v1"
 
-    DATABASE_URL: str = "sqlite:///./dev.db"
+    # 数据库地址必须由环境配置提供；本项目不再隐式回退到 SQLite。
+    DATABASE_URL: str
+    AUTO_INIT_DB: bool = False
     # ---- 云端 MySQL 连接参数（与 .env 的 MYSQL_* 对应）----
     MYSQL_HOST: str = "127.0.0.1"
     MYSQL_PORT: int = 3306
     MYSQL_USER: str = "root"
     MYSQL_PASSWORD: str = ""
     MYSQL_DB: str = "ai_talent"
-    SECRET_KEY: str = "dev-secret-change-me"
+    SECRET_KEY: str
     ALGORITHM: str = "HS256"
     ACCESS_TOKEN_EXPIRE_MINUTES: int = 120
     REFRESH_TOKEN_EXPIRE_DAYS: int = 7
@@ -45,7 +47,7 @@ class Settings(BaseSettings):
     # ---- 硅基流动（SiliconFlow）统一配置 ----
     # 大模型统一走硅基流动：chat 用 Qwen3-30B-A3B、embedding 用 bge-m3
     SILICONFLOW_BASE_URL: str = "https://api.siliconflow.cn/v1"
-    SILICONFLOW_API_KEY: str = "sk-lsdsrnfefoxvmynyoeabagnwyjccdmmtlkajwuduajgjyuqw"      # 与 SILICON_FLOW_API_KEY 二选一填写（.env）
+    SILICONFLOW_API_KEY: str = ""      # 与 SILICON_FLOW_API_KEY 二选一填写（.env）
     SILICONFLOW_MODEL: str = "Qwen/Qwen3-30B-A3B-Instruct-2507"
     SILICONFLOW_TIMEOUT: int = 20
 
@@ -58,7 +60,7 @@ class Settings(BaseSettings):
     # ---- 硅基流动（SiliconFlow，OpenAI 兼容 API，统一默认走硅基流动）----
     # LLM_STRATEGY: "ollama" | "silicon_flow"，控制 chat/embed 走哪个后端
     LLM_STRATEGY: str = "silicon_flow"
-    SILICON_FLOW_API_KEY: str = "sk-lsdsrnfefoxvmynyoeabagnwyjccdmmtlkajwuduajgjyuqw"
+    SILICON_FLOW_API_KEY: str = ""
     SILICON_FLOW_BASE_URL: str = "https://api.siliconflow.cn/v1"
     SILICON_FLOW_LLM_MODEL: str = "Qwen/Qwen3-30B-A3B-Instruct-2507"
     SILICON_FLOW_EMBED_MODEL: str = "BAAI/bge-m3"
@@ -72,8 +74,8 @@ class Settings(BaseSettings):
     MILVUS_COLLECTION_PREFIX: str = "talent_"
 
     MINIO_ENDPOINT: str = "localhost:9000"
-    MINIO_ACCESS_KEY: str = "minioadmin"
-    MINIO_SECRET_KEY: str = "minioadmin"
+    MINIO_ACCESS_KEY: str = ""
+    MINIO_SECRET_KEY: str = ""
     MINIO_SECURE: bool = False
     MINIO_BUCKET: str = "ai-talent"
 

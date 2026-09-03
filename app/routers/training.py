@@ -127,6 +127,14 @@ def create_lesson(cid: int, body: LessonCreate, db: Session = Depends(get_db)):
 # ---------- 学习计划（E02）----------
 @router.post("/plans", dependencies=[Depends(require_client("admin"))])
 def create_plan(body: PlanCreate, db: Session = Depends(get_db)):
+    from app.services.message_service import MessageService
+
+    receiver_user_id = None
+    if body.push:
+        receiver_user_id = MessageService.user_id_for_talent(db, body.talent_id)
+        if receiver_user_id is None:
+            raise BusinessError(400, "该人才档案未关联有效员工账号，无法推送消息")
+
     plan = PlanService.create(db, talent_id=body.talent_id, title=body.title,
                               course_ids=body.course_ids, deadline=body.deadline,
                               weakness_tags=body.weakness_tags,
@@ -138,6 +146,16 @@ def create_plan(body: PlanCreate, db: Session = Depends(get_db)):
         plan.generated_by = body.generated_by
     if body.improvement is not None:
         plan.improvement = body.improvement
+    if body.push:
+        MessageService.send(
+            db,
+            type_code="train",
+            title=plan.title,
+            content="已为你创建培训计划，请点击查看并开始学习。",
+            receiver_ids=[receiver_user_id],
+            biz_type="training",
+            biz_id=plan.id,
+        )
     db.commit()
     return ok(PlanOut.model_validate(plan))
 
@@ -286,14 +304,35 @@ def effects_full(db: Session = Depends(get_db)):
 
 # ---------- 以下为管理端前端对接补充端点（E01-E05 增补）----------
 @router.get("/talents", dependencies=[Depends(require_client("admin"))])
-def list_talents(keyword: str | None = None, db: Session = Depends(get_db)):
-    """人才下拉（培训计划选择学习人员）。只读对接 tal_talent。"""
-    stmt = select(Talent).where(Talent.status == 1).order_by(Talent.id.desc()).limit(500)
+def list_talents(keyword: str | None = None, message_recipient_only: bool = False,
+                 db: Session = Depends(get_db)):
+    """人才下拉；可只返回已关联有效登录账号、能够接收消息的人才。"""
+    recipient_users = (
+        select(User.talent_id.label("talent_id"), func.min(User.id).label("user_id"))
+        .where(User.talent_id.is_not(None), User.status == 1)
+        .group_by(User.talent_id)
+        .subquery()
+    )
+    stmt = (
+        select(Talent, recipient_users.c.user_id)
+        .outerjoin(recipient_users, recipient_users.c.talent_id == Talent.id)
+        .where(Talent.status == 1)
+    )
     if keyword:
         stmt = stmt.where(Talent.name.like(f"%{keyword}%"))
-    rows = db.scalars(stmt).all()
-    return ok([{"id": t.id, "name": t.name, "current_title": t.current_title}
-               for t in rows])
+    if message_recipient_only:
+        stmt = stmt.where(recipient_users.c.user_id.is_not(None))
+    rows = db.execute(stmt.order_by(Talent.id.desc()).limit(500)).all()
+    return ok([
+        {
+            "id": talent.id,
+            "name": talent.name,
+            "current_title": talent.current_title,
+            "user_id": user_id,
+            "can_receive_message": user_id is not None,
+        }
+        for talent, user_id in rows
+    ])
 
 
 @router.put("/plans/{pid}", dependencies=[Depends(require_client("admin"))])
@@ -398,12 +437,15 @@ def push_plan(pid: int, db: Session = Depends(get_db)):
     plan = PlanDAO.get(db, pid)
     if not plan:
         raise BusinessError(404, "学习计划不存在")
+    receiver_user_id = MessageService.user_id_for_talent(db, plan.talent_id)
+    if receiver_user_id is None:
+        raise BusinessError(400, "该人才档案未关联有效员工账号，无法推送消息")
     # 计划已推送过的话会重复发一条（消息域允许），不再做幂等；
     # 如需去重可由前端按 plan.pushed 标记判断
     MessageService.send(
         db, type_code="train", title=plan.title,
         content=f"已为你生成个性化培训计划，请点击查看并开始学习。",
-        receiver_ids=[plan.talent_id], biz_type="training", biz_id=plan.id,
+        receiver_ids=[receiver_user_id], biz_type="training", biz_id=plan.id,
     )
     db.commit()
     return ok({"plan_id": plan.id, "pushed": True})

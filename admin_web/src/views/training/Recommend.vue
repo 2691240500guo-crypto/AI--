@@ -98,7 +98,7 @@ async function searchTalents(kw) {
   if (!kw) return
   talentLoading.value = true
   try {
-    const res = await listTalentOptions(kw)
+    const res = await listTalentOptions(kw, { messageRecipientOnly: true })
     talentOptions.value = res.data || []
   } finally { talentLoading.value = false }
 }
@@ -145,13 +145,14 @@ async function onPush(row) {
   } catch { return }
   row.pushing = true
   try {
-    await http.post('/training/agent/recommend', {
+    const res = await http.post('/training/agent/recommend', {
       talent_id: row.talent_id,
       course_ids: row.course_ids,
       shortages: row.shortage_tags || [],
       title: title.value || '个性化培训计划',
       push: true,   // 推送时建计划 + 发消息
     })
+    if (!res.data?.pushed) throw new Error('培训计划已生成，但消息未成功发送')
     row.pushed = true
     ElMessage.success('已推送（计划已创建）')
   } catch (e) {

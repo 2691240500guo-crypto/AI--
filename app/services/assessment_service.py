@@ -371,16 +371,25 @@ class AssessmentService:
         if not paper.question_links:
             raise ValueError("试卷没有题目")
         if len(body.talent_ids) != len(set(body.talent_ids)):
-            raise ValueError("测试用户不能重复")
+            raise ValueError("测试人才档案不能重复")
         talents = list(db.scalars(select(Talent).where(
             Talent.id.in_(body.talent_ids), Talent.status == 1
         )).all())
         if len({talent.id for talent in talents}) != len(body.talent_ids):
             raise ValueError("存在不存在或已失效的人才档案")
-        users = list(db.scalars(select(User).where(
-            User.talent_id.in_(body.talent_ids), User.status == 1, User.user_type == "employee"
-        )).all())
-        user_by_talent_id = {item.talent_id: item for item in users if item.talent_id is not None}
+        users = list(db.scalars(
+            select(User)
+            .where(
+                User.talent_id.in_(body.talent_ids),
+                User.status == 1,
+                User.user_type == "employee",
+            )
+            .order_by(User.id)
+        ).all())
+        user_by_talent_id: dict[int, User] = {}
+        for item in users:
+            if item.talent_id is not None:
+                user_by_talent_id.setdefault(item.talent_id, item)
         missing_accounts = [str(talent_id) for talent_id in body.talent_ids if talent_id not in user_by_talent_id]
         if missing_accounts:
             raise ValueError(f"人才档案未关联可用员工账号：{', '.join(missing_accounts)}")

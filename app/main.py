@@ -46,10 +46,11 @@ register_middlewares(app)
 
 @app.on_event("startup")
 def on_startup() -> None:
-    from app.db.init_db import init_db
-    init_db()
-    from app.db.session import SessionLocal
-    # 预留：清空 Redis / 连接初始化
+    # 云端库结构由 Alembic 管理，演示数据由显式脚本管理。默认启动不执行
+    # create_all/全量播种，避免多实例启动时锁表或被云端网络波动拖住。
+    if settings.AUTO_INIT_DB:
+        from app.db.init_db import init_db
+        init_db()
 
 
 app.include_router(api, prefix=settings.API_PREFIX)

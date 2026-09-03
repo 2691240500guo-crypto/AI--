@@ -3,12 +3,13 @@
 from datetime import datetime, timedelta
 from decimal import Decimal
 
-from sqlalchemy import select
+from sqlalchemy import delete, or_, select
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
 from app.db.assessment_role_questions import DIMENSIONS, ROLE_QUESTION_SETS
 from app.models.assessment import (
+    AssessmentAnswerEvent,
     AssessmentBatch,
     AssessmentCapabilityModel,
     AssessmentPaper,
@@ -19,6 +20,8 @@ from app.models.assessment import (
     PaperQuestion,
     QuestionBank,
 )
+from app.models.agent import AgentTask
+from app.models.role import Role
 from app.models.user import User
 from app.models.talent import Talent
 from app.services.assessment_report_service import AssessmentReportService
@@ -30,6 +33,149 @@ DEMO_PAPER_TITLE = "本地演示综合测评"
 TEST_USERNAME_PREFIX = "c_demo_"
 TEST_BANK_PREFIX = "C智能测评演示题库"
 TEST_PAPER_PREFIX = "C智能测评演示试卷"
+
+
+def _demo_seed_names() -> dict[str, set[str]]:
+    role_values = ROLE_QUESTION_SETS.values()
+    return {
+        "users": {
+            DEMO_USERNAME,
+            *(f"assessment_{role_key}" for role_key in ROLE_QUESTION_SETS),
+        },
+        "banks": {DEMO_BANK_NAME, *(item["bank_name"] for item in role_values)},
+        "papers": {DEMO_PAPER_TITLE, *(item["paper_title"] for item in role_values)},
+        "models": {
+            "C演示基础能力模型",
+            "C演示数据安全模型",
+            "C演示综合能力模型",
+            *(item["model_name"] for item in role_values),
+        },
+    }
+
+
+def _selected_ids(db: Session, model, *conditions) -> list[int]:
+    return list(db.scalars(select(model.id).where(*conditions)).all())
+
+
+def delete_assessment_demo_data(db: Session, *, commit: bool = True) -> dict[str, int]:
+    """删除本模块拥有的演示业务数据，保留跨模块复用的账号和人才档案。
+
+    固定业务名称是种子数据的所有权边界。若演示题目或能力模型已被非演示
+    试卷复用，函数会在删除任何数据前中止，避免破坏人工创建的试卷。
+    """
+    names = _demo_seed_names()
+    user_ids = _selected_ids(
+        db,
+        User,
+        or_(User.username.in_(names["users"]), User.username.like(f"{TEST_USERNAME_PREFIX}%")),
+    )
+    talent_ids = list(db.scalars(
+        select(User.talent_id).where(User.id.in_(user_ids), User.talent_id.is_not(None))
+    ).all()) if user_ids else []
+    bank_ids = _selected_ids(
+        db,
+        QuestionBank,
+        or_(QuestionBank.name.in_(names["banks"]), QuestionBank.name.like(f"{TEST_BANK_PREFIX}%")),
+    )
+    model_ids = _selected_ids(db, AssessmentCapabilityModel, AssessmentCapabilityModel.name.in_(names["models"]))
+    paper_ids = _selected_ids(
+        db,
+        AssessmentPaper,
+        or_(
+            AssessmentPaper.title.in_(names["papers"]),
+            AssessmentPaper.title.like(f"{TEST_PAPER_PREFIX}%"),
+        ),
+    )
+    question_ids = _selected_ids(db, AssessmentQuestion, AssessmentQuestion.bank_id.in_(bank_ids)) if bank_ids else []
+
+    if question_ids:
+        external_question_papers = list(db.scalars(
+            select(PaperQuestion.paper_id).where(
+                PaperQuestion.question_id.in_(question_ids),
+                PaperQuestion.paper_id.not_in(paper_ids),
+            ).distinct()
+        ).all())
+        if external_question_papers:
+            raise RuntimeError(
+                "演示题目已被非演示试卷复用，拒绝重置；paper_id="
+                + ",".join(map(str, external_question_papers))
+            )
+    if model_ids:
+        external_model_papers = _selected_ids(
+            db,
+            AssessmentPaper,
+            AssessmentPaper.capability_model_id.in_(model_ids),
+            AssessmentPaper.id.not_in(paper_ids),
+        )
+        if external_model_papers:
+            raise RuntimeError(
+                "演示能力模型已被非演示试卷复用，拒绝重置；paper_id="
+                + ",".join(map(str, external_model_papers))
+            )
+
+    batch_conditions = [AssessmentBatch.batch_no.like("C-DEMO-BATCH-%"), AssessmentBatch.batch_no.like("C-ROLE-%")]
+    if paper_ids:
+        batch_conditions.append(AssessmentBatch.paper_id.in_(paper_ids))
+    batch_ids = _selected_ids(db, AssessmentBatch, or_(*batch_conditions))
+
+    result_conditions = []
+    if user_ids:
+        result_conditions.append(AssessmentResult.user_id.in_(user_ids))
+    if talent_ids:
+        result_conditions.append(AssessmentResult.talent_id.in_(talent_ids))
+    if paper_ids:
+        result_conditions.append(AssessmentResult.paper_id.in_(paper_ids))
+    if batch_ids:
+        result_conditions.append(AssessmentResult.batch_id.in_(batch_ids))
+    result_ids = _selected_ids(db, AssessmentResult, or_(*result_conditions)) if result_conditions else []
+
+    deleted = {
+        "results": len(result_ids),
+        "batches": len(batch_ids),
+        "papers": len(paper_ids),
+        "questions": len(question_ids),
+        "banks": len(bank_ids),
+        "capability_models": len(model_ids),
+    }
+    try:
+        if result_ids:
+            db.execute(delete(AssessmentTrainingOutbox).where(AssessmentTrainingOutbox.result_id.in_(result_ids)))
+            db.execute(delete(AssessmentAnswerEvent).where(AssessmentAnswerEvent.result_id.in_(result_ids)))
+            db.execute(delete(AssessmentResultDetail).where(AssessmentResultDetail.result_id.in_(result_ids)))
+            db.execute(delete(AgentTask).where(AgentTask.result_id.in_(result_ids)))
+            db.execute(delete(AssessmentResult).where(AssessmentResult.id.in_(result_ids)))
+        if batch_ids:
+            db.execute(delete(AssessmentBatch).where(AssessmentBatch.id.in_(batch_ids)))
+        paper_link_conditions = []
+        if paper_ids:
+            paper_link_conditions.append(PaperQuestion.paper_id.in_(paper_ids))
+        if question_ids:
+            paper_link_conditions.append(PaperQuestion.question_id.in_(question_ids))
+        if paper_link_conditions:
+            db.execute(delete(PaperQuestion).where(or_(*paper_link_conditions)))
+        if paper_ids:
+            db.execute(delete(AssessmentPaper).where(AssessmentPaper.id.in_(paper_ids)))
+        if question_ids:
+            db.execute(delete(AssessmentQuestion).where(AssessmentQuestion.id.in_(question_ids)))
+        if bank_ids:
+            db.execute(delete(QuestionBank).where(QuestionBank.id.in_(bank_ids)))
+        if model_ids:
+            db.execute(delete(AssessmentCapabilityModel).where(AssessmentCapabilityModel.id.in_(model_ids)))
+        if commit:
+            db.commit()
+        else:
+            db.flush()
+    except Exception:
+        db.rollback()
+        raise
+    return deleted
+
+
+def reset_assessment_demo_data(db: Session) -> dict[str, int]:
+    """删除旧的 C 测评演示业务数据后，使用当前 schema 重新生成。"""
+    deleted = delete_assessment_demo_data(db)
+    seed_assessment(db)
+    return deleted
 
 
 def _ensure_employee_identity(db: Session, user: User, *, name: str) -> Talent:
@@ -53,6 +199,13 @@ def _ensure_employee_identity(db: Session, user: User, *, name: str) -> Talent:
     user.user_type = "employee"
     if not user.emp_no:
         user.emp_no = user.username
+    employee_role = db.scalar(select(Role).where(Role.code == "employee"))
+    if employee_role is None:
+        employee_role = Role(code="employee", name="员工", remark="员工端基础角色", status=1)
+        db.add(employee_role)
+        db.flush()
+    if all(role.id != employee_role.id for role in user.roles):
+        user.roles.append(employee_role)
     return talent
 
 TEST_QUESTIONS = [
@@ -363,6 +516,9 @@ def _seed_test_data(db: Session) -> None:
                 AssessmentResult.paper_id == paper.id,
             ))
         if result:
+            # 兼容旧种子把 sys_user.id 写进 talent_id，或尚未回填 user_id 的记录。
+            result.talent_id = user.talent_id
+            result.user_id = user.id
             if result.batch_id is None:
                 result.batch_id = db.scalar(select(AssessmentBatch.id).where(
                     AssessmentBatch.batch_no == f"C-DEMO-BATCH-{index:02d}"
@@ -571,7 +727,14 @@ def _seed_role_assessments(db: Session) -> None:
             AssessmentResult.talent_id == talent.id,
             AssessmentResult.paper_id == paper.id,
         ))
+        if result is None:
+            result = db.scalar(select(AssessmentResult).where(
+                AssessmentResult.user_id == user.id,
+                AssessmentResult.paper_id == paper.id,
+            ))
         if result:
+            result.talent_id = talent.id
+            result.user_id = user.id
             continue
 
         started_at = now - timedelta(hours=2)
@@ -629,6 +792,10 @@ def _seed_role_assessments(db: Session) -> None:
             error_message="培训模块尚未接入，等待后续处理",
         ))
         db.commit()
+
+    # Existing role samples may only need identity repair and therefore never
+    # enter the creation branch that commits inside the loop.
+    db.commit()
 
 
 def _seed_capability_models(db: Session) -> None:

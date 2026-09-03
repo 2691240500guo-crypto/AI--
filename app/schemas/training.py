@@ -71,6 +71,8 @@ class PlanCreate(BaseModel):
     status: int | None = None              # 0未开始 1进行中 2已完成 3已逾期
     generated_by: str | None = None
     improvement: int | None = None
+    # 兼容已有调用方：只有显式要求时，创建计划才同时发送员工消息。
+    push: bool = False
 
 
 class PlanOut(ORMModel):

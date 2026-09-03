@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from typing import Any, TypedDict
 
 from langgraph.graph import END, StateGraph
@@ -12,7 +13,7 @@ from app.agents.assessment_agent import AssessmentAgent
 from app.agents.training_agent import TrainingAgent
 from app.core.config import get_settings
 from app.dao.agent import AgentTaskDAO
-from app.models.assessment import AssessmentResult
+from app.models.assessment import AssessmentResult, AssessmentTrainingOutbox
 from app.models.talent import Talent
 from app.models.user import User
 from app.services.message_service import MessageService
@@ -224,7 +225,7 @@ class AssessmentGraphRunner:
             from app.services.assessment_report_service import AssessmentReportService
 
             report = state.get("report") or state["local_report"]
-            link, created = AssessmentReportService.upsert_training_link(
+            link, _ = AssessmentReportService.upsert_training_link(
                 db,
                 result,
                 report.get("weaknesses", []),
@@ -238,12 +239,22 @@ class AssessmentGraphRunner:
             return {
                 "training_link_id": link.id,
                 "training_link_status": link.status,
-                "notify_required": link.status == "sent" and (created or state.get("force_notify", False)),
+                "notify_required": (
+                    link.status == "pending"
+                    and bool((link.training_plan_json or {}).get("plan_id"))
+                ),
+                "training_error": link.error_message if link.status == "failed" else None,
             }
 
         def notify(state: AssessmentAgentState) -> dict[str, Any]:
             if not state.get("notify_required"):
                 return {"notify_status": "skipped"}
+            link = db.get(AssessmentTrainingOutbox, state["training_link_id"])
+            if not link:
+                return {
+                    "notify_status": "failed",
+                    "training_error": "培训联动记录不存在",
+                }
             plan = state.get("training_plan") or {}
             courses = plan.get("courses") or []
             course_text = "；".join(str(course.get("title", "")) for course in courses if isinstance(course, dict))
@@ -259,9 +270,18 @@ class AssessmentGraphRunner:
                         biz_type="assessment_training",
                         biz_id=result.id,
                     )
+                link.status = "sent"
+                link.error_message = None
+                link.processed_at = datetime.now()
+                db.flush()
                 return {"notify_status": "sent"}
             except Exception as exc:
-                return {"notify_status": "failed", "training_error": str(exc)[:1000]}
+                error = f"培训消息发送失败，可重试：{str(exc)[:900]}"
+                link.status = "failed"
+                link.error_message = error
+                link.processed_at = None
+                db.flush()
+                return {"notify_status": "failed", "training_error": error}
 
         def finalize(state: AssessmentAgentState) -> dict[str, Any]:
             task.status = "done"

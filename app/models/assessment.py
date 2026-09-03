@@ -209,6 +209,7 @@ class AssessmentTrainingOutbox(Base):
     )
     weak_dimensions: Mapped[list | None] = mapped_column(JSON, default=None)
     training_plan_json: Mapped[dict | None] = mapped_column(JSON, default=None)
+    # pending=计划或消息待处理，sent=计划与消息均成功，failed=可重试失败
     status: Mapped[str] = mapped_column(String(16), default="pending", index=True)
     retry_count: Mapped[int] = mapped_column(Integer, default=0)
     error_message: Mapped[str | None] = mapped_column(String(1000), default=None)
