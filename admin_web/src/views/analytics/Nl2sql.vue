@@ -17,14 +17,29 @@
       </el-form>
     </el-card>
 
-    <!-- SQL 展示（可折叠） -->
-    <el-card v-if="sql" style="margin-top:12px">
+    <!-- 自然语言解读（默认展示，HR 友好） + SQL 折叠 -->
+    <el-card v-if="answer" style="margin-top:12px">
+      <template #header>
+        <span>查询结果</span>
+        <el-button v-if="sql" link type="primary"
+                   @click="showSql = !showSql" style="margin-left:12px">
+          {{ showSql ? '收起 SQL' : '查看 SQL' }}
+        </el-button>
+        <el-button v-if="showSql && sql" link type="primary"
+                   @click="copySql" style="margin-left:4px">复制</el-button>
+      </template>
+      <div class="answer-text">{{ answer }}</div>
+      <pre v-if="showSql && sql" class="sql-box">{{ sql }}</pre>
+    </el-card>
+
+    <!-- 兜底：answer 缺失（极少见）时仍展示 SQL 方便排查 -->
+    <el-card v-else-if="sql" style="margin-top:12px">
       <template #header>生成的 SQL <el-button link type="primary" @click="copySql">复制</el-button></template>
       <pre class="sql-box">{{ sql }}</pre>
     </el-card>
 
     <!-- 图表：chart_json 是简化结构，需转 ECharts option -->
-    <el-card v-if="hasData" style="margin-top:12px">
+    <el-card v-if="hasChart" style="margin-top:12px">
       <EChart :option="chartOption" height="360px" />
     </el-card>
 
@@ -50,13 +65,21 @@ const question = ref('')
 const chartType = ref('bar')
 const loading = ref(false)
 const sql = ref('')
+const answer = ref('')
+const showSql = ref(false)
 const columns = ref([])
 const rows = ref([])
 const chartJson = ref(null)
 const rejected = ref(false)
 const rejectMsg = ref('')
 
-const hasData = computed(() => !!(chartJson.value && (chartJson.value.labels?.length || chartJson.value.data?.length)))
+// hasChart：bar/line 需 series，pie 需 data；保证图表区不渲染空图（不再显示虚线）
+const hasChart = computed(() => {
+  const cj = chartJson.value
+  if (!cj || !cj.type) return false
+  if (cj.type === 'pie') return !!(cj.data?.length)
+  return !!(cj.series?.length)
+})
 
 // —— chart_json(简化结构) → ECharts option（后端不是完整 option，需转换）——
 const chartOption = computed(() => {
@@ -89,11 +112,13 @@ const tableRows = computed(() =>
 async function run() {
   if (!question.value.trim()) return ElMessage.warning('请输入问题')
   loading.value = true
-  rejected.value = false; sql.value = ''; columns.value = []; rows.value = []; chartJson.value = null
+  rejected.value = false; sql.value = ''; answer.value = ''; showSql.value = false
+  columns.value = []; rows.value = []; chartJson.value = null
   try {
     // 拦截器返回整个 body，业务字段在 res.data
     const d = (await askNL2SQL({ question: question.value.trim(), chart_type: chartType.value })).data || {}
     sql.value = d.sql || ''
+    answer.value = d.answer || ''
     columns.value = d.columns || []
     rows.value = d.rows || []
     chartJson.value = d.chart_json || null
@@ -113,5 +138,6 @@ function copySql() {
 
 <style scoped>
 .ask-page { padding: 16px; }
-.sql-box { background:#f5f7fa; padding:12px; border-radius:4px; white-space:pre-wrap; word-break:break-all; margin:0; }
+.sql-box { background:#f5f7fa; padding:12px; border-radius:4px; white-space:pre-wrap; word-break:break-all; margin:12px 0 0 0; }
+.answer-text { white-space:pre-wrap; line-height:1.7; font-size:14px; color:#303133; }
 </style>

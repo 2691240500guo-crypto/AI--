@@ -56,10 +56,14 @@ class DimFilterQuery(BaseModel):
     /docs 里会渲染成可填的表单项，前端调试不用手写 URL。
     """
     dept_id: int | None = Field(None, description="部门ID，None=全部部门")
-    position: str | None = Field(None, description="岗位名称（模糊匹配）")
+    position_id: int | None = Field(None, description="岗位ID，None=全部岗位（精确匹配，与 dept_id 对称）")
+    position: str | None = Field(None, description="岗位名称（模糊匹配，会 JOIN pos_position 按名称筛选；与 position_id 二选一或并用）")
     level: str | None = Field(None, description="人才等级 S/A/B/C，None=全部等级")
     start_date: date | None = Field(None, description="统计起始日 YYYY-MM-DD")
     end_date: date | None = Field(None, description="统计截止日 YYYY-MM-DD（含当日）")
+    # ③ 时间口径双锚点：result=子域自身记录时间(近30天测评记录)；talent_entry=人才入职时间(近30天入职人才测评)
+    time_anchor: Literal["result", "talent_entry"] = Field(
+        "result", description="时间口径：result=用子域自身 created_at(记录产生时间)；talent_entry=用 tal_talent.created_at(人才入职时间)")
     # 同比/环比开关：none=只算本期；yoy=同比（比去年同期）；mom=环比（比上一个等长周期）
     compare: Literal["none", "yoy", "mom"] = Field("none", description="对比方式")
     metric: str = Field("talent_total", description="统计指标 talent_total/assess_done/...")
@@ -97,10 +101,11 @@ class ExportOut(BaseModel):
 class NL2SQLOut(BaseModel):
     """POST /analytics/nl2sql 出参（D1 骨架字段即最终字段，后续只填值不改结构）。"""
     question: str = Field(..., description="原始问题")
-    sql: str | None = Field(None, description="生成的 SQL，拒答或骨架阶段为 None")
+    sql: str | None = Field(None, description="生成的 SQL，拒答或骨架阶段为 None；默认折叠隐藏")
     columns: list[str] = Field(default_factory=list, description="结果列名")
     rows: list[list] = Field(default_factory=list, description="结果数据行")
     chart_json: dict | None = Field(None, description="ECharts option，可直接渲染")
+    answer: str | None = Field(None, description="LLM 自然语言解读，HR 友好；默认展示，SQL 折叠")
     status: str = Field("skeleton", description="skeleton/ok/rejected")
 
 

@@ -31,9 +31,11 @@ SCHEMA: dict[str, dict] = {
             "id": "主键", "name": "姓名",
             "degree": "学历（字典：专科/本科/硕士/博士）",
             "level": "等级（S/A/B/C）",
-            "dept_id": "部门ID（关联 sys_dept.id）",
+            "dept_id": "部门ID（关联 sys_dept.id）；非空=已分配部门的内部员工(employee)，为空=未分配部门的候选人(candidate)。",
             "position_id": "岗位ID", "years_experience": "工作年限",
-            "status": "状态（1在职/0离职）", "created_at": "入职时间",
+            "status": "状态（1在档/0失效，为软删除标记，非在职/离职；不要用它来筛选内部员工）",
+            "identity": "身份（派生虚拟字段，非真实列）：employee=已分配部门的内部员工，candidate=未分配部门的候选人，判定依据就是 dept_id 是否非空。筛选内部员工请写 `dept_id IS NOT NULL`，筛选候选人请写 `dept_id IS NULL`；禁止直接写 `identity='employee'` 这类条件（identity 不是真实列，数据库里不存在）。",
+            "created_at": "档案录入时间（产品侧称入职时间，实为档案建档时间，并非真实入职日期）",
         },
     },
     "sys_dept": {
@@ -114,8 +116,12 @@ class NL2SQLAgent:
             # ---- 3. 生成图表配置 ----
             chart_json = self._build_chart(chart_type, columns, rows)
 
+            # ---- 4. LLM 自然语言解读（HR 友好）----
+            # 任何异常都被 _interpret 内部吞掉并回退到朴素直拼，绝不阻塞主流程
+            answer = await asyncio.to_thread(self._interpret, question, columns, rows)
+
             return {"sql": sql, "columns": columns, "rows": rows,
-                    "chart_json": chart_json, "status": "done"}
+                    "chart_json": chart_json, "answer": answer, "status": "done"}
         except Exception as exc:                 # 任何一步失败 → 统一 failed
             logger.warning("Agent⑤ 执行失败: %s", exc)
             return {"status": "failed", "error_msg": str(exc)}
@@ -170,6 +176,14 @@ class NL2SQLAgent:
         unknown = tables - set(SCHEMA.keys())
         if unknown:
             raise ValueError(f"涉及未授权表: {sorted(unknown)}")
+        # ⑤ 虚拟字段 identity 防护：SCHEMA 中 identity 是派生虚拟字段（非真实列），
+        # 必须用 dept_id IS NOT NULL（内部员工）/ IS NULL（候选人）表达，
+        # 严禁写成 identity='employee' 这类列引用，否则 MySQL 报列不存在。
+        if re.search(r"\bidentity\b", normalized):
+            raise ValueError(
+                "identity 是派生虚拟字段、不是真实列，不能当作列引用。"
+                "筛选内部员工请用 dept_id IS NOT NULL，筛选候选人请用 dept_id IS NULL"
+            )
         # ④ MySQL 5.7 方言限制：窗口函数/CTE 在云端执行必报 1064，直接拦截
         for pat, name in MYSQL57_BANNED_PATTERNS:
             if pat.search(normalized):
@@ -203,6 +217,17 @@ class NL2SQLAgent:
         """
         if not rows or not columns:
             return {"type": chart_type, "x": [], "series": []}
+        # 单值聚合（如 COUNT/SUM/AVG 返回 1 行 1 列）：用户选了图表就要看到图，
+        # 不能只塞一个数字。pie → 1 个分类的饼图；bar/line → 1 根柱子 / 1 个点。
+        if len(columns) == 1 and len(rows) == 1:
+            value = rows[0][0]
+            label = columns[0]
+            if chart_type == "pie":
+                return {"type": "pie", "x": "", "y": "数量",
+                        "data": [{"name": label, "value": value}]}
+            return {"type": chart_type, "x": label,
+                    "labels": [label],
+                    "series": [{"name": label, "data": [value]}]}
         labels = [r[0] for r in rows]
         if chart_type == "pie":
             values = [r[1] if len(r) > 1 else 0 for r in rows]
@@ -216,6 +241,40 @@ class NL2SQLAgent:
                            "data": [r[idx] if len(r) > idx else 0 for r in rows]})
         return {"type": chart_type, "x": columns[0], "labels": labels,
                 "series": series}
+
+    # -------------------- 5. LLM 自然语言解读（HR 友好）--------------------
+    def _interpret(self, question: str, columns: list[str], rows: list[list]) -> str:
+        """把查询结果总结成自然语言给非技术 HR 用户看。
+
+        - 控制 prompt 大小：最多给 LLM 看前 30 行（截断不丢数据，表格区仍显示完整）。
+        - 任何异常（LLM 超时/无响应/JSON 解析等）都吞掉，回退到朴素直拼，绝不阻塞主流程。
+        """
+        if not rows or not columns:
+            return "查询未返回数据。"
+        try:
+            preview = rows[:30]
+            head = "、".join(columns)
+            body = "\n".join(
+                " | ".join("" if v is None else str(v) for v in r) for r in preview
+            )
+            prompt = (
+                f"用户问题：{question}\n"
+                f"查询结果列：{head}\n"
+                f"前 {len(preview)} 行数据（用 | 分隔）：\n{body}\n"
+                f"请用 1-3 句中文，给非技术 HR 用户自然语言总结这段数据，"
+                f"直接说人话，不要提及 SQL/数据库/查询等技术词汇，必要时给出关键数字。"
+            )
+            system = "你是数据解读助手。只输出自然语言总结，不输出 JSON/SQL/代码/Markdown。"
+            text = get_llm().chat(prompt, system=system, temperature=0.3).strip()
+            if text:
+                return text
+        except Exception as exc:
+            logger.warning("LLM 解读失败，回退到朴素直拼: %s", exc)
+        # 兜底：朴素直拼首行所有列（保证至少可读，不让用户空白屏）
+        first = rows[0]
+        parts = [f"{c}：{first[i] if i < len(first) else ''}" for i, c in enumerate(columns)]
+        tail = "…" if len(rows) > 1 else ""
+        return "查询结果：" + "；".join(parts) + tail
 
 
 # 单例：避免每次请求重复初始化（schema 缓存/LLM 客户端都复用同一实例）

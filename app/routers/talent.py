@@ -838,14 +838,14 @@ async def download_resume(
                     headers={"Content-Disposition": disposition,
                              "Content-Length": str(len(data))})
 
-@router.get("/{tid}/vectors", summary="查看人才四维向量画像（text 预览）")
+@router.get("/{tid}/vectors", summary="查看人才三维向量画像（text 预览）")
 def talent_vectors(tid: int, db: Session = Depends(get_db)):
-    """hq+ 批次2.3c：查看某人才四维向量（技能/经验/素质/简历）是否有值。"""
+    """hq+ 批次2.3c：查看某人才三维向量（技能/经验/素质）是否有值。"""
     from app.services.talent_vector_service import get_talent_vectors  # hq+
     t = svc.TalentDAO.get(db, tid)
     if not t:
         raise HTTPException(404, "人才不存在")
-    return ok(get_talent_vectors(tid))
+    return ok(get_talent_vectors(tid, talent=t))
 
 
 # 袁文武 2026-09-03：获取人才画像概览（从已有标签+报告读取，不重新生成）

@@ -44,7 +44,7 @@ const hasProfileData = computed(() => {
   const p = profileData.value
   return p && p.tags_by_dim && Object.keys(p.tags_by_dim).length > 0
 })
-const DIM_COLOR = { skill: 'success', exp: 'primary', quality: 'warning', resume: 'info' }
+const DIM_COLOR = { skill: 'success', exp: 'primary', quality: 'warning' }
 
 // 袁文武 2026-09-02：综合评分颜色映射
 function scoreColor(score) {
@@ -225,6 +225,25 @@ onMounted(load)
             </div>
           </div>
 
+          <!-- hq+ 2026-09-03：已绑定标签池（8 维度归类是按 tal_tag.category，custom 类不进 8 维度→ 看不到）
+               后端 get_profile 路由已返回 ai_tags 字段（含全部 manual/AI 标签），这里完整展示。 -->
+          <div v-if="(profileData.ai_tags || []).length" class="bound-tags" style="margin-top:14px">
+            <div class="report-title">
+              已绑定标签（{{ profileData.ai_tags.length }} 个·含人工/AI 全部打标）
+            </div>
+            <div class="bound-tags-body">
+              <el-tag
+                v-for="(tag, i) in profileData.ai_tags"
+                :key="i"
+                size="small"
+                effect="plain"
+                class="dim-tag"
+              >
+                {{ tag }}
+              </el-tag>
+            </div>
+          </div>
+
           <!-- 画像摘要 -->
           <el-row :gutter="20" style="margin-top:16px" v-if="report">
             <el-col :span="8">
@@ -280,12 +299,12 @@ onMounted(load)
         </template>
       </el-card>
 
-      <!-- 袁文武 2026-09-02：四维向量画像（Milvus） -->
-      <el-divider content-position="left">四维向量画像（Milvus）</el-divider>
+      <!-- 袁文武 2026-09-02：三维向量画像（Milvus） -->
+      <el-divider content-position="left">三维向量画像（Milvus）</el-divider>
       <el-card shadow="never" class="report" v-loading="vectorsLoading">
         <template #header>
           <div class="report-head">
-            <span>技能 / 经验 / 素质 / 简历原文 四维向量</span>
+            <span>技能 / 经验 / 素质 三个维度的全局向量</span>
             <span style="font-size:12px;color:#9ca3af">画像生成时自动写入 Milvus，支持语义检索</span>
           </div>
         </template>
@@ -293,7 +312,7 @@ onMounted(load)
           尚未生成向量画像，可在编辑页触发「生成 AI 画像」
         </div>
         <el-row v-else :gutter="20">
-          <el-col v-for="v in vectors" :key="v.dim" :span="12">
+          <el-col v-for="v in vectors" :key="v.dim" :span="8">
             <el-card shadow="never" class="vec-card">
               <template #header>
                 <div class="vec-head">

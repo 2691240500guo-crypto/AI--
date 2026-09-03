@@ -10,7 +10,6 @@ from app.core.config import get_settings
 from app.core.redis_client import get_redis_service
 
 
-
 def overview(db: Session) -> dict:
     """看板概览：一次返回全部卡片指标（D-1）。"""
     settings = get_settings()
@@ -30,23 +29,55 @@ def overview(db: Session) -> dict:
     )
 
 
-def trend(db: Session, metric: str, days: int = 30) -> list[dict]:
-    """趋势序列（D-1 折线图）。metric: talent_new / training_new / match_new / assess_done。"""
+def _trend_payload(db, model_key: str, days: int,
+                   compare: str, start, end) -> dict:
+    """计算趋势双序列：本期 current + 对比期 previous（compare!=none 时）。"""
+    if start is not None and end is not None:
+        current = analytics_dao.daily_new_counts(db, model_key, days, start=start, end=end)
+    else:
+        current = analytics_dao.daily_new_counts(db, model_key, days)
+    previous = None
+    if compare != "none":
+        if start is not None and end is not None:
+            prev_start, prev_end = _shift_period(start, end, compare)
+        else:
+            e = date.today()
+            s = e - timedelta(days=days - 1)
+            prev_start, prev_end = _shift_period(s, e, compare)
+        previous = analytics_dao.daily_new_counts(
+            db, model_key, days, start=prev_start, end=prev_end)
+    return {"current": current, "previous": previous, "compare": compare}
+
+
+def trend(db: Session, metric: str, days: int = 30,
+          compare: str = "none",
+          start: date | None = None, end: date | None = None) -> dict:
+    """趋势序列（D-1 折线图）+ 同比/环比对比（层B 完整闭环）。
+
+    返回 {current, previous, compare}：
+      - current：本期每日新增序列
+      - previous：对比期序列（compare=none 时为 None）
+      - compare：none / yoy（同比） / mom（环比）
+    metric: talent_new / training_new / match_new / assess_done。
+    """
+    if compare not in ("none", "yoy", "mom"):
+        compare = "none"
     _METRIC_MAP = {
-        "talent_new": "talent",
-        "assess_done": "asm_result",
-        "training_new": "training_plan",
-        "match_new": "match_result",
+        "talent_new": "talent",       # 人才新增
+        "assess_done": "asm_result",  # 测评完成
+        "training_new": "training_plan",  # 培训新增
+        "match_new": "match_result",  # 匹配新增
     }
     key = _METRIC_MAP.get(metric)
     if not key:
         logger.warning("trend 未知 metric=%s，返回空", metric)
-        return []
+        return {"current": [], "previous": None, "compare": compare}
+    cache_key = f"trend:{key}:{days}:{compare}:{start}:{end}"
     return get_redis_service().cached_json(
         "analytics",
-        f"trend:{key}:{days}",
+        cache_key,
         get_settings().REDIS_ANALYTICS_TTL,
-        lambda: analytics_dao.daily_new_counts(db, key, days),
+        lambda: _trend_payload(db, key, days, compare, start, end),
     )
 
 
@@ -79,19 +110,24 @@ def _shift_period(start: date, end: date, compare: str) -> tuple[date, date]:
         return start.replace(year=start.year - 1, day=28), end.replace(year=end.year - 1, day=28)
 
 
-# 全局口径指标（方案②，2026-09-02）：因 asm_result 挂 sys_user、trn/match 挂 tal_talent，
-# 部门归属体系不一致（跨域），暂不做部门/岗位/等级筛选，只返回全局正确值（前端有口径提示）。
+# 全局口径指标（方案② 修订，2026-09-03）：因 asm_result 挂 sys_user、trn/match 挂 tal_talent，
+# 部门归属体系不一致（跨域），dept/position/level 筛选仍不生效（只给全局正确值）；
+# 但时间窗口 + 同比/环比现已支持——在 [start,end] 与 [prev_start,prev_end] 两个窗口内
+# 分别重算全局值作 current / previous（变化率 = (current-previous)/previous）。
 _GLOBAL_METRICS = {"assess_pass_rate", "training_completion_rate", "match_avg_score"}
 
 
-def _global_metric_value(db: Session, metric: str) -> float:
-    """取全局指标的正确口径值（复用 dao 既有函数，忽略筛选条件）。"""
+def _global_metric_value(db: Session, metric: str, start_date=None, end_date=None) -> float:
+    """取全局指标在 [start_date, end_date] 窗口内的正确口径值（忽略 dept/position/level）。
+
+    start_date/end_date 为 None 时退化为全量全局值（兼容 overview 看板调用）。
+    """
     fn = {
         "assess_pass_rate": analytics_dao.assess_pass_rate,
         "training_completion_rate": analytics_dao.training_completion_rate,
         "match_avg_score": analytics_dao.match_avg_score,
     }[metric]
-    return fn(db)
+    return fn(db, start_date, end_date)
 
 
 def dim_filter(db: Session, filters) -> dict:
@@ -99,26 +135,38 @@ def dim_filter(db: Session, filters) -> dict:
 
     返回：{"metric", "current", "previous", "change_rate"}
       - metric="talent_total"：支持 dept/position/level/时间筛选 + mom/yoy 对比（人才表自带 dept_id）
-      - metric ∈ 全局指标（合格率/完成率/匹配度）：只返回全局正确值，previous/change_rate=None，
-        忽略 dept/position/level/compare（跨域部门归属体系不一，诚实口径=不给错值，方案② 2026-09-02）
+      - metric ∈ 全局指标（合格率/完成率/匹配度）：忽略 dept/position/level 筛选；
+        但 compare!=none 且传了时间范围时，previous/change_rate 按 [prev_start,prev_end] 窗口重算
+        （变化率=(current-previous)/previous，previous=0 时为 None；方案② 修订 2026-09-03）
       - compare="none" 时 previous / change_rate 均为 None（前端就不渲染对比标签）
       - 未传时间范围时无法定位对比期，previous 为 None 并打日志，不报错
       - previous=0 时 change_rate 为 None，避免除零（前端显示"—"而不是 Infinity）
     """
     # 统一转成 dict：后面要复制一份改时间范围，dict 比模型对象好操作
-    params = filters if isinstance(filters, dict) else filters.model_dump()
+    params = filters if isinstance(filters, dict) else filters.model_dump() # 兼容旧调用
     metric = params.get("metric") or "talent_total"
     compare = params.get("compare") or "none"
     start, end = params.get("start_date"), params.get("end_date")
 
-    # ---- 全局口径指标：只返回正确全局值，不做筛选/对比 ----
+    # ---- 全局口径指标：忽略 dept/position/level 筛选，但支持时间窗口 + 同比/环比 ----
     if metric in _GLOBAL_METRICS:
-        logger.info("dim-filter metric=%s 为全局口径，忽略 dept/position/level/compare 筛选", metric)
+        logger.info("dim-filter metric=%s 为全局口径，忽略 dept/position/level 筛选（时间对比仍生效）", metric)
+        current = _global_metric_value(db, metric, start, end)
+        previous: int | float | None = None
+        change_rate: float | None = None
+        if compare != "none":
+            if not (start and end):
+                # 没有时间范围就没有"上期"概念，降级为只返回本期，不阻塞接口
+                logger.warning("全局指标 compare=%s 但未传时间范围，跳过对比期计算", compare)
+            else:
+                prev_start, prev_end = _shift_period(start, end, compare)
+                previous = _global_metric_value(db, metric, prev_start, prev_end)
+                change_rate = round((current - previous) / previous, 4) if previous not in (None, 0) else None
         return {
             "metric": metric,
-            "current": _global_metric_value(db, metric),
-            "previous": None,
-            "change_rate": None,
+            "current": current,
+            "previous": previous,
+            "change_rate": change_rate,
         }
 
     # ---- 人才总量：按维度筛选 + 同比/环比（现状逻辑）----
@@ -222,13 +270,13 @@ def build_excel(headers: list[str], rows: list[list], sheet_title: str = "报表
 def _fetch_rows(db: Session, report_type: str, filters: dict) -> list[list]:
     """按报表类型取数（导出用）。filters 透传 DAO 白名单，与看板口径一致。"""
     logger.info("导出取数 report_type=%s filters=%s", report_type, filters)
-    if report_type == "talent":
+    if report_type == "talent": #人才报表
         return analytics_dao.talent_rows(db, filters)
-    if report_type == "assess":
+    if report_type == "assess": #测评报表
         return analytics_dao.assess_rows(db, filters)
-    if report_type == "match":
+    if report_type == "match": #匹配报表
         return analytics_dao.match_rows(db, filters)
-    if report_type == "training":
+    if report_type == "training": #培训报表
         return analytics_dao.training_rows(db, filters)
     logger.warning("未知报表类型 %s，导出空表", report_type)
     return []

@@ -42,6 +42,8 @@ logger = logging.getLogger(__name__)
 # hq+ 2026-09-01：新增 resume 维（简历原文全文），语义搜索可直接按简历内容召回
 DIMENSIONS = ["skill", "exp", "quality", "resume"]
 DIM_LABEL = {"skill": "技能向量", "exp": "经验向量", "quality": "素质向量", "resume": "简历原文"}
+# 详情页/编辑页仅展示三维（技能/经验/素质）；简历原文维度仅用于语义检索，不对外展示
+DISPLAY_DIMS = ["skill", "exp", "quality"]
 
 _EMBED_DIM: int | None = None  # 首次成功 embed 后缓存
 
@@ -127,6 +129,22 @@ def _load_json_list(raw: str | None) -> list[str]:
         return []
 
 
+def _split_main_skills(raw: str | None) -> list[str]:
+    """把主档 skills 字符串（分号/逗号/顿号分隔）拆成干净技能词列表。
+
+    用于调用方未传 report（report=None）时的技能兜底来源：
+    主档 skills 是解析/编辑回写的技能短语，语义远好于简历原文截断。
+    """
+    if not raw:
+        return []
+    out: list[str] = []
+    for part in re.split(r"[;；,，、]", str(raw)):
+        p = part.strip()
+        if p and p not in out:
+            out.append(p)
+    return out
+
+
 def _build_dim_texts(talent, report=None) -> dict[str, str]:
     """从人才主档 + AI 报告构造四个维度的 embedding 文本（稳定可读）。
 
@@ -144,15 +162,17 @@ def _build_dim_texts(talent, report=None) -> dict[str, str]:
     years = f"{talent.years_experience}年经验" if talent.years_experience else ""
     edu = talent.highest_education or ""
 
-    # 1) 技能向量：LLM 抽的技能关键词 + 摘要技术栈
-    skill_parts = list(skills)
+    # 1) 技能向量：优先 LLM 抽取技能（report.skills）→ 主档 skills → 摘要 → 语义兜底
+    #    修复 hq+：原实现 skills 只从 report 读，调用方未传 report 时技能向量会
+    #    降级成 resume_text[:100]（简历开头姓名电话，无技能语义）；现补主档 skills 兜底。
+    skill_parts = list(skills) or _split_main_skills(talent.skills)
     if not skill_parts and summary:
         skill_parts = [summary]
-    skill_text = "、".join(skill_parts) or (talent.resume_text or "")[:100] or "(暂无技能信息)"
+    skill_text = "、".join(skill_parts) or _semantic_fallback(talent) or "(暂无技能信息)"
 
     # 2) 经验向量：项目经历 = 职称/公司/年限 + 亮点 + 适配岗位
     exp_parts = [title, company, years, *highlights, *fit]
-    exp_text = "、".join(p for p in exp_parts if p) or (talent.resume_text or "")[:100] or "(暂无经验信息)"
+    exp_text = "、".join(p for p in exp_parts if p) or _semantic_fallback(talent) or "(暂无经验信息)"
 
     # 3) 素质向量：综合素质 = 学历 + 潜力 + 短板提示
     quality_parts = [edu]
@@ -161,7 +181,7 @@ def _build_dim_texts(talent, report=None) -> dict[str, str]:
     if potential:
         quality_parts.append(f"潜力评级{potential}")
     quality_parts.extend(shortcomings)
-    quality_text = "、".join(p for p in quality_parts if p) or "(暂无素质信息)"
+    quality_text = "、".join(p for p in quality_parts if p) or _semantic_fallback(talent) or "(暂无素质信息)"
 
     # 4) 简历原文向量：统一带双兼容头（match_agent 硬过滤解析）+ 简历原文（语义检索）
     #    头格式：【人才id:N|学历:X|经验:Y年|技能:Z】与 scripts 旧 talent_vec 同构，供
@@ -213,6 +233,27 @@ def _main_body_text(t) -> str:
     return "；".join(parts)
 
 
+def _semantic_fallback(t) -> str:
+    """技能/经验/素质结构化字段全空时的语义兜底（修复 hq+，替代原 resume_text[:100]）。
+
+    原实现直接截简历开头 100 字 = 姓名/性别/电话等基本信息，几乎无技能/经历语义；
+    现改为：
+    1) 主档画像正文（技能/工作经历/项目经历等，语义好）；
+    2) 仅简历原文时跳过开头基本信息区（前 100 字），取正文 100~700 字；
+    3) 都没有 → 返回空串，由调用方标"暂无…"。
+    """
+    body = _main_body_text(t).strip()
+    if body and body != f"姓名：{t.name or ''}":
+        return body[:700]
+    rt = (t.resume_text or "").strip()
+    if rt:
+        seg = rt[100:700].strip()
+        if seg:
+            return seg
+        return rt[:300]
+    return ""
+
+
 # ============ 三维写入 / 动态更新 ============
 def upsert_talent_vectors(talent, report=None) -> dict[str, int]:
     """把某人才的四维向量写进 Milvus（幂等 upsert，id=talent_id）。
@@ -246,11 +287,17 @@ def upsert_talent_vector(talent, report=None) -> int | None:
     return result.get("skill")
 
 
-def get_talent_vectors(talent_id: int) -> list[dict]:
-    """查看某人才三维向量（text 预览）。返回 [{dim, label, text, has_vector}]。"""
+def get_talent_vectors(talent_id: int, talent=None) -> list[dict]:
+    """查看某人才三维向量（text 预览）。返回 [{dim, label, text, has_vector}]。
+
+    - 仅展示三维：技能/经验/素质（简历原文维度仅用于语义检索，不对外展示）。
+    - Milvus 无该维度向量时，降级基于人才简历实时构造文本，保证详情页三维画像始终有内容。
+    """
     vec = get_vector_store()
+    # 无向量时的降级文本：基于人才主档字段实时构造
+    fallback = _build_dim_texts(talent) if talent is not None else {}
     out: list[dict] = []
-    for dim in DIMENSIONS:
+    for dim in DISPLAY_DIMS:
         item = {"dim": dim, "label": DIM_LABEL[dim], "text": None, "has_vector": False}
         try:
             if vec.has_collection(dim):
@@ -270,6 +317,9 @@ def get_talent_vectors(talent_id: int) -> list[dict]:
                     item["has_vector"] = True
         except Exception as e:  # pragma: no cover
             logger.warning("[hq] 查询维度 %s 失败：%s", dim, e)
+        # 降级：Milvus 无该维度向量时，基于简历构造文本，保证画像有内容
+        if not item["text"]:
+            item["text"] = fallback.get(dim) or None
         out.append(item)
     return out
 

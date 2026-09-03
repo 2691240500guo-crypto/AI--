@@ -40,11 +40,11 @@
     <el-col :span="16">
       <el-card title="对比结果">
         <el-alert v-if="isGlobalMetric" type="info" :closable="false" style="margin-bottom:12px"
-          title="该指标为全局口径：部门/岗位/等级/时间筛选与同比环比暂不生效（跨域数据待统一）" />
+          title="该指标为全局口径：部门/岗位/等级筛选暂不生效（跨域部门归属待统一）；时间窗口与同比/环比可正常使用" />
         <el-descriptions :column="1" border v-loading="loading">
           <el-descriptions-item label="指标">{{ metricLabel }}</el-descriptions-item>
           <el-descriptions-item label="本期值">{{ fmtValue(result.current) }}</el-descriptions-item>
-          <el-descriptions-item label="对比期值">{{ result.previous ?? '—' }}</el-descriptions-item>
+          <el-descriptions-item label="对比期值">{{ fmtValue(result.previous) }}</el-descriptions-item>
           <el-descriptions-item label="变化率">
             {{ result.change_rate == null ? '—' : (result.change_rate * 100).toFixed(1) + '%' }}
           </el-descriptions-item>
@@ -70,7 +70,7 @@ async function loadDepts() {
 }
 onMounted(loadDepts)
 const levelOptions = [{ value: 'S', label: 'S' }, { value: 'A', label: 'A' }, { value: 'B', label: 'B' }, { value: 'C', label: 'C' }]
-// 全局口径指标：后端只返回全局正确值（不做部门筛选/对比），前端加提示（方案② 2026-09-02）
+// 全局口径指标：后端忽略部门/岗位/等级筛选，但时间窗口 + 同比/环比已支持（方案② 修订 2026-09-03）
 const GLOBAL_METRICS = ['assess_pass_rate', 'training_completion_rate', 'match_avg_score']
 const metricOptions = [
   { value: 'talent_total', label: '人才总量' },
@@ -81,10 +81,10 @@ const metricOptions = [
 const metricLabel = computed(() => (metricOptions.find(m => m.value === sel.value.metric) || {}).label || '')
 const isGlobalMetric = computed(() => GLOBAL_METRICS.includes(sel.value.metric))
 
-// 本期值格式化：合格率×100 加 %；匹配度保留 1 位小数；人才计数原样
+// 本期值/对比期值格式化：合格率、完成率×100 加 %；匹配度保留 1 位小数；人才计数原样
 function fmtValue(v) {
   if (v == null) return '—'
-  if (sel.value.metric === 'assess_pass_rate') return (v * 100).toFixed(1) + '%'
+  if (sel.value.metric === 'assess_pass_rate' || sel.value.metric === 'training_completion_rate') return (v * 100).toFixed(1) + '%'
   if (sel.value.metric === 'match_avg_score') return Number(v).toFixed(1)
   return v
 }

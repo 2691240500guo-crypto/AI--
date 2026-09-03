@@ -38,6 +38,14 @@ async function load(showLoading = true) {
 
 function openQuiz(item) { uni.navigateTo({ url: `/pages/assessment/quiz?id=${item.id}` }) }
 function openResult(item) { uni.navigateTo({ url: `/pages/assessment/result?id=${item.id}` }) }
+function goBack() {
+  const pages = getCurrentPages()
+  if (pages.length > 1) {
+    uni.navigateBack({ delta: 1 })
+  } else {
+    uni.switchTab({ url: '/pages/index/index' })
+  }
+}
 function statusText(status) { return status === 1 ? '进行中' : '待开始' }
 function resultStatus(status) { return status === 3 ? '报告已生成' : '已交卷' }
 function formatDate(value) { return value ? new Date(value).toLocaleString() : '暂无截止时间' }
@@ -57,6 +65,9 @@ onShow(() => load(!todos.value.length && !results.value.length))
 
 <template>
   <view class="app-page assessment-page">
+    <view class="page-back" hover-class="page-back--active" @click="goBack" aria-label="返回">
+      <text class="page-back-icon">‹</text>
+    </view>
     <view class="hero surface">
       <view>
         <text class="eyebrow">发现能力</text>
@@ -459,5 +470,30 @@ onShow(() => load(!todos.value.length && !results.value.length))
   height: 100%;
   background: linear-gradient(90deg, var(--color-brand), var(--color-coral));
   border-radius: 8rpx;
+}
+
+.page-back {
+  position: fixed;
+  top: 18rpx;
+  left: 16rpx;
+  z-index: 999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 60rpx;
+  height: 60rpx;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 50%;
+  box-sizing: border-box;
+}
+.page-back-icon {
+  color: #fff;
+  font-size: 44rpx;
+  font-weight: 600;
+  line-height: 1;
+  margin-top: -6rpx;
+}
+.page-back--active {
+  background: rgba(255, 255, 255, 0.36);
 }
 </style>
