@@ -512,12 +512,20 @@ class MatchAgent:
         hits = vec.search(POSITION_VEC_COLLECTION, qvec, top_k=top_k * 2)
 
         results: list[dict[str, Any]] = []
+        # hq+ 2026-09-04：脚本批量向量化 / UI 反复点击会产生同一岗位的多条向量，
+        # 不去重的话，top_k*2 的召回窗口会被同岗位占据，真实岗位挤不进 top-N。
+        seen_pids: set[int] = set()
         for h in hits:
             ptext = h.get("text", "")
             similarity = float(h.get("score", 0.0))
             pid_m = re.search(r"【岗位id[:：](\d+)", ptext)
             pid = int(pid_m.group(1)) if pid_m else 0
-            p = PosPositionDAO.get(db, pid) if pid else None
+            if pid <= 0:
+                continue
+            if pid in seen_pids:
+                continue
+            seen_pids.add(pid)
+            p = PosPositionDAO.get(db, pid)
             if not p:
                 continue
             # 岗位需求解析（LLM 有成本，反向匹配用规则兜底快速打分）
@@ -977,11 +985,11 @@ class MatchAgent:
                     if pos2:
                         pid = pos2["id"]
 
-        # 2.6 人才名规则兜底：profile/update_status 缺人才实体时从"XX的档案/测评/履历"等模式提取
-        if intent in ("profile", "update_status", "explain") and not tid:
+        # 2.6 人才名规则兜底：profile/update_status/explain/reverse 缺人才实体时从"XX的档案/测评/履历"/"#ID" 等模式提取
+        if intent in ("profile", "update_status", "explain", "reverse") and not tid:
             m = re.search(r"(?:看|查|查看|打开|展示|看看|把|将|录用|推荐|面试)?\s*([\u4e00-\u9fa5A-Za-z0-9]{1,6}?)(?:的)?(?:人才|档案|履历|测评|报告|简历|转|设为|标为|标记|到)", message)
             if not m:
-                # 常见说法：人才ID #数字 / 人才X
+                # 常见说法：人才ID #数字 / 陆一鸣#251 / 人才X
                 m = re.search(r"(?:人才|#)\s*(\d+)", message)
             if m:
                 ref = m.group(1).strip() if m.lastindex else message
@@ -1086,9 +1094,50 @@ class MatchAgent:
                     result["intent"] = "chart"
                 else:
                     result["intent"] = "match"
-            elif intent == "reverse" and tid:
-                data = cls.reverse_match(db, tid, top_k=10)
-                result["result"] = {"total": len(data), "results": data}
+            elif intent == "reverse":
+                matched: list[dict[str, Any]] = []
+                if tid:
+                    t0 = cls._resolve_talent(db, tid)
+                    if t0:
+                        matched = [t0]
+                else:
+                    ref = (parsed.get("talent") or "").strip()
+                    if not ref:
+                        # 从消息提取姓名："张一鸣适合什么岗位" → 张一鸣
+                        mref = re.search(r"([\u4e00-\u9fa5A-Za-z0-9]{1,8}?)(?:适合|适配|匹配).*?(?:岗位|职位)", message)
+                        if mref:
+                            ref = mref.group(1).strip()
+                        else:
+                            mseg = re.search(r"([\u4e00-\u9fa5]{2,8})", message)
+                            if mseg:
+                                ref = mseg.group(1).strip()
+                    if ref:
+                        # 支持重名：按姓名解析出全部人才（如多个"张一鸣"）
+                        matched = cls._resolve_talents_by_name(db, ref)
+                if not matched:
+                    who = ((parsed.get("talent") or "").strip() or "您说的人")
+                    result["error"] = (
+                        f"未找到人才「{who}」，请检查姓名/编号是否正确，或先确认档案已入库。"
+                    )
+                    intent = "unknown"
+                    result["intent"] = intent
+                else:
+                    # 同名多人逐个反向匹配，按岗位聚合保留最高分
+                    best: dict[int, dict[str, Any]] = {}
+                    for t in matched:
+                        try:
+                            rows = cls.reverse_match(db, t["id"], top_k=10)
+                        except Exception:  # noqa: BLE001
+                            continue
+                        for r in rows:
+                            pid = r.get("position_id")
+                            if pid is None:
+                                continue
+                            if pid not in best or (r.get("score") or 0) > (best[pid].get("score") or 0):
+                                best[pid] = {**r, "talent_id": t["id"], "talent_name": t["name"]}
+                    data = list(best.values())
+                    data.sort(key=lambda r: r.get("score") or 0, reverse=True)
+                    result["result"] = {"total": len(data), "results": data}
             elif intent == "update_status":
                 if not pid or not tid:
                     result["error"] = "请指明要修改状态的人才与岗位（例如：把人才#250设为推荐到后端开发工程师岗位）"
@@ -1220,11 +1269,18 @@ class MatchAgent:
         if "岗位" in msg and ("要求" in msg or "分析" in msg or "解析" in msg):
             return {"intent": "parse", "position": None, "talent": None,
                     "chart_type": None, "filters": filters}
-        if "适合" in msg and ("人才" in msg or "谁" in msg):
-            return {"intent": "match", "position": None, "talent": None,
+        # hq+ 2026-09-04：反向匹配兜底——「陆一鸣#251适合什么岗位」「人才251适配岗位」
+        # 等说法不再要求消息里同时出现"岗位"和"人才"两个词（放 match 之前，避免误判）
+        if any(k in msg for k in ("适合什么岗位", "适合哪些岗位", "适配什么岗位",
+                                  "适配岗位", "适合岗位", "推荐岗位", "反向匹配")):
+            return {"intent": "reverse", "position": None, "talent": None,
                     "chart_type": None, "filters": filters}
         if "岗位" in msg and "人才" in msg:
             return {"intent": "reverse", "position": None, "talent": None,
+                    "chart_type": None, "filters": filters}
+        # hq+ 2026-09-04：正向匹配兜底——「帮我找适合后端开发的人才」「招XX方向的人」
+        if ("人才" in msg or "人" in msg) and any(k in msg for k in ("找", "招", "招聘", "匹配", "适合")):
+            return {"intent": "match", "position": None, "talent": None,
                     "chart_type": None, "filters": filters}
         if "为什么" in msg or "依据" in msg:
             return {"intent": "explain", "position": None, "talent": None,
@@ -1285,7 +1341,7 @@ class MatchAgent:
 
     @classmethod
     def _resolve_talent(cls, db: Session, ref: str | int | None) -> dict[str, Any] | None:
-        """人才姓名/ID → 记录。"""
+        """人才姓名/ID → 记录（取第一个匹配，单实体场景用）。"""
         if ref is None:
             return None
         from sqlalchemy import text as sa_text
@@ -1307,6 +1363,25 @@ class MatchAgent:
             {"n": f"%{str(ref).strip()}%"},
         ).mappings().first()
         return dict(row) if row else None
+
+    @classmethod
+    def _resolve_talents_by_name(cls, db: Session, name: str) -> list[dict[str, Any]]:
+        """按姓名（模糊）解析出全部人才，支持重名多人（如多个"张一鸣"）。"""
+        from sqlalchemy import text as sa_text
+
+        key = str(name or "").strip()
+        if not key:
+            return []
+        try:
+            tid = int(key)
+        except (TypeError, ValueError):
+            tid = 0
+        rows = db.execute(
+            sa_text("SELECT id, name FROM tal_talent "
+                    "WHERE id = :i2 OR (:i = 0 AND name LIKE :n) LIMIT 20"),
+            {"i": tid, "i2": tid, "n": f"%{key}%"},
+        ).mappings().all()
+        return [dict(r) for r in rows]
 
     @classmethod
     def _resolve_explain(cls, db: Session, *, pid: int | None, tid: int | None) -> dict[str, Any] | None:
@@ -1338,21 +1413,14 @@ class MatchAgent:
             return (f"已将记录调整为「{result.get('status_label','未知')}」"
                     f"（match_id={result.get('match_id')}）。")
         if intent == "rank" and result and result.get("rows"):
+            # hq+ 2026-09-04：rank 简化为一行短摘要，详细名单交给下方"智能筛选排序"表格，
+            # 避免在 AI 气泡里再列一遍（与表格重复）
             rows = result["rows"]
             label = result.get("sort_label", "匹配度")
-            head = f"按【{label}】排序前 {len(rows)} 名：\n"
-            lines = []
-            for i, r in enumerate(rows[:5], 1):
-                if label == "综合评分" and r.get("quality_score") is not None:
-                    val = f"{r['quality_score']:.0f}分"
-                elif label == "从业经验" and r.get("exp_years") is not None:
-                    val = f"{r['exp_years']}年"
-                elif label == "能力等级":
-                    val = str(r.get("level") or "-")
-                else:
-                    val = f"{r.get('score', 0):.0f}分"
-                lines.append(f"{i}. {r.get('talent_name')}（#{r['talent_id']}） {r.get('current_title') or '—'} · {val}")
-            return head + "\n".join(lines)
+            return (f"已按【{label}】筛出 {len(rows)} 名候选人，详见下方「智能筛选排序」表格。")
+        # 兼容旧路径：rank 但 result 缺失 rows 时降级列文字
+        if intent == "rank":  # pragma: no cover - 兜底
+            return "智能筛选排序已完成（详见下方表格）。"
         if intent == "profile" and result:
             b = result.get("base") or {}
             rep = result.get("report") or {}

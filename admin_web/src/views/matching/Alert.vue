@@ -61,7 +61,8 @@
               <div class="bf-rank">{{ i + 1 }}</div>
               <div class="bf-main">
                 <div class="bf-line">
-                  <b>人才#{{ c.talent_id }}</b>
+                  <b>{{ c.talent_name || ('人才#' + c.talent_id) }}</b>
+                  <span style="color:#9ca3af;font-size:12px;margin-left:4px">#{{ c.talent_id }}</span>
                   <el-tag :type="Number(c.score) >= 80 ? 'success' : 'warning'" size="small" effect="plain">
                     匹配 {{ Number(c.score).toFixed(1) }} 分
                     <span v-if="Number(c.score) >= 80">（达标）</span>
@@ -102,7 +103,12 @@
         <el-table-column label="岗位" min-width="130">
           <template #default="{ row }">{{ row.position_name || ('#' + (row.position_id ?? '')) }}</template>
         </el-table-column>
-        <el-table-column prop="talent_id" label="人才ID" width="90" />
+        <el-table-column label="人才" min-width="120">
+          <template #default="{ row }">
+            <span>{{ talentLabel(row.talent_id) || ('人才#' + row.talent_id) }}</span>
+            <span style="color:#9ca3af;font-size:12px;margin-left:4px">#{{ row.talent_id }}</span>
+          </template>
+        </el-table-column>
         <el-table-column label="匹配分" width="100">
           <template #default="{ row }">
             <el-tag v-if="row.score != null" :type="Number(row.score) >= 80 ? 'success' : 'warning'" size="small">
@@ -140,6 +146,7 @@ import { computed, onMounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { listPositions, listResults, listAlerts, generateAlerts } from '@/api/matching'
+import { getTalent } from '@/api/talent'
 import { warmState, warmMeta } from '@/utils/matchingWarm'
 import FollowDialog from './FollowDialog.vue'
 
@@ -173,6 +180,23 @@ function vacancyCount(row) {
   return Math.max(0, Number(p.headcount || 0) - Number(p.filled || 0))
 }
 function fmt(t) { return t ? String(t).replace('T', ' ').slice(0, 19) : '-' }
+
+// hq+ 2026-09-04：人才姓名索引（预警接口未返回姓名，前端批量补齐）
+const talentNameMap = reactive({})
+async function fillTalentNames(ids) {
+  const missing = ids.filter((i) => i && talentNameMap[i] == null)
+  if (!missing.length) return
+  await Promise.all(missing.map(async (id) => {
+    try {
+      const res = await getTalent(id)
+      talentNameMap[id] = res.data?.name || ''
+    } catch { talentNameMap[id] = '' }
+  }))
+}
+function talentLabel(id) {
+  const n = talentNameMap[id]
+  return n ? n : `人才#${id}`
+}
 
 // 空缺补位清单缓存：position_id -> 候选人才列表（来自 /matching/results，与匹配结果页同源）
 const candMap = reactive({})
@@ -241,6 +265,9 @@ async function load() {
     const res = await listAlerts(params)
     rows.value = res.data || []
     total.value = rows.value.length
+    // hq+ 2026-09-04：批量预取预警行涉及的人才姓名
+    const ids = [...new Set(rows.value.map((r) => r.talent_id).filter(Boolean))]
+    await fillTalentNames(ids)
     // 拉到的空缺岗位 → 并行预取补位清单（卡片默认展开需要数据）
     await preloadVacancyCandidates()
   } finally {

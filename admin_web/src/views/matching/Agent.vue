@@ -2,6 +2,21 @@
   <div class="agent-page">
     <!-- ===== 主对话区（单栏，全宽） ===== -->
     <main class="agent-main">
+      <!-- hq+ 2026-09-04：对话中才显示的顶部工具条（返回主页按钮放这里，够大够明显） -->
+      <div v-if="messages.length" class="chat-toolbar">
+        <div class="chat-toolbar-left">
+          <span class="chat-toolbar-hint">已与 AI 完成一轮对话</span>
+        </div>
+        <el-button
+          type="primary"
+          size="large"
+          class="back-home-large"
+          @click="resetToHome"
+        >
+          <el-icon style="margin-right:6px"><HomeFilled /></el-icon>
+          返回主页
+        </el-button>
+      </div>
       <!-- 对话流（可滚动） -->
       <div class="chat-list" ref="chatListRef">
         <!-- 空状态 -->
@@ -109,9 +124,7 @@
                         <el-button link type="primary" size="small" @click.stop="toggleDetail(m, r)">
                           {{ isActiveDetail(m, r) ? '收起依据 ▲' : '匹配依据 ▼' }}
                         </el-button>
-                        <el-button v-if="r.match_id && !isActiveDetail(m, r)" link type="info" size="small" @click.stop="loadExplain(m, r)">
-                          💬 生成解释
-                        </el-button>
+                        <!-- hq+ 2026-09-04：冗余"💬 生成解释"已删除（展开面板自带 重新生成 与可视化） -->
                       </div>
                     </div>
                   </div>
@@ -183,20 +196,15 @@
                       <b :class="Number(row.score) >= 80 ? 'ok-text' : 'warn-text'">{{ Number(row.score).toFixed(1) }}</b>
                     </template>
                   </el-table-column>
-                  <el-table-column label="能力等级" width="80">
-                    <template #default="{ row }">
-                      <el-tag size="small" :type="tagLevelType(row.level)">{{ row.level || '-' }}</el-tag>
-                    </template>
-                  </el-table-column>
                   <el-table-column label="从业经验" width="90">
                     <template #default="{ row }">{{ row.exp_years != null ? row.exp_years + '年' : '-' }}</template>
                   </el-table-column>
                   <el-table-column label="综合评分" width="86">
                     <template #default="{ row }">{{ row.quality_score != null ? Number(row.quality_score).toFixed(0) : '-' }}</template>
                   </el-table-column>
-                  <el-table-column label="操作" width="150" fixed="right">
+                  <el-table-column label="操作" width="110" fixed="right">
                     <template #default="{ row }">
-                      <el-button link type="primary" size="small" @click="askTalent(row)">👤 看档案/测评</el-button>
+                      <el-button link type="primary" size="small" @click="viewTalentDetail(row)">👤 看档案</el-button>
                     </template>
                   </el-table-column>
                 </el-table>
@@ -302,9 +310,10 @@
 
 <script setup>
 import { computed, nextTick, onBeforeUnmount, onMounted, ref } from 'vue'
+import { useRouter } from 'vue-router'
 import { ElMessage, ElMessageBox } from 'element-plus'
 import {
-  ChatLineRound, Document, MagicStick, Promotion, TrendCharts,
+  ChatLineRound, Document, HomeFilled, MagicStick, Promotion, TrendCharts,
 } from '@element-plus/icons-vue'
 import * as echarts from 'echarts'
 import { agentChat, getExplain } from '@/api/matching'
@@ -323,8 +332,7 @@ const QUICK_QUERIES = [
   '帮我找适合后端开发的人才，硕士、3年经验',
   '后端开发工程师岗位按综合评分排前5',
   '生成后端开发工程师岗位的折线图',
-  '人才230适合什么岗位',
-  '把人才#250设为推荐到后端开发工程师岗位',
+  '陆一鸣适合什么岗位',
 ]
 
 const CAPABILITIES = [
@@ -337,6 +345,7 @@ const CAPABILITIES = [
 // ===== 对话历史（localStorage 持久化） =====
 // v2→v3：强制丢弃旧缓存气泡（后端未重启期间存的旧意图/旧兜底文案回放）
 const STORAGE_KEY = 'agent_conv_history_v3'
+const router = useRouter()
 const conversations = ref(loadConversations())
 const activeConvId = ref(null)
 const messages = ref([])
@@ -439,6 +448,15 @@ async function deleteConv(id) {
   ElMessage.success('已删除')
 }
 
+// hq+ 2026-09-04：清空对话 → welcome 主界面重新显示
+function resetToHome() {
+  messages.value = []
+  nextTick(() => {
+    const list = document.querySelector('.chat-list')
+    if (list) list.scrollTo({ top: 0, behavior: 'smooth' })
+  })
+}
+
 function fillNlp(text) {
   nlpInput.value = text
   // 自动滚动到输入栏并聚焦（快问点完没反应是因为输入栏被滚动到页面下方，看不到）
@@ -450,10 +468,11 @@ function fillNlp(text) {
   })
 }
 
-// 从排序结果跳转到"看档案/测评"（把下一轮问题填进输入框）
-function askTalent(row) {
-  const who = row.talent_name && !/^人才\d+$/.test(row.talent_name) ? row.talent_name : `#${row.talent_id}`
-  fillNlp(`看下${who}的档案和测评报告`)
+// 从排序结果跳转到人才档案详情（直接路由跳转，不走对话）
+function viewTalentDetail(row) {
+  const tid = Number(row?.talent_id)
+  if (!tid) return
+  router.push({ path: `/talent/detail/${tid}` })
 }
 
 // 能力等级标签配色：S→红(A+)、A→橙、B→蓝、C→灰
@@ -896,6 +915,32 @@ onBeforeUnmount(() => { window.removeEventListener('resize', resizeAll); dispose
   animation: typing 1s infinite;
 }
 @keyframes typing { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
+/* hq+ 2026-09-04：对话中顶部工具条，含返回主页按钮（更大、更明显） */
+.chat-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 20px;
+  margin-bottom: 12px;
+  background: linear-gradient(135deg, #f0f7ff 0%, #e6f1fb 100%);
+  border: 1px solid #d6e8ff;
+  border-radius: 12px;
+  box-shadow: 0 2px 8px rgba(24, 95, 165, 0.06);
+}
+.chat-toolbar-left { display: flex; align-items: center; }
+.chat-toolbar-hint {
+  font-size: 14px;
+  color: #185fa5;
+  font-weight: 500;
+}
+.back-home-large {
+  font-size: 15px !important;
+  font-weight: 500 !important;
+  padding: 10px 22px !important;
+  border-radius: 10px !important;
+  box-shadow: 0 2px 6px rgba(24, 95, 165, 0.25);
+}
 
 /* ===== 结果卡片 ===== */
 .section-card { margin-top: 12px; border-radius: 10px; }

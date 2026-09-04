@@ -37,3 +37,7 @@ _alembic_baseline.db
 miniapp/dist-mp-*/
 miniapp/dist-verify-*/
 
+
+# ---- 历史备份 / 固定路径构建产物（不共享）----
+.git_backup_*/
+miniapp/dist-mp/

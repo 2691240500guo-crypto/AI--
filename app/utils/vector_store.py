@@ -74,9 +74,17 @@ class VectorStore:
         return ids.get("ids", list(ids))
 
     def search(self, collection: str, query_vector: list[float], top_k: int = 5) -> list[dict]:
-        """按向量相似度检索，返回含 text 与 score 的结果列表。"""
+        """按向量相似度检索，返回含 text 与 score 的结果列表。
+
+        修 2026-09-04：脚本批量向量化（scripts/vectorize_talents.py）写完后再 search，
+        pymilvus 2.6 默认 Session 一致性下，新写入的向量偶尔不被已加载的集合视图看到。
+        这里在 load 之前先 release，强制刷新已加载段，使新写入的向量立刻可被搜到。
+        """
         name = self._name(collection)
-        # pymilvus>=3：检索前需显式 load 集合（幂等，已加载则无副作用）
+        try:
+            self._client.release_collection(name)
+        except Exception:
+            pass
         try:
             self._client.load_collection(name)
         except Exception:

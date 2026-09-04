@@ -85,6 +85,9 @@ class MatchResultOut(ORMModel):
     warm_level: int
     last_follow_up: datetime | None
     created_at: datetime
+    # hq+ 2026-09-04：读侧 JOIN tal_talent 补的展示字段（不在表结构上）
+    talent_name: str | None = None
+    talent_title: str | None = None
 
 
 class AlertOut(ORMModel):

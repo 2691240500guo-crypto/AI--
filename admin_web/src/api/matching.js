@@ -37,6 +37,18 @@ export function importPositionJd(id, file, onProgress) {
   })
 }
 
+// hq+ 2026-09-04：新增岗位时预览说明书（不依赖 pid，文本直接返回给前端）
+export function previewPositionJd(file, onProgress) {
+  const form = new FormData()
+  form.append('file', file)
+  return http.post('/matching/positions/jd-preview', form, {
+    timeout: 2 * 60 * 1000,
+    onUploadProgress: (e) => {
+      if (onProgress && e.total) onProgress(Math.round((e.loaded * 100) / e.total))
+    },
+  })
+}
+
 // 匹配结果列表 + 解释（M-3 / M-4）
 export function listResults(params) {
   return http.get('/matching/results', { params })

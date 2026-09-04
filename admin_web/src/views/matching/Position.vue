@@ -1,12 +1,11 @@
 <script setup>
-import { onMounted, reactive, ref } from 'vue'
+import { computed, onMounted, reactive, ref } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
+import { Search, Plus, Edit, Delete, Loading } from '@element-plus/icons-vue'
 import {
-  Search, Plus, Edit, Delete, MagicStick,
-} from '@element-plus/icons-vue'
-import {
-  listPositions, createPosition, updatePosition, deletePosition, vectorizePosition, importPositionJd,
+  listPositions, createPosition, updatePosition, deletePosition, importPositionJd,
 } from '@/api/matching'
+import { listDepts } from '@/api/dept'
 
 // ===== 列表与查询 =====
 const rows = ref([])
@@ -61,6 +60,20 @@ async function load() {
 }
 
 // ===== 新增/编辑 =====
+// hq+ 2026-09-04：部门下拉（避免 FK 报错 1452）
+const deptList = ref([])
+const deptMap = computed(() => {
+  const m = {}
+  deptList.value.forEach((d) => (m[d.id] = d.name))
+  return m
+})
+async function loadDepts() {
+  try {
+    const r = await listDepts()
+    deptList.value = r.data?.items || r.data || []
+  } catch { /* 取不到就空下拉，岗位可继续创建（选不选都行） */ }
+}
+
 const dialog = reactive({ visible: false, editing: false })
 const formRef = ref()
 const form = reactive({
@@ -90,44 +103,47 @@ function openEdit(row) {
   dialog.visible = true
 }
 
+// hq+ 2026-09-04：保存时 loading + 锁弹窗（后端会自动跑 LLM 解析 + 向量化，约 5~15 秒）
+const saving = ref(false)
 async function save() {
-  await formRef.value.validate()
-  if (form.id) await updatePosition(form.id, form)
-  else await createPosition(form)
-  ElMessage.success('已保存')
-  dialog.visible = false
-  load()
+  try {
+    await formRef.value.validate()
+  } catch { return }  // 校验失败别走 saving
+  saving.value = true
+  try {
+    if (form.id) await updatePosition(form.id, form)
+    else await createPosition(form)
+    ElMessage.success('已保存，已自动完成「需求解析 + 画像向量化」')
+    dialog.visible = false
+    load()
+  } finally {
+    saving.value = false
+  }
 }
 
 async function del(row) {
-  await ElMessageBox.confirm(`确定删除岗位「${row.name}」？存在匹配结果的岗位不可删除（可改为停用）。`, '提示', { type: 'warning' })
+  // hq+ 2026-09-04：删除改为级联式（后端会清 match_result + Milvus 向量），文案明确告知
+  await ElMessageBox.confirm(
+    `确定删除岗位「${row.name}」吗？\n` +
+    `将同时清理该岗位的匹配结果（含 Milvus 岗位向量），操作不可恢复。`,
+    '删除岗位',
+    { type: 'warning', confirmButtonText: '确认删除', cancelButtonText: '取消' }
+  )
   await deletePosition(row.id)
-  ElMessage.success('已删除')
+  ElMessage.success('已删除岗位并清理关联数据')
   load()
 }
 
-// ===== 岗位画像向量化（M-2，依赖 Ollama/Milvus） =====
-async function vectorize(row) {
-  try {
-    await ElMessageBox.confirm(`对岗位「${row.name}」执行画像向量化？将调用 bge-m3 生成向量并写入 Milvus。`, '向量化确认', { type: 'info' })
-  } catch {
-    return
-  }
-  loading.value = true
-  try {
-    const res = await vectorizePosition(row.id)
-    ElMessage.success(`向量化成功（维度 ${res.data.vector_dim}）`)
-  } finally {
-    loading.value = false
-  }
-}
+// hq+ 2026-09-04：岗位画像向量化已改为「新增/编辑岗位后自动触发」，前端不再需要手动按钮。
+// 如需批量重建/历史岗位灌库，仍可使用 scripts/vectorize_talents.py
 
 // ===== 岗位说明书文件导入（M-2，解析文本填入 description） =====
+import { previewPositionJd } from '@/api/matching'
 const jdImporting = ref(false)
 const jdFileInput = ref(null)
 
 function openJdImport() {
-  // 仅新增/编辑弹窗内可用；通过隐藏 input 触发选择
+  // 无论新增/编辑模式，都允许触发文件选择；form.id 区分落地方式
   jdFileInput.value && jdFileInput.value.click()
 }
 
@@ -135,12 +151,28 @@ async function onJdFileChange(e) {
   const file = e.target.files && e.target.files[0]
   e.target.value = '' // 允许重复选择同一文件
   if (!file) return
-  if (!form.id) return ElMessage.warning('请先保存岗位后再导入岗位说明书')
+  // hq+ 2026-09-04：分支：有 pid 走"追加到后端 description"；无 pid 走"preview接口填本地表单"
+  if (!form.id) {
+    jdImporting.value = true
+    try {
+      const res = await previewPositionJd(file)
+      const txt = res.data?.text || ''
+      form.description = form.description
+        ? `${form.description}\n\n【以下为导入的岗位说明书：${res.data.filename}】\n${txt}`
+        : txt
+      ElMessage.success(`已解析 ${txt.length} 字符（新增预览模式），请填名称编码后保存`)
+    } catch (err) {
+      ElMessage.error(`解析失败：${err.response?.data?.message || err.message}`)
+    } finally {
+      jdImporting.value = false
+    }
+    return
+  }
+  // 编辑模式：调用原导入接口，追加到后端 description
   jdImporting.value = true
   try {
     const res = await importPositionJd(form.id, file)
     const txt = res.data.text || ''
-    // 导入内容追加到现有说明书，避免覆盖已填内容
     form.description = form.description
       ? `${form.description}\n\n【以下为导入的岗位说明书：${res.data.filename}】\n${txt}`
       : txt
@@ -150,7 +182,7 @@ async function onJdFileChange(e) {
   }
 }
 
-onMounted(load)
+onMounted(() => { load(); loadDepts() })
 </script>
 
 <template>
@@ -180,7 +212,9 @@ onMounted(load)
         </template>
       </el-table-column>
       <el-table-column prop="name" label="岗位名称" min-width="130" />
-      <el-table-column prop="dept_id" label="部门ID" width="80" />
+      <el-table-column label="部门" min-width="120">
+        <template #default="{ row }">{{ deptMap[row.dept_id] || ('#' + (row.dept_id ?? '')) }}</template>
+      </el-table-column>
       <el-table-column prop="headcount" label="编制" width="70" align="center" />
       <el-table-column prop="filled" label="到岗" width="70" align="center" />
       <el-table-column label="空缺" width="70" align="center">
@@ -202,16 +236,11 @@ onMounted(load)
           {{ fmtShort(row.created_at) }}
         </template>
       </el-table-column>
-      <el-table-column label="操作" width="200" fixed="right">
+      <el-table-column label="操作" width="180" fixed="right">
         <template #default="{ row }">
-          <el-tooltip content="编辑岗位" placement="top">
+          <el-tooltip content="编辑岗位（说明保存后自动重新解析+向量化）" placement="top">
             <el-button link type="primary" size="small" @click="openEdit(row)">
               <el-icon style="vertical-align:-2px;margin-right:2px"><Edit /></el-icon>编辑
-            </el-button>
-          </el-tooltip>
-          <el-tooltip content="写入岗位画像到 Milvus（每次说明书修改后需重新执行）" placement="top">
-            <el-button link type="success" size="small" @click="vectorize(row)">
-              <el-icon style="vertical-align:-2px;margin-right:2px"><MagicStick /></el-icon>向量化
             </el-button>
           </el-tooltip>
           <el-tooltip content="删除岗位" placement="top">
@@ -227,11 +256,15 @@ onMounted(load)
       v-model:current-page="query.page" :page-size="query.page_size" @current-change="load" />
   </el-card>
 
-  <el-dialog v-model="dialog.visible" :title="dialog.editing ? '编辑岗位' : '新增岗位'" width="520px">
+  <el-dialog v-model="dialog.visible" :title="dialog.editing ? '编辑岗位' : '新增岗位'" width="520px" :close-on-click-modal="!saving" :show-close="!saving">
     <el-form ref="formRef" :model="form" :rules="rules" label-width="90px">
       <el-form-item label="岗位名称" prop="name"><el-input v-model="form.name" /></el-form-item>
       <el-form-item label="岗位编码" prop="code"><el-input v-model="form.code" /></el-form-item>
-      <el-form-item label="部门ID"><el-input-number v-model="form.dept_id" :min="0" controls-position="right" /></el-form-item>
+      <el-form-item label="部门">
+        <el-select v-model="form.dept_id" placeholder="选择部门（可选）" clearable filterable style="width:240px">
+          <el-option v-for="d in deptList" :key="d.id" :label="`${d.name}（#${d.id}）`" :value="d.id" />
+        </el-select>
+      </el-form-item>
       <el-form-item label="编制人数"><el-input-number v-model="form.headcount" :min="0" controls-position="right" /></el-form-item>
       <el-form-item label="已到岗"><el-input-number v-model="form.filled" :min="0" controls-position="right" /></el-form-item>
       <el-form-item label="状态">
@@ -240,17 +273,30 @@ onMounted(load)
       <el-form-item label="岗位说明书">
         <el-input v-model="form.description" type="textarea" :rows="3" placeholder="岗位职责/能力要求，作为画像向量化的输入源" />
         <div style="margin-top:6px">
+          <!-- hq+ 2026-09-04：上传按钮在新增/编辑模式都可见，按 form.id 自动选择落地方式 -->
           <el-button size="small" :loading="jdImporting" @click="openJdImport">
-            导入说明书文件
+            上传说明书文件
           </el-button>
-          <span style="margin-left:8px;color:#999;font-size:12px">支持 PDF / DOCX / TXT / MD / 图片，解析后追加到说明书文本</span>
+          <span style="margin-left:8px;color:#999;font-size:12px">支持 PDF / DOCX / TXT / MD / 图片；新增时先解析填到文本框，编辑时追加到岗位描述</span>
         </div>
         <input ref="jdFileInput" type="file" accept=".pdf,.docx,.txt,.md,.jpg,.jpeg,.png" style="display:none" @change="onJdFileChange" />
       </el-form-item>
     </el-form>
+    <!-- hq+ 2026-09-04：保存过程全屏遮罩，提示用户"AI 正在解析+向量化" -->
+    <el-overlay :show="saving" :z-index="3000">
+      <div class="saving-mask">
+        <div class="saving-spinner">
+          <el-icon :size="42" color="#fff"><Loading /></el-icon>
+        </div>
+        <div class="saving-title">AI 正在解析与向量化</div>
+        <div class="saving-sub">首次约需 5~15 秒（LLM 拆解岗位标签 + bge-m 向 嵌入 Milvus）</div>
+      </div>
+    </el-overlay>
     <template #footer>
-      <el-button @click="dialog.visible = false">取消</el-button>
-      <el-button type="primary" @click="save">保存</el-button>
+      <el-button @click="dialog.visible = false" :disabled="saving">取消</el-button>
+      <el-button type="primary" :loading="saving" @click="save">
+        {{ saving ? 'AI 正在解析...' : '保存' }}
+      </el-button>
     </template>
   </el-dialog>
 </template>
@@ -261,6 +307,27 @@ onMounted(load)
 .mono { font-family: ui-monospace, monospace; font-size: 13px; color: #2563eb; }
 .staff-cell { display: inline-flex; align-items: center; gap: 8px; }
 .staff-num { color: #4b5563; font-size: 13px; }
+
+/* hq+ 2026-09-04：保存岗位时的全屏遮罩 + 旋转图标，告知用户 AI 正在解析+向量化 */
+.saving-mask {
+  position: absolute; inset: 0;
+  display: flex; flex-direction: column; align-items: center; justify-content: center;
+  background: rgba(15, 23, 42, 0.72); color: #fff; gap: 14px; padding: 24px;
+  text-align: center;
+}
+.saving-spinner {
+  width: 72px; height: 72px; border-radius: 50%;
+  background: linear-gradient(135deg, #2563eb, #38bdf8);
+  display: flex; align-items: center; justify-content: center;
+  box-shadow: 0 12px 30px rgba(37, 99, 235, 0.35);
+  animation: pulse 1.4s ease-in-out infinite;
+}
+.saving-title { font-size: 18px; font-weight: 600; letter-spacing: 0.5px; }
+.saving-sub { font-size: 13px; color: rgba(255,255,255,0.78); max-width: 320px; line-height: 1.6; }
+@keyframes pulse {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.08); }
+}
 .staff-num b { color: #1f2937; margin: 0 2px; }
 /* 缺编岗位整行浅红高亮 */
 .el-table .row-shortage td { background: #fef2f2 !important; }

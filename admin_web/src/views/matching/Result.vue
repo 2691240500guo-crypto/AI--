@@ -37,9 +37,22 @@ const rows = ref([])
 const total = ref(0)
 const loading = ref(false)
 const query = reactive({
-  page: 1, page_size: 10, talent_id: '', position_id: null, min_score: '',
+  page: 1, page_size: 10, talent_id: '', talent_name: '', position_id: null, min_score: '',
   sort_by: 'score', status: '',
 })
+
+async function queryTalents(q, cb) {
+  const kw = (q || '').trim()
+  if (!kw) { cb([]); return }
+  try {
+    const res = await listTalents({ keyword: kw, page_size: 10 })
+    cb((res.data?.items || []).filter((t) => t && t.name)
+      .map((t) => ({ value: t.name, name: t.name, id: t.id })))
+  } catch (e) {
+    console.warn('按姓名搜索人才失败', e)
+    cb([])
+  }
+}
 
 // 岗位 id->名称 映射（用于列表展示岗位名，前端只读复用岗位数据）
 const positions = ref([])
@@ -49,11 +62,35 @@ const posMap = computed(() => {
   return m
 })
 
+// hq+ 2026-09-04：反向匹配对话框按姓名输入（体验与 Result 列表筛选一致）
+const talentKw = ref('')
+async function resolveTalentByName(name) {
+  const kw = (name || '').trim()
+  if (!kw) return null
+  // 纯数字当作 ID 直用
+  if (/^\d+$/.test(kw)) {
+    const n = Number(kw)
+    return n > 0 ? { id: n, name: `人才#${n}` } : null
+  }
+  try {
+    const res = await listTalents({ keyword: kw, page_size: 5 })
+    const items = (res.data?.items || []).filter((t) => t && t.name)
+    if (!items.length) return null
+    // 优先姓名完全匹配
+    const exact = items.find((t) => t.name === kw)
+    return { id: (exact || items[0]).id, name: (exact || items[0]).name }
+  } catch (e) {
+    console.warn('反向匹配按姓名查人才失败', e)
+    return null
+  }
+}
+
 async function load() {
   loading.value = true
   try {
     const params = { page: query.page, page_size: query.page_size }
     if (query.talent_id) params.talent_id = query.talent_id
+    if (query.talent_name) params.talent_name = query.talent_name
     if (query.position_id) params.position_id = query.position_id
     if (query.min_score) params.min_score = query.min_score
     if (query.sort_by) params.sort_by = query.sort_by
@@ -69,6 +106,7 @@ async function load() {
 // 重置过滤条件（保留当前分页与排序默认值）
 function resetQuery() {
   query.talent_id = ''
+  query.talent_name = ''
   query.position_id = null
   query.min_score = ''
   query.status = ''
@@ -204,7 +242,7 @@ async function regenerate() {
 }
 
 // ===== 一键查看人才档案（需求3，跳转 T 域人才详情页，前端复用只读路由） =====
-import { getTalent } from '@/api/talent'
+import { getTalent, listTalents } from '@/api/talent'
 async function viewTalent(row) {
   // T 域档案可能因数据未同步而不存在（旧匹配人才id），先校验避免跳到 404 空白页
   try {
@@ -299,9 +337,11 @@ async function submitMatch() {
     if (matchForm.position_ids.length === 1) {
       query.position_id = Number(matchForm.position_ids[0])
       query.talent_id = ''
+      query.talent_name = ''
     } else {
       query.position_id = null
       query.talent_id = ''
+      query.talent_name = ''
     }
     query.page_size = matchForm.top_k
     query.min_score = ''
@@ -312,30 +352,38 @@ async function submitMatch() {
   }
 }
 
-function openReverse() {
-  // 反向匹配：默认带入当前查询的人才 ID（如果有），方便"我先查到这个人，再看 ta 适合什么岗位"
+async function openReverse() {
+  // 反向匹配：默认带入当前查询的人才（如果有），便于"先查到这个人，再看 ta 适合什么岗位"
   reverseForm.talent_id = query.talent_id || ''
   reverseForm.top_k = 10
   reverseDialog.results = []
+  // hq+ 2026-09-04：若携带 ID 自动反查姓名并填到输入框，避免用户看到"#251"困惑
+  if (reverseForm.talent_id) {
+    try {
+      const r = await getTalent(Number(reverseForm.talent_id))
+      talentKw.value = r.data?.name || `人才#${reverseForm.talent_id}`
+    } catch { talentKw.value = `人才#${reverseForm.talent_id}` }
+  } else {
+    talentKw.value = ''
+  }
   reverseDialog.visible = true
 }
 
 async function submitReverse() {
-  if (!reverseForm.talent_id) {
-    ElMessage.warning('请输入人才 ID')
-    return
-  }
-  const tid = Number(reverseForm.talent_id)
-  if (!Number.isInteger(tid) || tid <= 0) {
-    ElMessage.error('人才 ID 必须是正整数')
-    return
-  }
+  // hq+ 2026-09-04：支持按姓名/ID 两种输入，先解析成 id 再发送
+  const ref = (talentKw.value || '').trim() || reverseForm.talent_id
+  if (!ref) { ElMessage.warning('请输入人才姓名或 ID'); return }
+  const resolved = await resolveTalentByName(ref)
+  if (!resolved) { ElMessage.error(`未找到匹配的人才「${ref}」`); return }
+  const tid = resolved.id
+  reverseForm.talent_id = tid
+  talentKw.value = resolved.name
   reverseDialog.loading = true
   try {
     const res = await agentReverse({ talent_id: tid, top_k: reverseForm.top_k })
     const items = res.data?.results || res.data || []
     reverseDialog.results = items
-    ElMessage.success(`已为人才 #${tid} 找到 ${items.length} 个适配岗位`)
+    ElMessage.success(`已为人才 ${resolved.name} 找到 ${items.length} 个适配岗位`)
   } finally {
     reverseDialog.loading = false
   }
@@ -345,6 +393,7 @@ function viewReversePosition(row) {
   // 反向匹配结果：点击岗位 → 把岗位 ID 回填到查询栏 + 跳到匹配结果过滤视图
   query.position_id = row.position_id
   query.talent_id = ''
+  query.talent_name = ''
   query.page = 1
   reverseDialog.visible = false
   load()
@@ -356,12 +405,13 @@ onBeforeUnmount(() => { disposeRadar(); window.removeEventListener('resize', onR
 watch(
   () => router.currentRoute.value.query.talent_id,
   (v) => {
-if (v) {
-    query.talent_id = String(v)
-    query.position_id = null
-    query.page = 1
-    load()
-  }
+    if (v) {
+      query.talent_id = String(v)
+      query.talent_name = ''
+      query.position_id = null
+      query.page = 1
+      load()
+    }
   }
 )
 
@@ -370,8 +420,7 @@ onMounted(async () => {
   const tid = router.currentRoute.value.query.talent_id
   if (tid) query.talent_id = String(tid)
   load()
-})
-</script>
+})</script>
 
 <template>
   <el-card>
@@ -379,10 +428,13 @@ onMounted(async () => {
     <el-card shadow="never" class="filter-card">
       <div class="filter-title">📋 筛选条件</div>
       <div class="bar bar-filter">
-        <el-input v-model="query.talent_id" placeholder="人才" style="width:130px" clearable
-          @keyup.enter="query.page = 1; load()">
-          <template #prefix><span style="color:#9ca3af">ID</span></template>
-        </el-input>
+        <el-autocomplete
+          v-model="query.talent_name" :fetch-suggestions="queryTalents"
+          placeholder="输入人才姓名" :debounce="300" clearable style="width:160px"
+          @select="(item) => { query.talent_id = ''; query.page = 1; load() }"
+          @keyup.enter="query.talent_id = ''; query.page = 1; load()">
+          <template #prefix><span style="color:#9ca3af">名</span></template>
+        </el-autocomplete>
         <el-select v-model="query.position_id" placeholder="选择岗位" style="width:170px" clearable filterable
           @change="query.page = 1; load()">
           <el-option v-for="p in positions" :key="p.id" :label="p.name" :value="p.id" />
@@ -443,7 +495,12 @@ onMounted(async () => {
 
     <el-table :data="rows" v-loading="loading" stripe row-key="id">
       <el-table-column prop="id" label="ID" width="52" />
-      <el-table-column prop="talent_id" label="人才ID" width="74" />
+      <el-table-column label="人才" min-width="120">
+        <template #default="{ row }">
+          <span>{{ row.talent_name || ('人才#' + row.talent_id) }}</span>
+          <span style="color:#9ca3af;font-size:12px;margin-left:4px">#{{ row.talent_id }}</span>
+        </template>
+      </el-table-column>
       <el-table-column label="岗位" min-width="120">
         <template #default="{ row }">{{ posMap[row.position_id] || ('#' + row.position_id) }}</template>
       </el-table-column>
@@ -568,12 +625,14 @@ onMounted(async () => {
   <!-- 反向匹配：人才 → 岗位（深度学习向量检索：Milvus position_vec 召回 + 软加权打分） -->
   <el-dialog v-model="reverseDialog.visible" title="反向匹配（人才适配岗位）" width="720px" append-to-body>
     <el-form label-width="100px" :inline="false">
-      <el-form-item label="人才 ID">
-        <el-input-number v-model="reverseForm.talent_id" :min="1" :max="9999" controls-position="right"
-          placeholder="请输入人才 ID" style="width:180px" />
-        <span style="margin-left:12px;color:#9ca3af;font-size:12px">
-          （从 tal_talent 档案中取一个；不记得 ID 时可先在「匹配结果」用 talent_id 筛到该人才后点反向）
-        </span>
+      <el-form-item label="人才姓名">
+        <el-autocomplete
+          v-model="talentKw" :fetch-suggestions="queryTalents"
+          placeholder="姓名或 ID" clearable style="width:200px"
+          @keyup.enter="submitReverse">
+          <template #prefix><span style="color:#9ca3af">👤</span></template>
+        </el-autocomplete>
+        <span style="margin-left:10px;color:#9ca3af;font-size:12px">支持姓名补全 + 纯 ID</span>
       </el-form-item>
       <el-form-item label="召回量 TopK">
         <el-input-number v-model="reverseForm.top_k" :min="1" :max="100" controls-position="right" />
@@ -585,7 +644,7 @@ onMounted(async () => {
 
     <template v-if="reverseDialog.results.length">
       <div class="rev-header">
-        <b>人才 #{{ reverseForm.talent_id }}</b> 适配岗位 Top{{ reverseDialog.results.length }}
+        <b>人才 {{ talentKw || ('#' + reverseForm.talent_id) }}</b> 适配岗位 Top{{ reverseDialog.results.length }}
         <span class="rev-sub">（按匹配度降序）</span>
       </div>
       <el-table :data="reverseDialog.results" stripe max-height="360">
@@ -621,7 +680,7 @@ onMounted(async () => {
         </el-table-column>
       </el-table>
     </template>
-    <el-empty v-else-if="!reverseDialog.loading" description="输入人才 ID 后点「开始反向匹配」" :image-size="60" />
+    <el-empty v-else-if="!reverseDialog.loading" description="输入人才姓名后点「开始反向匹配」" :image-size="60" />
 
     <template #footer>
       <el-button @click="reverseDialog.visible = false">关闭</el-button>

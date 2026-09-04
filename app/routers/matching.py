@@ -92,8 +92,16 @@ def list_positions(
 def create_position(body: PositionCreate, db: Session = Depends(get_db)):
     if PosPositionDAO.get_by_code(db, body.code):
         raise HTTPException(400, f"岗位编码 {body.code} 已存在")
+    # hq+ 2026-09-04：防御性校验部门 ID（前端未选时可空，但选了则必须存在）
+    if body.dept_id is not None:
+        from sqlalchemy import text as sa_text_dept
+        exists = db.scalar(sa_text_dept("SELECT 1 FROM sys_dept WHERE id=:i"), {"i": body.dept_id})
+        if not exists:
+            raise HTTPException(400, f"部门 ID {body.dept_id} 不存在，请先在系统管理→部门管理创建")
     obj = PosPositionDAO.create(db, **body.model_dump())
     db.commit()
+    # hq+ 2026-09-04：新增启用岗位 → 自动解析说明书 + 写向量（无需手动点向量化）
+    _auto_parse_and_vectorize(db, obj)
     return ok(PositionOut.model_validate(obj))
 
 
@@ -120,6 +128,12 @@ def update_position(pid: int, body: PositionUpdate, db: Session = Depends(get_db
     if body.code and body.code != p.code and PosPositionDAO.get_by_code(db, body.code):
         raise HTTPException(400, f"岗位编码 {body.code} 已存在")
     fields = body.model_dump(exclude_unset=True)
+    # hq+ 2026-09-04：编辑时若改了部门 ID，校验存在
+    if "dept_id" in fields and fields["dept_id"] is not None:
+        from sqlalchemy import text as sa_text_dept2
+        exists = db.scalar(sa_text_dept2("SELECT 1 FROM sys_dept WHERE id=:i"), {"i": fields["dept_id"]})
+        if not exists:
+            raise HTTPException(400, f"部门 ID {fields['dept_id']} 不存在，请先在系统管理→部门管理创建")
     PosPositionDAO.update(db, p, **fields)
     db.commit()
     # 岗位编制/到岗变更后自动触发空缺预警（需求4「实时监控」最后一块）：
@@ -132,20 +146,75 @@ def update_position(pid: int, body: PositionUpdate, db: Session = Depends(get_db
                 logger.info("[alerts] 岗位 %s 编制/到岗变更后自动推送空缺预警 %d 条", pid, len(auto))
         except Exception as e:  # noqa: BLE001
             logger.warning("[alerts] 岗位变更后自动预警失败（忽略）: %s", e)
+    # hq+ 2026-09-04：编辑时若启用 + 说明书非空，自动重跑解析 + 向量化
+    _auto_parse_and_vectorize(db, p)
     return ok(PositionOut.model_validate(p))
 
 
 @router.delete("/positions/{pid}")
 def delete_position(pid: int, db: Session = Depends(get_db)):
+    """删除岗位：级联清理关联数据再删岗位行
+    （FK 链：match_push_log.match_id → match_result.id → pos_position.id，
+     必须按 match_push_log → match_result → pos_position 顺序删，否则外键报错 1451）
+    """
+    from sqlalchemy import text as sa_text
     p = PosPositionDAO.get(db, pid)
     if not p:
         raise HTTPException(404, "岗位不存在")
-    # 有关联匹配结果时禁止删除，避免脏数据
-    if db.scalar(select(func.count()).select_from(MatchResult).where(MatchResult.position_id == pid)):
-        raise HTTPException(400, "该岗位存在匹配结果，不能删除（可改为停用）")
-    PosPositionDAO.delete(db, p)
-    db.commit()
-    return ok()
+    deleted_mr = 0
+    deleted_mpl = 0
+    try:
+        # 1. 先删 match_push_log（依赖 match_result）
+        deleted_mpl = db.execute(
+            sa_text("DELETE FROM match_push_log WHERE match_id IN "
+                    "(SELECT id FROM match_result WHERE position_id = :pid)"),
+            {"pid": pid},
+        ).rowcount
+        # 2. 再删 match_result（依赖 pos_position）
+        deleted_mr = db.execute(
+            sa_text("DELETE FROM match_result WHERE position_id = :pid"),
+            {"pid": pid},
+        ).rowcount
+        # 3. 清掉 Milvus 里该岗位的向量（用画像文本的【岗位id:N|】前缀过滤）
+        try:
+            from app.utils.vector_store import get_vector_store
+            get_vector_store()._client.delete(
+                collection_name="talent_position_vec",
+                filter=f'text like "%【岗位id:{pid}|%"',
+            )
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[position] 清理 Milvus 向量失败 id=%s: %s", pid, e)
+        # 4. 删岗位行
+        PosPositionDAO.delete(db, p)
+        db.commit()
+    except Exception as e:  # noqa: BLE001
+        db.rollback()
+        raise HTTPException(500, f"删除岗位失败：{e}") from e
+    return ok({"position_id": pid,
+              "deleted_match_results": deleted_mr,
+              "deleted_push_logs": deleted_mpl})
+
+
+# hq+ 2026-09-04：新增/编辑岗位后，自动跑需求解析 + 画像向量化（替代手动向量化按钮）
+def _auto_parse_and_vectorize(db: Session, p: PosPosition) -> None:
+    """启用岗位且说明书非空时，自动解析+写入向量；任一步失败仅日志，不影响保存。"""
+    if not getattr(p, "status", 0):
+        return
+    desc = (getattr(p, "description", "") or "").strip()
+    if not desc:
+        return
+    try:
+        from app.ai.agents.match_agent import MatchAgent
+        try:
+            MatchAgent.parse_requirement(db, p.id)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[position] 自动解析失败 id=%s: %s", p.id, e)
+        try:
+            MatchingService.vectorize_position(db, p.id)
+        except Exception as e:  # noqa: BLE001
+            logger.warning("[position] 自动向量化失败 id=%s: %s", p.id, e)
+    except Exception as e:  # noqa: BLE001
+        logger.warning("[position] 自动向量化整体失败 id=%s: %s", p.id, e)
 
 
 # ==================== 岗位画像向量化（M-2） ====================
@@ -157,6 +226,27 @@ def vectorize_position(pid: int, db: Session = Depends(get_db)):
 
 
 @router.post("/positions/{pid}/jd-import", summary="导入岗位说明书文件（PDF/DOCX/TXT/MD/图片），解析文本返回供确认")
+@router.post("/positions/jd-preview", summary="预览岗位说明书（不依赖岗位 pid，新增阶段先用）")
+async def preview_position_description(
+    file: UploadFile = File(..., description="岗位说明书文件 PDF/DOCX/TXT/MD/图片"),
+):
+    """新增岗位时先用本接口拿到解析文本，填到表单 description 后再保存岗位。"""
+    if not file.filename:
+        raise HTTPException(400, "请选择文件")
+    content = await file.read()
+    if not content:
+        raise HTTPException(400, "上传的文件为空")
+    try:
+        from app.utils.file_parser import parse_bytes
+        suffix = ("." + file.filename.rsplit(".", 1)[-1].lower()) if "." in file.filename else ""
+        text = parse_bytes(content, suffix)
+    except (ValueError, RuntimeError, FileNotFoundError) as e:
+        raise HTTPException(400, f"文件解析失败：{e}") from e
+    if not text:
+        raise HTTPException(400, "未能从文件抽到任何文字，请检查文件内容或格式")
+    return ok({"filename": file.filename, "length": len(text), "text": text})
+
+
 async def import_position_description(
     pid: int,
     file: UploadFile = File(..., description="岗位说明书文件 PDF/DOCX/TXT/MD/图片"),
@@ -224,6 +314,7 @@ def run_match(body: MatchRequest, db: Session = Depends(get_db)):
 @router.get("/results")
 def list_results(
     talent_id: int | None = None,
+    talent_name: str | None = Query(None, description="人才姓名（模糊匹配，可部分匹配）"),
     position_id: int | None = None,
     min_score: float | None = None,
     status: int | None = Query(None, ge=0, le=2, description="匹配状态 0候选 1推荐 2录用"),
@@ -251,6 +342,19 @@ def list_results(
         where.append(MatchResult.warm_level > 0)
         where.append(or_(MatchResult.last_follow_up.is_(None),
                          MatchResult.last_follow_up < cutoff))
+    # hq+ 2026-09-04：支持按人才姓名模糊筛选（先反查 tal_talent.name 命中 ID 集合，
+    # 再走 MatchResult.talent_id.in_，各排序分支通用，无需 JOIN）
+    if talent_name and talent_name.strip():
+        from sqlalchemy import select as sa_sel_name
+        from app.models.talent import Talent as _TalentForName
+        kw = f"%{talent_name.strip()}%"
+        tids = db.scalars(
+            sa_sel_name(_TalentForName.id).where(_TalentForName.name.like(kw))
+        ).all()
+        if tids:
+            where.append(MatchResult.talent_id.in_(list(tids)))
+        else:
+            where.append(MatchResult.id < 0)  # 姓名无命中 → 空结果
     total = count_rows(db, MatchResult, *where)
 
     # 排序在 SQL 层完成（避免"只排当前页"导致跨页序不准）：
@@ -318,7 +422,23 @@ def list_results(
                    MatchResultDAO.list(db, *where, offset=(page.page - 1) * page.page_size,
                                        limit=page.page_size, order_by=MatchResult.score.desc())]
 
-    return ok(paged_result(row, page.page, page.page_size, total))
+    # hq+ 2026-09-04：响应统一补人才姓名/现职（读侧只读复用 T 域 tal_talent）
+    items: list[dict] = []
+    if row:
+        from sqlalchemy import select as sa_select_enrich
+        from app.models.talent import Talent as _TalentEnrich
+        tids = list({getattr(r, "talent_id", None) for r in row if getattr(r, "talent_id", None)})
+        tmap: dict[int, _TalentEnrich] = {}
+        if tids:
+            tmap = {t.id: t for t in db.scalars(
+                sa_select_enrich(_TalentEnrich).where(_TalentEnrich.id.in_(tids))).all()}
+        for r in row:
+            payload = r.model_dump() if isinstance(r, MatchResultOut) else MatchResultOut.model_validate(r).model_dump()
+            t = tmap.get(getattr(r, "talent_id", None))
+            payload["talent_name"] = t.name if t else None
+            payload["talent_title"] = t.current_title if t else None
+            items.append(payload)
+    return ok(paged_result(items, page.page, page.page_size, total))
 
 
 @router.get("/result/{mid}/explain")
