@@ -52,7 +52,9 @@ class LLMClient:
             },
         )
         try:
-            with urllib.request.urlopen(req, timeout=120) as resp:
+            settings = get_settings()
+            timeout = max(1, int(getattr(settings, "ASSESSMENT_AI_TIMEOUT", 20)))
+            with urllib.request.urlopen(req, timeout=timeout) as resp:
                 return json.loads(resp.read().decode("utf-8"))
         except urllib.error.HTTPError as e:
             detail = e.read().decode("utf-8", errors="ignore")[:300]

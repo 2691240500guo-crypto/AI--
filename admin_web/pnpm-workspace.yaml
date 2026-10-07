@@ -1,0 +1,4 @@
+allowBuilds:
+  esbuild: false
+  pnpm: false
+  vue-demi: false

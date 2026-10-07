@@ -967,6 +967,9 @@ def reparse_talent(tid: int, db: Session = Depends(get_db)):
         except Exception as ve:
             import logging
             logging.getLogger("hq").warning("重跑后向量化失败：%s", ve)
+        # M1 知识图谱：重跑解析后刷新人才子图（Neo4j 不可用自动降级）
+        from app.services.kg_sync import safe_sync_talent
+        safe_sync_talent(db, int(tid), source="重跑解析")
         return ok({"talent_id": tid, "message": "解析完成", "new_tags": result.get("new_tag_count", 0)})
     except Exception as e:
         db.rollback()

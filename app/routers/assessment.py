@@ -13,6 +13,8 @@ from app.schemas.assessment import (
     AnswerEventOut,
     AnswerSaveRequest,
     AnswerSnapshotOut,
+    VisionAnalyzeRequest,
+    VisionAnalyzeOut,
     AssessmentBatchOut,
     AssessmentBatchStatistic,
     AssessmentBatchStatisticsOut,
@@ -48,6 +50,7 @@ from app.schemas.agent import AgentTaskOut
 from app.core.deps import get_current_user, require_client
 from app.services.assessment_import_service import AssessmentImportService
 from app.services.assessment_service import AssessmentService
+from app.services.assessment_vision_service import AssessmentVisionService
 from app.utils.pagination import paged_result
 from app.utils.response import ok
 from app.core.config import get_settings
@@ -476,6 +479,26 @@ def record_event(result_id: int, body: AnswerEventCreate, user: User = Depends(r
         )
         db.commit()
         return ok(AnswerEventOut.model_validate(event))
+    except Exception as exc:
+        db.rollback()
+        _raise_business_error(exc)
+
+
+@router.post("/result/{result_id}/vision", dependencies=[Depends(require_client("app"))])
+def analyze_vision(result_id: int, body: VisionAnalyzeRequest,
+                   user: User = Depends(require_client("app")), db: Session = Depends(get_db)):
+    """分析一帧答题摄像头画面，并把异常信号写入统一作答事件表。"""
+    try:
+        result = AssessmentService._get_result(db, result_id, user)
+        AssessmentService._ensure_answerable(result, user)
+        analysis = AssessmentVisionService.analyze_frame(body.frame)
+        signals = analysis.get("signals") or []
+        if signals:
+            AssessmentService.record_answer_event(
+                db, result_id, "vision", ";".join(signals)[:1000], "vision", user
+            )
+        db.commit()
+        return ok(VisionAnalyzeOut.model_validate(analysis))
     except Exception as exc:
         db.rollback()
         _raise_business_error(exc)

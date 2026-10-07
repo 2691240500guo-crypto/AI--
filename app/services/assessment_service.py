@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 from decimal import Decimal
+import json
 import random
+import re
 from typing import Any
 from uuid import uuid4
 
@@ -67,6 +69,8 @@ class AssessmentService:
             raise ValueError("单选题只能有一个标准答案")
         if question_type == "multi" and not isinstance(answer, list):
             raise ValueError("多选题标准答案必须是数组")
+        if question_type == "essay" and not isinstance(answer, str):
+            raise ValueError("主观题参考答案/评分标准必须是文本")
 
     @staticmethod
     def _question_values(body: QuestionCreate | QuestionUpdate, existing: AssessmentQuestion | None = None) -> dict:
@@ -472,6 +476,8 @@ class AssessmentService:
             raise ValueError(f"题目 {link.question_id} 的答案必须是数组")
         if link.type_snapshot in {"single", "judge"} and isinstance(value, list):
             raise ValueError(f"题目 {link.question_id} 的答案不能是数组")
+        if link.type_snapshot == "essay" and value is not None and not isinstance(value, str):
+            raise ValueError(f"题目 {link.question_id} 的主观题答案必须是文本")
 
     @staticmethod
     def _merge_answers(result: AssessmentResult, answers: dict[str, Any]) -> dict[str, Any]:
@@ -595,6 +601,67 @@ class AssessmentService:
         return str(expected) == str(actual)
 
     @staticmethod
+    def _parse_essay_grade(raw: str, max_score: Decimal) -> tuple[Decimal, int] | None:
+        """解析模型结构化评分，兼容 markdown JSON 和百分制/题目满分两种输出。"""
+        text = (raw or "").strip()
+        match = re.search(r"\{.*\}", text, re.S)
+        if not match:
+            return None
+        try:
+            data = json.loads(match.group(0))
+            value = data.get("score")
+            if value is None:
+                value = data.get("points")
+            score = Decimal(str(value))
+        except (ValueError, TypeError, json.JSONDecodeError):
+            return None
+        if score < 0:
+            score = Decimal("0")
+        # 模型有时按百分制返回，统一换算为本题分值。
+        if score > max_score and score <= 100:
+            score = max_score * score / Decimal("100")
+        score = min(max_score, score).quantize(Decimal("0.01"))
+        correct = 1 if score >= max_score * Decimal("0.6") else 0
+        return score, correct
+
+    @staticmethod
+    def _grade_essay(link: PaperQuestion, actual: Any) -> tuple[Decimal, int]:
+        max_score = Decimal(str(link.score_snapshot or 0))
+        answer = str(actual or "").strip()
+        if not answer:
+            return Decimal("0.00"), 0
+        settings = get_settings()
+        # 没有配置服务密钥时直接走可重复的本地降级，避免交卷被外部服务阻塞。
+        api_key = settings.SILICON_FLOW_API_KEY or settings.SILICONFLOW_API_KEY
+        if settings.ASSESSMENT_ESSAY_AI_ENABLED and api_key:
+            try:
+                from app.utils.llm import get_llm
+                prompt = (
+                    "请为企业测评主观题评分。只输出 JSON，不要解释文字。\n"
+                    f"题目：{link.content_snapshot}\n"
+                    f"参考答案或评分标准：{link.answer_snapshot}\n"
+                    f"考生答案：{answer}\n"
+                    f"本题满分：{max_score}\n"
+                    'JSON 格式：{"score": 数字, "comment": "简短评价"}。'
+                )
+                graded = AssessmentService._parse_essay_grade(
+                    get_llm().chat(prompt, system="你是严谨、公平的企业测评阅卷人。"), max_score
+                )
+                if graded:
+                    return graded
+            except Exception:
+                # AI 判分失败不回滚交卷，使用本地评分继续完成测评。
+                pass
+        # 本地降级：按参考答案关键词覆盖率估算得分，结果稳定且可追溯。
+        rubric = str(link.answer_snapshot or "").strip()
+        keywords = [word for word in re.split(r"[,，。；;、\s]+", rubric) if len(word) >= 2]
+        if not keywords:
+            return max_score, 1
+        hit_rate = sum(1 for word in keywords if word in answer) / len(keywords)
+        score = (max_score * Decimal(str(hit_rate))).quantize(Decimal("0.01"))
+        return score, 1 if hit_rate >= 0.6 else 0
+
+    @staticmethod
     def submit(db: Session, result_id: int, answers: dict[str, Any] | None = None,
                user: User | None = None) -> tuple[AssessmentResult, list[AssessmentResultDetail]]:
         result = AssessmentResultDAO.get_for_update(db, result_id) or AssessmentService._get_result(db, result_id, user)
@@ -613,8 +680,11 @@ class AssessmentService:
         correct_count = 0
         for link in sorted(result.paper.question_links, key=lambda item: item.sort):
             actual = merged.get(str(link.question_id))
-            correct = AssessmentService._answer_matches(link.type_snapshot, link.answer_snapshot, actual)
-            score = Decimal(str(link.score_snapshot)) if correct else Decimal("0.00")
+            if link.type_snapshot == "essay":
+                score, correct = AssessmentService._grade_essay(link, actual)
+            else:
+                correct = AssessmentService._answer_matches(link.type_snapshot, link.answer_snapshot, actual)
+                score = Decimal(str(link.score_snapshot)) if correct else Decimal("0.00")
             details.append(AssessmentResultDetail(
                 result_id=result.id,
                 question_id=link.question_id,

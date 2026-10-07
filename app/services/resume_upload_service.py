@@ -151,5 +151,9 @@ class ResumeUploadService:
         except Exception as e:
             logger.warning("[hq] 上传后自动匹配失败（不影响入库）：%s", e)
 
+        # M1 知识图谱：LLM 解析 + 标签落库后同步人才子图（Neo4j 不可用自动降级）
+        from app.services.kg_sync import safe_sync_talent
+        safe_sync_talent(db, int(obj.id), source="简历上传")
+
         db.refresh(obj)
         return obj, duplicate

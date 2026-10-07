@@ -351,6 +351,9 @@ def create_talent(db: Session, payload: TalentCreate, operator_id: int | None = 
     db.commit()
     db.refresh(t)
     _auto_match_after_create(db, t)   # M 域联动：建档后自动生成匹配结果（失败不影响建档）
+    # M1 知识图谱：手动建档同步人才子图（Neo4j 不可用自动降级）
+    from app.services.kg_sync import safe_sync_talent
+    safe_sync_talent(db, int(t.id), source="手动建档")
     return _to_out(t)
 
 

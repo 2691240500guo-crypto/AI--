@@ -22,6 +22,10 @@ export const getMyResult = (rid) => req({ url: `/assessment/my-result/${rid}` })
 export const getAnswerView = (rid) => req({ url: `/assessment/result/${rid}/answer` })
 export const saveAnswer = (rid, answers) => req({ url: `/assessment/result/${rid}/answer`, method: 'POST', data: { answers } })
 export const submitAnswer = (rid, answers) => req({ url: `/assessment/result/${rid}/submit`, method: 'POST', data: { answers } })
+export const analyzeAssessmentVision = (rid, frame) => req({ url: `/assessment/result/${rid}/vision`, method: 'POST', data: { frame } })
+export const recordAssessmentEvent = (rid, event_type, detail, source = 'app') => req({
+  url: `/assessment/result/${rid}/events`, method: 'POST', data: { event_type, detail, source }
+})
 export const getReport = (rid) => req({ url: `/assessment/result/${rid}/report` })
 
 // 人才档案

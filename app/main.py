@@ -3,6 +3,7 @@
 启动：uvicorn app.main:app --reload
 """
 import sys
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 # 确保项目根目录在 sys.path：
@@ -27,7 +28,35 @@ import app.models  # noqa: F401  确保 model 注册进 Base.metadata
 
 settings = get_settings()
 
-app = FastAPI(title=settings.APP_NAME, version=settings.VERSION)
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """启动/关闭钩子（替代已废弃的 @app.on_event）。
+
+    云端库结构由 Alembic 管理，演示数据由显式脚本管理。默认启动不执行
+    create_all/全量播种，避免多实例启动时锁表或被云端网络波动拖住。
+    """
+    if settings.AUTO_INIT_DB:
+        from app.db.init_db import init_db
+
+        init_db()
+    if settings.REDIS_ENABLED:
+        from app.core.redis_client import get_redis_service
+
+        if get_redis_service().ping():
+            print("Redis connection ready")
+        else:
+            print("Redis unavailable; optional features will degrade")
+    yield
+    from app.core.redis_client import get_redis_service
+
+    get_redis_service().close()
+    from app.utils.neo4j_client import get_neo4j_service
+
+    get_neo4j_service().close()
+
+
+app = FastAPI(title=settings.APP_NAME, version=settings.VERSION, lifespan=lifespan)
 
 # CORS：允许管理端(5173)与小程序(开发)来源
 app.add_middleware(
@@ -45,43 +74,15 @@ register_exception_handlers(app)
 # 请求日志中间件
 register_middlewares(app)
 
-
-@app.on_event("startup")
-def on_startup() -> None:
-    # 云端库结构由 Alembic 管理，演示数据由显式脚本管理。默认启动不执行
-    # create_all/全量播种，避免多实例启动时锁表或被云端网络波动拖住。
-    if settings.AUTO_INIT_DB:
-        from app.db.init_db import init_db
-        init_db()
-    if settings.REDIS_ENABLED:
-        from app.core.redis_client import get_redis_service
-        if get_redis_service().ping():
-            print("Redis connection ready")
-        else:
-            print("Redis unavailable; optional features will degrade")
-
-
-@app.on_event("shutdown")
-def on_shutdown() -> None:
-    from app.core.redis_client import get_redis_service
-    get_redis_service().close()
-
-
 app.include_router(api, prefix=settings.API_PREFIX)
 
 
 @app.get("/health", tags=["meta"])
 def health():
-    from app.core.redis_client import get_redis_service
-    redis_service = get_redis_service()
-    return {
-        "status": "ok",
-        "redis": {
-            "enabled": redis_service.enabled,
-            "available": redis_service.available,
-            "required": False,
-        },
-    }
+    """五库连通性自检面板（MySQL/Milvus/Redis/Neo4j/PgSQL），跟随 .env 当前指向。"""
+    from app.utils.dependency_health import run_all
+
+    return run_all()
 
 
 if __name__ == "__main__":

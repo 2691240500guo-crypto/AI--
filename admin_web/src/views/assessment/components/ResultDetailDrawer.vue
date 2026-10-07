@@ -35,7 +35,7 @@ const canRetryTraining = computed(() => ['pending', 'failed'].includes(trainingL
 function close() { emit('update:modelValue', false) }
 function formatDate(value) { return value ? new Date(value).toLocaleString() : '—' }
 function answerText(value) { return Array.isArray(value) ? value.join('、') || '未作答' : (value ?? '未作答') }
-function typeLabel(type) { return type === 'single' ? '单选' : type === 'multi' ? '多选' : '判断' }
+function typeLabel(type) { return type === 'single' ? '单选' : type === 'multi' ? '多选' : type === 'essay' ? '主观' : '判断' }
 
 async function load() {
   if (!props.resultId) return

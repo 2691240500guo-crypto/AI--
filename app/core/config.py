@@ -74,6 +74,14 @@ class Settings(BaseSettings):
     ASSESSMENT_PASS_RATE: float = 0.60
     ASSESSMENT_WEAK_RATE: float = 0.60
     ASSESSMENT_AI_TIMEOUT: int = 20
+    # 主观题判分开关；关闭时使用本地规则兜底，不影响交卷。
+    ASSESSMENT_ESSAY_AI_ENABLED: bool = True
+
+    # ============ 测评防作弊视觉配置 ============
+    ANTI_CHEAT_ENABLED: bool = True
+    ANTI_CHEAT_MODEL_PATH: str = "yolo11n.pt"
+    ANTI_CHEAT_CONFIDENCE: float = 0.35
+    ANTI_CHEAT_MAX_FRAME_BYTES: int = 4 * 1024 * 1024
 
     # ---- 硅基流动（SiliconFlow，OpenAI 兼容 API，统一默认走硅基流动）----
     # LLM_STRATEGY: "ollama" | "silicon_flow"，控制 chat/embed 走哪个后端
@@ -90,6 +98,16 @@ class Settings(BaseSettings):
     MILVUS_PORT: int = 19530
     MILVUS_DB_NAME: str = "default"
     MILVUS_COLLECTION_PREFIX: str = "talent_"
+
+    # ============ 知识图谱（Neo4j，M0 落地）============
+    NEO4J_URI: str = "bolt://localhost:7687"
+    NEO4J_USER: str = "neo4j"
+    NEO4J_PASSWORD: str = "12345678"
+    NEO4J_CONNECT_TIMEOUT: float = 3.0
+
+    # ============ PgSQL 分析库（M0 落地，只读分析链路）============
+    PGSQL_URL: str = "postgresql://postgres:12345678@localhost:5433/ai_talent_analytics"
+    PGSQL_CONNECT_TIMEOUT: float = 3.0
 
     MINIO_ENDPOINT: str = "localhost:9000"
     MINIO_ACCESS_KEY: str = ""

@@ -6,8 +6,7 @@ from pydantic import BaseModel, Field
 
 from app.schemas.common import ORMModel
 
-QuestionType = Literal["single", "multi", "judge"]
-
+QuestionType = Literal["single", "multi", "judge", "essay"]
 
 class QuestionBankCreate(BaseModel):
     name: str = Field(min_length=1, max_length=128)
@@ -267,9 +266,25 @@ class AnswerSaveRequest(BaseModel):
 
 
 class AnswerEventCreate(BaseModel):
-    event_type: Literal["blur", "focus", "timeout", "leave", "resume", "other"]
+    event_type: Literal["blur", "focus", "timeout", "leave", "resume", "vision", "other"]
     detail: str = Field(default="", max_length=1000)
     source: str = Field(default="admin_h5", max_length=32)
+
+
+class VisionAnalyzeRequest(BaseModel):
+    frame: str = Field(min_length=32)
+
+
+class VisionAnalyzeOut(BaseModel):
+    status: Literal["ok", "disabled", "unavailable"]
+    signals: list[str] = Field(default_factory=list)
+    face_count: int | None = None
+    person_count: int | None = None
+    objects: list[dict[str, Any]] = Field(default_factory=list)
+    face_detection_available: bool = False
+    message: str | None = None
+    detail: str | None = None
+    analyzed_at: int | None = None
 
 
 class AnswerQuestionOut(BaseModel):

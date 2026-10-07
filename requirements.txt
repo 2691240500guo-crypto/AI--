@@ -37,7 +37,14 @@ redis>=6.0,<7.0            # 可降级缓存、限流、Token 黑名单与分布
 # ---------- AI 引擎（必需：岗位匹配/人才向量化/简历上传/报表导出依赖）----------
 # ollama>=0.3.0            # 已弃用（大模型统一走硅基流动），不安装
 pymilvus>=2.6.9           # 向量数据库（app/utils/vector_store.py，Milvus 2.6）
+neo4j>=5.20,<6            # 知识图谱（app/utils/neo4j_client.py，Neo4j Community 2026）
+asyncpg>=0.30             # PgSQL 异步驱动（app/db/analytics_session.py，只读分析链路）
 minio>=7.2.0              # 对象存储（app/utils/object_storage.py，简历/报表附件）
 # langchain>=0.3.0         # 可选：复杂 Agent / RAG 编排（当前未使用）
 langgraph>=0.2.0,<1.0     # LangGraph 协同图编排（app/ai/graph.py）
 httpx>=0.27,<1.0          # 硅基流动 OpenAI 兼容接口
+
+# ---------- 防作弊视觉分析（可选） ----------
+ultralytics>=8.3,<9.0
+mediapipe>=0.10.14,<0.11
+opencv-python-headless>=4.10,<5.0

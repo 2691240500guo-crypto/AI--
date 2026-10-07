@@ -6,6 +6,84 @@ import { onMounted, ref, computed } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { ElMessage } from 'element-plus'
 import { getTalent, getTalentReport, getTalentVectors, getTalentProfile } from '@/api/talent'
+import { getTalentGraph, syncAllKg } from '@/api/kg'
+import EChart from '@/components/EChart.vue'
+
+// M1 知识图谱：人才画像关系网（Neo4j 1 跳子图）
+const kgData = ref(null)
+const kgLoading = ref(false)
+const kgSyncing = ref(false)
+const kgError = ref('')
+const KG_CATS = ['人才', '技能', '画像标签', '项目', '证书']
+const KG_COLORS = { '人才': '#f5455c', '技能': '#00b8a9', '画像标签': '#4d7cfe', '项目': '#ff9f43', '证书': '#27ae60' }
+
+const kgEmpty = computed(() =>
+  !kgLoading.value && (!kgData.value || !kgData.value.meta?.synced || !(kgData.value.nodes || []).length)
+)
+
+const kgOption = computed(() => {
+  const g = kgData.value
+  if (!g) return {}
+  const nodes = (g.nodes || []).map((n) => {
+    const idx = KG_CATS.indexOf(n.category)
+    return {
+      id: n.id,
+      name: n.name,
+      category: idx >= 0 ? idx : 0,
+      categoryName: n.category || '',
+      symbolSize: n.nodeType === 'Talent' ? 46 : 22,
+      itemStyle: { color: KG_COLORS[n.category] || '#909399' },
+    }
+  })
+  const links = (g.edges || []).map((e) => ({ source: e.source, target: e.target }))
+  return {
+    tooltip: {
+      formatter: (p) => `<b>${p.data?.name || ''}</b><br/>类型：${p.data?.categoryName || ''}`,
+    },
+    legend: { data: KG_CATS, bottom: 0, textStyle: { fontSize: 11 } },
+    series: [{
+      type: 'graph',
+      layout: 'force',
+      roam: true,
+      draggable: true,
+      data: nodes,
+      links,
+      categories: KG_CATS.map((c) => ({ name: c })),
+      force: { repulsion: 220, edgeLength: [50, 130], gravity: 0.08 },
+      label: { show: true, position: 'right', fontSize: 10, color: '#374151' },
+      lineStyle: { color: '#c0c4cc', width: 1, curveness: 0.05, opacity: 0.7 },
+      emphasis: { focus: 'adjacency', lineStyle: { width: 3 } },
+    }],
+  }
+})
+
+async function loadKg() {
+  kgLoading.value = true
+  kgError.value = ''
+  try {
+    const res = await getTalentGraph(route.params.id)
+    kgData.value = res.data || null
+  } catch (e) {
+    kgData.value = null
+    kgError.value = (e && e.message) || '图谱加载失败'
+  } finally {
+    kgLoading.value = false
+  }
+}
+
+// 「同步图谱」：先全量同步（Neo4j 一键灌入存量人才），再刷新本页关系网
+async function syncAndReload() {
+  kgSyncing.value = true
+  try {
+    await syncAllKg()
+    ElMessage.success('图谱同步完成')
+    await loadKg()
+  } catch (e) {
+    ElMessage.error('图谱同步失败：' + ((e && e.message) || 'Neo4j 可能未启动'))
+  } finally {
+    kgSyncing.value = false
+  }
+}
 
 const route = useRoute()
 const router = useRouter()
@@ -97,10 +175,11 @@ async function load() {
   } finally {
     loading.value = false
   }
-  // 并行加载画像、AI 报告和向量画像（失败不影响详情页展示）
+  // 并行加载画像、AI 报告、向量画像与知识图谱（失败不影响详情页展示）
   loadProfile()
   loadReport()
   loadVectors()
+  loadKg()
 }
 
 function fmtDate(s) {
@@ -327,6 +406,23 @@ onMounted(load)
           </el-col>
         </el-row>
       </el-card>
+
+      <!-- M1 知识图谱：人才画像关系网（Neo4j 1 跳子图） -->
+      <el-divider content-position="left">知识图谱关系网（Neo4j）</el-divider>
+      <el-card shadow="never" class="kg-card" v-loading="kgLoading">
+        <template #header>
+          <div class="report-head">
+            <span>人才 ↔ 技能 / 画像标签 / 项目 / 证书</span>
+            <el-button size="small" :loading="kgSyncing" @click="syncAndReload">
+              {{ kgSyncing ? '同步中...' : '同步图谱' }}
+            </el-button>
+          </div>
+        </template>
+        <div v-if="kgEmpty" class="report-empty">
+          {{ kgError || '暂无图谱数据：该人才尚未打标/录入项目，或图谱未同步。可先「生成 AI 画像」再点右上角「同步图谱」。' }}
+        </div>
+        <EChart v-else :option="kgOption" height="440px" />
+      </el-card>
     </template>
   </el-card>
 </template>
@@ -362,6 +458,7 @@ onMounted(load)
 
 /* 袁文武 2026-09-02：AI 报告 + 向量画像样式（与编辑页保持一致） */
 .report { background: #fcfcfd; margin-top: 8px; }
+.kg-card { background: #fcfcfd; margin-top: 8px; }
 .report-head { display: flex; align-items: center; justify-content: space-between; }
 .report-title { font-weight: 600; color: #374151; margin-bottom: 6px; font-size: 13px; }
 .report-empty { color: #9ca3af; font-size: 13px; padding: 8px 0; }

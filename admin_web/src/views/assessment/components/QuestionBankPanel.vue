@@ -21,7 +21,7 @@ const questionForm = reactive({
   id: null, bank_id: null, type: 'single', content: '', optionsText: '', answerText: '',
   dimension: '', difficulty: 1, score: 10, status: 1
 })
-const typeLabels = { single: '单选', multi: '多选', judge: '判断' }
+const typeLabels = { single: '单选', multi: '多选', judge: '判断', essay: '主观' }
 const selectedQuestionCount = computed(() => totalQuestions.value)
 
 async function loadBanks() {
@@ -102,7 +102,7 @@ async function saveQuestion() {
     return ElMessage.warning('请填写题干、能力维度和标准答案')
   }
   const payload = questionPayload()
-  if (questionForm.type !== 'judge' && !payload.options?.length) return ElMessage.warning('选择题必须填写选项')
+  if (['single', 'multi'].includes(questionForm.type) && !payload.options?.length) return ElMessage.warning('选择题必须填写选项')
   if (questionForm.id) await updateQuestion(questionForm.id, payload)
   else await createQuestion(payload)
   ElMessage.success('题目已保存')
@@ -141,7 +141,7 @@ onMounted(loadBanks)
         </div>
       </div>
       <div v-if="selectedBank" class="question-filters">
-        <el-select v-model="filters.type" clearable placeholder="全部题型" style="width:120px" @change="loadQuestions"><el-option label="单选" value="single" /><el-option label="多选" value="multi" /><el-option label="判断" value="judge" /></el-select>
+        <el-select v-model="filters.type" clearable placeholder="全部题型" style="width:120px" @change="loadQuestions"><el-option label="单选" value="single" /><el-option label="多选" value="multi" /><el-option label="判断" value="judge" /><el-option label="主观" value="essay" /></el-select>
         <el-input v-model="filters.dimension" clearable placeholder="能力维度" style="width:160px" @keyup.enter="loadQuestions" />
         <el-select v-model="filters.difficulty" clearable placeholder="全部难度" style="width:120px" @change="loadQuestions"><el-option v-for="level in 5" :key="level" :label="`难度 ${level}`" :value="level" /></el-select>
         <el-select v-model="filters.status" clearable placeholder="全部状态" style="width:120px" @change="loadQuestions"><el-option label="启用" :value="1" /><el-option label="停用" :value="0" /></el-select>
@@ -166,7 +166,7 @@ onMounted(loadBanks)
     <template #footer><el-button @click="bankDialog.visible=false">取消</el-button><el-button type="primary" @click="saveBank">保存</el-button></template>
   </el-dialog>
   <el-dialog v-model="questionDialog.visible" :title="questionDialog.editing ? '编辑题目' : '新增题目'" width="620px">
-    <el-form label-width="90px"><el-form-item label="题型"><el-radio-group v-model="questionForm.type"><el-radio-button label="single">单选</el-radio-button><el-radio-button label="multi">多选</el-radio-button><el-radio-button label="judge">判断</el-radio-button></el-radio-group></el-form-item><el-form-item label="题干"><el-input v-model="questionForm.content" type="textarea" :rows="3" /></el-form-item><el-form-item v-if="questionForm.type !== 'judge'" label="选项"><el-input v-model="questionForm.optionsText" type="textarea" :rows="4" placeholder="每行一个选项" /></el-form-item><el-form-item label="标准答案"><el-input v-model="questionForm.answerText" :placeholder="questionForm.type === 'multi' ? '多个答案用英文逗号分隔' : '填写完整答案文本'" /></el-form-item><el-form-item label="能力维度"><el-input v-model="questionForm.dimension" placeholder="如：项目管理" /></el-form-item><el-form-item label="难度/分值"><el-input-number v-model="questionForm.difficulty" :min="1" :max="5" /><el-input-number v-model="questionForm.score" :min="0.01" :precision="2" style="margin-left:12px" /></el-form-item><el-form-item label="状态"><el-switch v-model="questionForm.status" :active-value="1" :inactive-value="0" /></el-form-item></el-form>
+    <el-form label-width="90px"><el-form-item label="题型"><el-radio-group v-model="questionForm.type"><el-radio-button label="single">单选</el-radio-button><el-radio-button label="multi">多选</el-radio-button><el-radio-button label="judge">判断</el-radio-button><el-radio-button label="essay">主观</el-radio-button></el-radio-group></el-form-item><el-form-item label="题干"><el-input v-model="questionForm.content" type="textarea" :rows="3" /></el-form-item><el-form-item v-if="['single','multi'].includes(questionForm.type)" label="选项"><el-input v-model="questionForm.optionsText" type="textarea" :rows="4" placeholder="每行一个选项" /></el-form-item><el-form-item label="参考答案/评分标准"><el-input v-model="questionForm.answerText" type="textarea" :rows="questionForm.type === 'essay' ? 4 : 1" :placeholder="questionForm.type === 'multi' ? '多个答案用英文逗号分隔' : questionForm.type === 'essay' ? '填写参考答案或评分关键词，AI 将据此评分' : '填写完整答案文本'" /></el-form-item><el-form-item label="能力维度"><el-input v-model="questionForm.dimension" placeholder="如：项目管理" /></el-form-item><el-form-item label="难度/分值"><el-input-number v-model="questionForm.difficulty" :min="1" :max="5" /><el-input-number v-model="questionForm.score" :min="0.01" :precision="2" style="margin-left:12px" /></el-form-item><el-form-item label="状态"><el-switch v-model="questionForm.status" :active-value="1" :inactive-value="0" /></el-form-item></el-form>
     <template #footer><el-button @click="questionDialog.visible=false">取消</el-button><el-button type="primary" @click="saveQuestion">保存</el-button></template>
   </el-dialog>
   <QuestionImportDialog v-model="importVisible" :bank="selectedBank" @imported="handleImported" />
